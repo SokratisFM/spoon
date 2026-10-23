@@ -2,7 +2,7 @@
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import type {
   Commit,
   CommitDetails,
@@ -28,9 +28,13 @@ const RS = '\x1e' // record separator
 const MAX_DIFF_BYTES = 4 * 1024 * 1024
 
 // Apps launched from Finder get a minimal PATH; make Homebrew git and git-lfs findable.
+export const toolPath =
+  process.platform === 'darwin'
+    ? ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH ?? '/usr/bin:/bin'].join(delimiter)
+    : (process.env.PATH ?? '')
 const env = {
   ...process.env,
-  PATH: ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH ?? '/usr/bin:/bin'].join(':'),
+  PATH: toolPath,
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0', // read-only commands must not take index.lock
   GIT_EDITOR: 'true', // never block on an editor; merges/rebases keep their default messages

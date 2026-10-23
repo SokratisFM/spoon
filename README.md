@@ -22,6 +22,42 @@ certificate needed); the build copy goes to `dist.noindex/` so Spotlight lists o
 
 To change the icon, edit `build/icon.svg` and run `npm run icon`.
 
+## Releasing
+
+Spoon updates itself without an Apple Developer ID or a Windows code-signing certificate:
+releases are signed with your own ed25519 key, and the app verifies every update before installing it.
+
+One-time setup:
+
+1. `npm run keygen` creates the signing key at `~/.config/spoon/release-signing-key.pem` (back it up:
+   without it, installed copies can't verify new updates) and writes the public key into the app.
+2. In `spoon.config.json`, set `updateRepo` to the GitHub repo whose Releases host Spoon (`owner/name`,
+   public) and `githubClientId` to the Spoon OAuth app (Settings → Developer settings → OAuth Apps,
+   with Device Flow enabled).
+
+Each release:
+
+```bash
+npm version minor --no-git-tag-version
+npm run release -- --notes "What changed"
+```
+
+This builds into `dist.noindex/release/<version>/`: Mac zips and DMGs for Apple Silicon and Intel,
+the Windows installer, `latest.json` (the signed update manifest), `SHA256SUMS` and the install scripts.
+It prints the `gh release create` command to publish them; nothing is uploaded automatically.
+
+Installing for the first time:
+
+- macOS: `curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | sh`
+- Windows (PowerShell): `irm https://github.com/<owner>/<repo>/releases/latest/download/install.ps1 | iex`
+
+Both verify checksums and avoid the "unidentified developer" / SmartScreen prompts that browser
+downloads of unsigned apps get. A DMG downloaded in a browser works too, after **Open Anyway** once in
+System Settings → Privacy & Security.
+
+From then on Spoon checks every few hours, downloads updates in the background, and shows
+**Restart to update**. Settings → About shows the version and has **Check now**.
+
 ## Resizing the UI
 
 - **⌘+ / ⌘− / ⌘0** scale the whole interface (80%–200%).

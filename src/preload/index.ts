@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { MenuCommand, SpoonApi } from '../shared/types'
+import type { MenuCommand, SpoonApi, UpdateState } from '../shared/types'
 
 const api: SpoonApi = {
   storeSnapshot: ipcRenderer.sendSync('store:snapshot'),
@@ -38,6 +38,17 @@ const api: SpoonApi = {
   confirm: (opts) => ipcRenderer.invoke('ui:confirm', opts),
   revealInFinder: (path) => ipcRenderer.invoke('shell:reveal', path),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  appInfo: () => ipcRenderer.invoke('app:info'),
+  platform: process.platform,
+  setTitleBarColors: (color, symbolColor, height) => ipcRenderer.send('ui:titleBarColors', color, symbolColor, height),
+  updateState: () => ipcRenderer.invoke('update:state'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdateState: (handler) => {
+    const listener = (_e: unknown, s: UpdateState): void => handler(s)
+    ipcRenderer.on('update:state', listener)
+    return () => ipcRenderer.removeListener('update:state', listener)
+  },
   ghAccount: () => ipcRenderer.invoke('gh:account'),
   ghCliLogin: () => ipcRenderer.invoke('gh:cliLogin'),
   ghConnectCli: () => ipcRenderer.invoke('gh:connectCli'),

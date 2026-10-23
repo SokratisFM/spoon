@@ -1,7 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
+import { appendFileSync } from 'node:fs'
 import * as git from './git'
-import { pathsExist, scanRepos } from './scan'
+import { pathsExist, scanRepos, toSlash } from './scan'
+import config from '../../spoon.config.json'
+import { initUpdater } from './updater'
 import * as gh from './github'
 import { initStore } from './store'
 import { homedir } from 'node:os'
@@ -10,6 +13,20 @@ import type { DeviceCode, ReviewSubmission, CheckoutTarget, ConfirmOptions, Diff
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
+
+// Unexpected errors in the background go to spoon.log in the data folder instead of a blocking
+// "JavaScript error in the main process" dialog.
+function logError(kind: string, err: unknown): void {
+  const line = `${new Date().toISOString()} ${kind}: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`
+  try {
+    appendFileSync(join(app.getPath('userData'), 'spoon.log'), line)
+  } catch {
+    // nowhere to write; ignore
+  }
+  console.error(line)
+}
+process.on('uncaughtException', (err) => logError('uncaught exception', err))
+process.on('unhandledRejection', (err) => logError('unhandled rejection', err))
 
 let win: BrowserWindow | null = null
 
@@ -88,8 +105,11 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 560,
     show: false,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 18 },
+    // macOS: inset traffic lights over our own title bar. Windows/Linux: native caption buttons
+    // drawn over it (titleBarOverlay), recolored to match the theme from the renderer.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 18 } }
+      : { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: '#18191e', symbolColor: '#e7e8ec', height: 40 } }),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#16171b' : '#f7f7f8',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -98,7 +118,7 @@ function createWindow(): void {
       sandbox: true
     }
   })
-  win.webContents.setVisualZoomLevelLimits(1, 1)
+  win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined)
   win.once('ready-to-show', () => win?.show())
   win.on('closed', () => (win = null))
 
@@ -112,17 +132,27 @@ function registerIpc(): void {
       title: 'Open Repository',
       properties: ['openDirectory']
     })
-    return res.canceled ? null : res.filePaths[0]
+    return res.canceled ? null : toSlash(res.filePaths[0])
   })
   ipcMain.handle('ui:pickFolder', async (_e, title: string) => {
     const res = await dialog.showOpenDialog(win!, { title, properties: ['openDirectory', 'createDirectory'] })
-    return res.canceled ? null : res.filePaths[0]
+    return res.canceled ? null : toSlash(res.filePaths[0])
   })
   ipcMain.handle('fs:exists', (_e, paths: string[]) => pathsExist(paths))
   ipcMain.handle('fs:scanRepos', (_e, root: string, depth: number, nested: boolean) =>
     scanRepos(root, depth, nested)
   )
-  ipcMain.handle('fs:home', () => homedir())
+  ipcMain.handle('fs:home', () => toSlash(homedir()))
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    platform: process.platform,
+    githubClientId: config.githubClientId,
+    updateRepo: config.updateRepo
+  }))
+  ipcMain.on('ui:titleBarColors', (e, color: string, symbolColor: string, height: number) => {
+    if (process.platform !== 'darwin')
+      BrowserWindow.fromWebContents(e.sender)?.setTitleBarOverlay({ color, symbolColor, height: Math.round(height) })
+  })
   ipcMain.handle('ui:missingProject', async (e, path: string) => {
     const owner = BrowserWindow.fromWebContents(e.sender)!
     const res = await dialog.showMessageBox(owner, {
@@ -221,6 +251,7 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   initStore()
   buildMenu()
+  initUpdater()
   registerIpc()
   createWindow()
   app.on('activate', () => {

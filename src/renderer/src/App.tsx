@@ -9,12 +9,15 @@ import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
 import { CloseIcon, FolderIcon, PlusIcon, SearchIcon, TextSizeIcon } from './components/Icons'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
+import { keys } from './platform'
+import { useUpdateState } from './appinfo'
 
 export function App() {
   const settings = useSettings()
   const [tabs, setTabs] = usePersistentState<string[]>('spoon.tabs', [])
   const [active, setActive] = usePersistentState<string | null>('spoon.activeTab', null)
   const projects = useProjects()
+  const update = useUpdateState()
   const [palette, setPalette] = useState(false)
   const [currentMissing, setCurrentMissing] = useState(false)
   const [command, setCommand] = useState<{ name: MenuCommand; n: number } | null>(null)
@@ -145,13 +148,18 @@ export function App() {
           </button>
         </div>
         <div className="titlebar-right">
+          {update?.status === 'ready' && (
+            <button className="update-pill" onClick={() => window.spoon.installUpdate()} title={update.notes}>
+              Restart to update to {update.version}
+            </button>
+          )}
           <button className="icon-btn" onClick={() => setPalette(true)} title="Go to project (Tab)">
             <SearchIcon />
           </button>
           <button
             className={`icon-btn ${showSettings ? 'on' : ''}`}
             onClick={() => setShowSettings((s) => !s)}
-            title="Appearance (⌘+ / ⌘− to resize)"
+            title={`Appearance (${keys('⌘+ ⌘−')} to resize)`}
           >
             <TextSizeIcon />
             <span className="scale-label">{Math.round(settings.uiScale * 100)}%</span>

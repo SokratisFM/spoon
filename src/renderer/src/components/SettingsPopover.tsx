@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { SizeControls, ThemeSelect } from './SettingsWindow'
+import { keys } from '../platform'
 
 /** Quick appearance controls from the title bar; everything else lives in the Settings window. */
 export function SettingsPopover({ onClose, onMore }: { onClose: () => void; onMore: () => void }) {
@@ -29,7 +30,7 @@ export function SettingsPopover({ onClose, onMore }: { onClose: () => void; onMo
         <ThemeSelect />
       </div>
       <button className="btn more-settings" onClick={onMore}>
-        All settings… <kbd>⌘,</kbd>
+        All settings… <kbd>{keys('⌘,')}</kbd>
       </button>
     </div>
   )

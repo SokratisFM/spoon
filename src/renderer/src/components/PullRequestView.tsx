@@ -16,6 +16,7 @@ import { Split } from './Split'
 import { Markdown } from './Markdown'
 import { parseDiff, type Line } from './DiffView'
 import { CloseIcon, PlusIcon, PullRequestIcon } from './Icons'
+import { keys, mod } from '../platform'
 
 type Tab = 'conversation' | 'commits' | 'files'
 const MAX_PATCH_LINES = 5000
@@ -327,7 +328,7 @@ function Composer({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && e.metaKey) {
+          if (e.key === 'Enter' && mod(e)) {
             e.preventDefault()
             e.stopPropagation()
             submit()
@@ -335,7 +336,7 @@ function Composer({
         }}
       />
       <div className="composer-actions">
-        <span className="hint">Markdown supported · ⌘↵</span>
+        <span className="hint">Markdown supported · {keys('⌘↵')}</span>
         <span className="spacer" />
         {onCancel && (
           <button className="btn" onClick={onCancel}>

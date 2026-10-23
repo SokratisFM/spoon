@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Submodule } from '../../../shared/types'
 import type { Ops } from './RepoView'
 import { BackIcon, BoxIcon, ChevronIcon } from './Icons'
+import { revealLabel } from '../platform'
 
 export function submoduleStatus(s: Submodule): { label: string; tone: 'ok' | 'warn' | 'danger' | 'off' } {
   if (s.state === 'uninitialized') return { label: 'not initialized', tone: 'off' }
@@ -51,7 +52,7 @@ export function submoduleActions(repoPath: string, ops: Ops, onOpenRepo: (path: 
         { id: 'open', label: 'Open in New Tab', enabled: s.state !== 'uninitialized' },
         { id: 'update', label: s.state === 'uninitialized' ? 'Initialize' : 'Update to Recorded Commit' },
         { separator: true },
-        { id: 'reveal', label: 'Reveal in Finder' },
+        { id: 'reveal', label: revealLabel },
         { id: 'copy', label: 'Copy Path' }
       ])
       if (choice === 'open') open(s)

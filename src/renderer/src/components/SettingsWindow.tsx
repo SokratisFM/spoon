@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
+import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
+import appIcon from '../../../../build/icon.png'
 import { cleanError } from '../hooks'
 import type { DeviceCode } from '../../../shared/types'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
@@ -26,8 +28,9 @@ import {
 } from '../themes'
 import { Modal } from './Modal'
 import { CloseIcon, PlusIcon } from './Icons'
+import { keys } from '../platform'
 
-export type SettingsTab = 'appearance' | 'colors' | 'authors' | 'projects' | 'accounts'
+export type SettingsTab = 'appearance' | 'colors' | 'authors' | 'projects' | 'accounts' | 'about'
 type Tab = SettingsTab
 
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
@@ -50,7 +53,8 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
             ['colors', 'Theme colors'],
             ['authors', 'Author colors'],
             ['projects', 'Projects'],
-            ['accounts', 'Accounts']
+            ['accounts', 'Accounts'],
+            ['about', 'About']
           ] as const
         ).map(([id, label]) => (
           <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
@@ -64,6 +68,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
         {tab === 'authors' && <AuthorsTab />}
         {tab === 'projects' && <ProjectsTab />}
         {tab === 'accounts' && <AccountsTab />}
+        {tab === 'about' && <AboutTab />}
       </div>
     </Modal>
   )
@@ -95,7 +100,7 @@ export function SizeControls() {
             A
           </button>
         </div>
-        <span className="hint">Scales every element and font. Shortcut: ⌘+ ⌘− ⌘0</span>
+        <span className="hint">Scales every element and font. Shortcut: {keys('⌘+ ⌘− ⌘0')}</span>
       </label>
       <label className="field">
         <span className="field-label">
@@ -132,6 +137,7 @@ function AppearanceTab() {
         />
       </div>
       <SidebarSectionsField />
+      <PullGroupsField />
       <div className="field">
         <span className="field-label">Theme</span>
         <div className="theme-grid">
@@ -179,6 +185,40 @@ function SidebarSectionsField() {
         ))}
       </div>
       <span className="hint">Untick to hide a section; arrows change the order.</span>
+    </div>
+  )
+}
+
+function PullGroupsField() {
+  const s = useSettings()
+  const rows: { id: 'awaiting' | 'yours' | 'others'; label: string }[] = [
+    { id: 'awaiting', label: 'Awaiting your review' },
+    { id: 'yours', label: 'Yours' },
+    { id: 'others', label: 'Others' }
+  ]
+  return (
+    <div className="field">
+      <span className="field-label">Pull request list</span>
+      <div className="section-order">
+        {rows.map((r) => {
+          const locked = r.id === 'awaiting'
+          const on = locked || s.prGroups[r.id as 'yours' | 'others']
+          return (
+            <div key={r.id} className={`section-order-row ${on ? '' : 'hidden'}`}>
+              <label className="check" title={locked ? 'Always shown' : undefined}>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={locked}
+                  onChange={(e) => updateSettings({ prGroups: { ...s.prGroups, [r.id]: e.target.checked } })}
+                />
+                {r.label}
+                {locked && <span className="hint"> · always shown</span>}
+              </label>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -426,12 +466,15 @@ function AccountsTab() {
     }
   }
 
+  // Spoon's own OAuth app (spoon.config.json) unless you've set your own Client ID.
+  const builtInClientId = useAppInfo()?.githubClientId ?? ''
+  const clientId = s.githubClientId || builtInClientId
   const browserSignIn = (): Promise<void> =>
     attempt('browser', async () => {
-      const code = await window.spoon.ghDeviceStart(s.githubClientId)
+      const code = await window.spoon.ghDeviceStart(clientId)
       setDevice(code)
       try {
-        await window.spoon.ghDeviceWait(s.githubClientId, code)
+        await window.spoon.ghDeviceWait(clientId, code)
       } finally {
         setDevice(null)
       }
@@ -495,29 +538,35 @@ function AccountsTab() {
           <div className="connect-row column">
             <div className="palette-text">
               <span className="palette-name">Sign in with browser</span>
-              <span className="palette-path">
-                Uses your own GitHub OAuth app (one-time setup):{' '}
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    window.spoon.openExternal('https://github.com/settings/applications/new')
-                  }}
-                >
-                  register one
-                </a>
-                , tick “Enable Device Flow”, then paste its Client ID here.
-              </span>
+              {builtInClientId ? (
+                <span className="palette-path">Opens GitHub in your browser to approve Spoon, like Fork.</span>
+              ) : (
+                <span className="palette-path">
+                  Uses your own GitHub OAuth app (one-time setup):{' '}
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      window.spoon.openExternal('https://github.com/settings/applications/new')
+                    }}
+                  >
+                    register one
+                  </a>
+                  , tick “Enable Device Flow”, then paste its Client ID here.
+                </span>
+              )}
             </div>
             <div className="form-row">
-              <input
-                placeholder="OAuth app Client ID"
-                value={s.githubClientId}
-                onChange={(e) => updateSettings({ githubClientId: e.target.value.trim() })}
-                spellCheck={false}
-                className="mono"
-              />
-              <button className="btn" disabled={!s.githubClientId || !!busy} onClick={browserSignIn}>
+              {!builtInClientId && (
+                <input
+                  placeholder="OAuth app Client ID"
+                  value={s.githubClientId}
+                  onChange={(e) => updateSettings({ githubClientId: e.target.value.trim() })}
+                  spellCheck={false}
+                  className="mono"
+                />
+              )}
+              <button className="btn" disabled={!clientId || !!busy} onClick={browserSignIn}>
                 {busy === 'browser' ? 'Waiting…' : 'Sign in'}
               </button>
             </div>
@@ -587,6 +636,65 @@ function AccountsTab() {
         </button>
       )}
       {error && <p className="error-text">{error}</p>}
+    </>
+  )
+}
+
+// ---------- about & updates ----------
+
+function AboutTab() {
+  const info = useAppInfo()
+  const update = useUpdateState()
+  useMinuteTick()
+  const status = update?.status ?? 'idle'
+  const checked = update?.lastCheck ? Math.round((Date.now() - update.lastCheck) / 60000) : null
+  const text: Record<string, string> = {
+    disabled: 'Automatic updates aren’t set up for this build.',
+    idle: 'Not checked yet.',
+    checking: 'Checking for updates…',
+    current: `Spoon is up to date${checked !== null ? ` (checked ${checked < 1 ? 'just now' : `${checked} min ago`})` : ''}.`,
+    downloading: `Downloading ${update?.version}… ${Math.round((update?.progress ?? 0) * 100)}%`,
+    ready: `Spoon ${update?.version} is ready to install.`,
+    error: update?.error ?? 'Update failed.'
+  }
+  const os = info?.platform === 'darwin' ? 'macOS' : info?.platform === 'win32' ? 'Windows' : info?.platform
+  return (
+    <>
+      <div className="about">
+        <img src={appIcon} alt="" className="about-icon" />
+        <div>
+          <h2>Spoon</h2>
+          <p className="muted">
+            Version {info?.version ?? '…'} · {os}
+          </p>
+        </div>
+      </div>
+      <div className="field">
+        <span className="field-label">Updates</span>
+        <p className={status === 'error' ? 'error-text' : ''}>{text[status]}</p>
+        {update?.notes && (status === 'ready' || status === 'downloading') && (
+          <pre className="release-notes">{update.notes}</pre>
+        )}
+        <div className="form-row">
+          {status === 'ready' ? (
+            <button className="btn primary" onClick={() => window.spoon.installUpdate()}>
+              Restart and update
+            </button>
+          ) : (
+            <button
+              className="btn"
+              disabled={status === 'disabled' || status === 'checking' || status === 'downloading'}
+              onClick={() => window.spoon.checkForUpdates()}
+            >
+              Check now
+            </button>
+          )}
+        </div>
+        <span className="hint">
+          Spoon checks every few hours, downloads updates in the background and verifies their signature before
+          installing.
+        </span>
+      </div>
     </>
   )
 }

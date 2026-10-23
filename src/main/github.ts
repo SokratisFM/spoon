@@ -5,6 +5,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import * as git from './git'
+import { safeStorage } from 'electron'
 import type {
   DeviceCode,
   GhUser,
@@ -21,7 +22,7 @@ import type {
 const API = 'https://api.github.com'
 const KEYCHAIN_SERVICE = 'Spoon GitHub'
 const SCOPES = 'repo read:org'
-const env = { ...process.env, PATH: ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH ?? '/usr/bin:/bin'].join(':') }
+const env = { ...process.env, PATH: git.toolPath }
 
 function exec(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) =>
@@ -50,11 +51,34 @@ async function token(): Promise<string> {
   const acc = getAccount()
   if (!acc) throw new Error('Connect a GitHub account in Settings → Accounts first.')
   if (tokenCache) return tokenCache
-  tokenCache =
-    acc.source === 'gh'
-      ? (await exec('gh', ['auth', 'token', '-h', 'github.com'])).trim()
-      : (await exec('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', acc.login, '-w'])).trim()
+  tokenCache = acc.source === 'gh' ? (await exec('gh', ['auth', 'token', '-h', 'github.com'])).trim() : await readSecret(acc.login)
   return tokenCache
+}
+
+// Tokens: macOS Keychain through the `security` tool (its access isn't tied to Spoon's own signature,
+// so updates never trigger Keychain prompts); on Windows, DPAPI-encrypted in the data folder.
+const secretFile = (): string => join(app.getPath('userData'), 'github-token.bin')
+
+async function readSecret(login: string): Promise<string> {
+  if (process.platform === 'darwin')
+    return (await exec('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', login, '-w'])).trim()
+  return safeStorage.decryptString(readFileSync(secretFile()))
+}
+
+async function writeSecret(login: string, tok: string): Promise<void> {
+  if (process.platform === 'darwin') {
+    await exec('security', ['add-generic-password', '-U', '-s', KEYCHAIN_SERVICE, '-a', login, '-l', 'Spoon GitHub token', '-w', tok])
+  } else {
+    writeFileSync(secretFile(), safeStorage.encryptString(tok))
+  }
+}
+
+async function deleteSecret(login: string): Promise<void> {
+  if (process.platform === 'darwin') {
+    await exec('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', login]).catch(() => undefined)
+  } else {
+    rmSync(secretFile(), { force: true })
+  }
 }
 
 /** Checks the token against /user and saves the account (and the token in the Keychain, unless it's gh's). */
@@ -65,9 +89,7 @@ async function connect(tok: string, source: GitHubSource): Promise<GitHubAccount
   const user = (await res.json()) as { login: string; name: string | null; avatar_url: string }
   const scopes = (res.headers.get('x-oauth-scopes') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   await disconnect()
-  if (source !== 'gh') {
-    await exec('security', ['add-generic-password', '-U', '-s', KEYCHAIN_SERVICE, '-a', user.login, '-l', 'Spoon GitHub token', '-w', tok])
-  }
+  if (source !== 'gh') await writeSecret(user.login, tok)
   account = { login: user.login, name: user.name, avatarUrl: user.avatar_url, scopes, source }
   tokenCache = tok
   writeFileSync(accountFile(), JSON.stringify(account, null, 2))
@@ -100,9 +122,7 @@ export function connectToken(tok: string): Promise<GitHubAccount> {
 
 export async function disconnect(): Promise<void> {
   const acc = getAccount()
-  if (acc && acc.source !== 'gh') {
-    await exec('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', acc.login]).catch(() => undefined)
-  }
+  if (acc && acc.source !== 'gh') await deleteSecret(acc.login)
   account = null
   tokenCache = null
   rmSync(accountFile(), { force: true })

@@ -39,6 +39,8 @@ export interface Settings {
   githubClientId: string
   /** Sidebar sections in display order; hidden ones keep their place for when they're shown again. */
   sidebarSections: { id: SidebarSection; visible: boolean }[]
+  /** Extra pull request groups; "Awaiting your review" is always shown. */
+  prGroups: { yours: boolean; others: boolean }
 }
 
 const BASE_FONT_PX = 13
@@ -56,7 +58,8 @@ const DEFAULTS: Settings = {
   scanDepth: 3,
   scanNested: false,
   githubClientId: '',
-  sidebarSections: SIDEBAR_SECTIONS.map((x) => ({ id: x.id, visible: true }))
+  sidebarSections: SIDEBAR_SECTIONS.map((x) => ({ id: x.id, visible: true })),
+  prGroups: { yours: false, others: false }
 }
 
 export const SCALE_MIN = 0.8
@@ -108,6 +111,8 @@ function apply(s: Settings): void {
   appliedExtra = Object.keys(theme.extra ?? {})
   for (const [k, v] of Object.entries(theme.extra ?? {})) root.style.setProperty(k, v)
   root.style.colorScheme = theme.scheme
+  // Windows draws its caption buttons natively over the title bar; match them to the theme.
+  window.spoon.setTitleBarColors?.(theme.colors['bg-chrome'], theme.colors.text, BASE_FONT_PX * s.uiScale * 3)
 }
 apply(current)
 // "System" and "Claude" follow the macOS appearance.

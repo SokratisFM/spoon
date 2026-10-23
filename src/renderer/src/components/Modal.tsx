@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { mod } from '../platform'
 
 interface Props {
   title: string
@@ -14,7 +15,7 @@ export function Modal({ title, children, onClose, onSubmit, footer, wide }: Prop
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()
-      else if (e.key === 'Enter' && onSubmit && (e.metaKey || !(e.target instanceof HTMLTextAreaElement))) {
+      else if (e.key === 'Enter' && onSubmit && (mod(e) || !(e.target instanceof HTMLTextAreaElement))) {
         e.preventDefault()
         onSubmit()
       }

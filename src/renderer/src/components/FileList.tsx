@@ -71,7 +71,7 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
       if (sel.length) onActivate(sel)
       return
     }
-    if (e.key === 'a' && e.metaKey && files.length) {
+    if (e.key === 'a' && (e.metaKey || e.ctrlKey) && files.length) {
       e.preventDefault()
       onSelect(new Set(files.map((f) => f.path)), files.find((f) => f.path === focused) ?? files[0])
       return

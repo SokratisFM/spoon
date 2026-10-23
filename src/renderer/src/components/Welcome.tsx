@@ -1,4 +1,5 @@
 import { CloseIcon, FolderIcon, SearchIcon } from './Icons'
+import { keys } from '../platform'
 
 interface Props {
   recents: string[]
@@ -16,7 +17,7 @@ export function Welcome({ recents, onPick, onOpen, onForget, onSearch }: Props) 
         <p className="muted">Open a git repository to get started.</p>
         <div className="welcome-actions">
           <button className="btn primary large" onClick={onPick}>
-            <FolderIcon /> Open Repository… <kbd>⌘O</kbd>
+            <FolderIcon /> Open Repository… <kbd>{keys('⌘O')}</kbd>
           </button>
           <button className="btn large" onClick={onSearch}>
             <SearchIcon /> Find Project <kbd className="soft">Tab</kbd>

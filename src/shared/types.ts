@@ -252,6 +252,24 @@ export interface ReviewSubmission {
   comments: PendingComment[]
 }
 
+export interface UpdateState {
+  /** disabled: no update source configured (or unsupported platform) */
+  status: 'disabled' | 'idle' | 'checking' | 'current' | 'downloading' | 'ready' | 'error'
+  current: string
+  version?: string // the newer version, once found
+  notes?: string
+  progress?: number // 0–1 while downloading
+  error?: string
+  lastCheck?: number
+}
+
+export interface AppInfo {
+  version: string
+  platform: string
+  githubClientId: string
+  updateRepo: string
+}
+
 export interface SpoonApi {
   /** Everything saved in spoon-state.json, read once at startup. */
   storeSnapshot: Record<string, string>
@@ -291,6 +309,14 @@ export interface SpoonApi {
   confirm(opts: ConfirmOptions): Promise<boolean>
   revealInFinder(path: string): Promise<void>
   openExternal(url: string): Promise<void>
+  appInfo(): Promise<AppInfo>
+  platform: string
+  /** Windows: recolor the native caption buttons to match the theme. */
+  setTitleBarColors(color: string, symbolColor: string, height: number): void
+  updateState(): Promise<UpdateState>
+  checkForUpdates(): Promise<UpdateState>
+  installUpdate(): Promise<void>
+  onUpdateState(handler: (s: UpdateState) => void): () => void
 
   ghAccount(): Promise<GitHubAccount | null>
   /** Login of the account the GitHub CLI is signed in with, or null. */

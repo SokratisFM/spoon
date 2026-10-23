@@ -5,6 +5,7 @@ import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FileList } from './FileList'
 import { DiffView, type HunkAction } from './DiffView'
+import { keys, mod, revealLabel } from '../platform'
 
 type Area = 'unstaged' | 'staged'
 
@@ -64,7 +65,7 @@ export function ChangesView({ path, tree, ops, commitRequest, onCommitHandled }:
     const choice = await window.spoon.contextMenu([
       { id: 'toggle', label: area === 'unstaged' ? `Stage${n}` : `Unstage${n}` },
       { separator: true },
-      { id: 'reveal', label: 'Reveal in Finder', enabled: files.length === 1 },
+      { id: 'reveal', label: revealLabel, enabled: files.length === 1 },
       { id: 'copy', label: files.length === 1 ? 'Copy Path' : 'Copy Paths' }
     ])
     if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
@@ -220,7 +221,7 @@ function CommitBox({ path, stagedCount, ops, commitRequest, onCommitHandled }: C
         value={draft.subject}
         onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.metaKey) e.preventDefault()
+          if (e.key === 'Enter' && !mod(e)) e.preventDefault()
         }}
       />
       <textarea
@@ -234,7 +235,7 @@ function CommitBox({ path, stagedCount, ops, commitRequest, onCommitHandled }: C
           Amend
         </label>
         <span className={`char-count ${draft.subject.length > 72 ? 'warn' : ''}`}>{draft.subject.length}</span>
-        <button className="btn primary" disabled={!canCommit} onClick={commit} title="⌘Enter">
+        <button className="btn primary" disabled={!canCommit} onClick={commit} title={keys('⌘↵')}>
           {label}
         </button>
       </div>

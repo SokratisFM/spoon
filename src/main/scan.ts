@@ -61,7 +61,15 @@ export async function scanRepos(root: string, maxDepth: number, nested: boolean)
     await Promise.all(Array.from({ length: CONCURRENCY }, worker))
     level = next
   }
-  return found.slice(0, MAX_RESULTS).sort((a, b) => a.localeCompare(b))
+  return found
+    .slice(0, MAX_RESULTS)
+    .map(toSlash)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+/** Git reports Windows paths with forward slashes; use the same everywhere in the UI. */
+export function toSlash(p: string): string {
+  return process.platform === 'win32' ? p.replace(/\\/g, '/') : p
 }
 
 export function pathsExist(paths: string[]): boolean[] {

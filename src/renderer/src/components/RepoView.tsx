@@ -14,6 +14,7 @@ import { ErrorModal } from './Modal'
 import { PullDialog, PushDialog } from './SyncDialogs'
 import { ParentChip, SubmoduleChip, submoduleActions } from './Submodules'
 import { FetchIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
+import { keys } from '../platform'
 
 const PullRequestIconLarge = () => <PullRequestIcon className="icon big-icon" />
 
@@ -228,21 +229,21 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         </div>
 
         <div className="toolbar-actions">
-          <button className="tool-btn" disabled={networkBusy} onClick={fetchAll} title="Fetch all remotes (⇧⌘F)">
+          <button className="tool-btn" disabled={networkBusy} onClick={fetchAll} title={`Fetch all remotes (${keys('⇧⌘F')})`}>
             <FetchIcon />
             <span>Fetch</span>
-            <kbd className="tool-key">⇧⌘F</kbd>
+            <kbd className="tool-key">{keys('⇧⌘F')}</kbd>
           </button>
-          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('pull')} title="Pull (⇧⌘L)">
+          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('pull')} title={`Pull (${keys('⇧⌘L')})`}>
             <PullIcon />
             <span>Pull</span>
-            <kbd className="tool-key">⇧⌘L</kbd>
+            <kbd className="tool-key">{keys('⇧⌘L')}</kbd>
             {!!head?.behind && <span className="tool-count">{head.behind}</span>}
           </button>
-          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('push')} title="Push (⇧⌘P)">
+          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('push')} title={`Push (${keys('⇧⌘P')})`}>
             <PushIcon />
             <span>Push</span>
-            <kbd className="tool-key">⇧⌘P</kbd>
+            <kbd className="tool-key">{keys('⇧⌘P')}</kbd>
             {!!head?.ahead && <span className="tool-count">{head.ahead}</span>}
           </button>
         </div>
@@ -274,7 +275,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               </button>
             )}
           </div>
-          <button className="icon-btn" onClick={load} title="Refresh (⌘R)">
+          <button className="icon-btn" onClick={load} title={`Refresh (${keys('⌘R')})`}>
             <RefreshIcon />
           </button>
         </div>

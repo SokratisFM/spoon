@@ -417,22 +417,28 @@ function PullList({
   selected: number | null
   onSelect: (n: number) => void
 }) {
+  const { prGroups } = useSettings()
   if (error) return <div className="side-empty error-text">{error}</div>
   if (!prs) return <div className="side-empty">Loading pull requests…</div>
-  if (prs.length === 0) return <div className="side-empty">No open pull requests.</div>
-  const groups: [string, PullSummary[]][] = [
-    ['Review requested', prs.filter((p) => p.reviewRequested)],
-    ['Yours', prs.filter((p) => p.mine && !p.reviewRequested)],
-    ['Others', prs.filter((p) => !p.mine && !p.reviewRequested)]
+  const groups: { id: string; title: string; list: PullSummary[]; shown: boolean }[] = [
+    { id: 'awaiting', title: 'Awaiting your review', list: prs.filter((p) => p.reviewRequested), shown: true },
+    { id: 'yours', title: 'Yours', list: prs.filter((p) => p.mine && !p.reviewRequested), shown: prGroups.yours },
+    { id: 'others', title: 'Others', list: prs.filter((p) => !p.mine && !p.reviewRequested), shown: prGroups.others }
   ]
   return (
     <div className="pr-list">
       {groups
-        .filter(([, list]) => list.length)
-        .map(([title, list]) => (
-          <div key={title}>
-            <div className="pr-group">{title}</div>
-            {list.map((p) => (
+        .filter((g) => g.shown)
+        .map((g) => (
+          <div key={g.id} className={`pr-group-block ${g.id}`}>
+            <div className="pr-group">
+              <span>{g.title}</span>
+              <span className="pr-group-count">{g.list.length}</span>
+            </div>
+            {g.list.length === 0 && (
+              <div className="side-empty">{g.id === 'awaiting' ? 'Nothing waiting for you.' : 'None open.'}</div>
+            )}
+            {g.list.map((p) => (
               <div
                 key={p.number}
                 className={`pr-item ${selected === p.number ? 'selected' : ''}`}

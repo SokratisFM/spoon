@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { forgetProject, fuzzyScore, projectName, tildify, useProjects } from '../projects'
 import { useSettings } from '../settings'
 import { FolderIcon, SearchIcon } from './Icons'
+import { keys, mod } from '../platform'
 
 interface Item {
   path: string
@@ -103,7 +104,7 @@ export function ProjectPalette({ openTabs, onOpen, onClose }: Props) {
     } else if (e.key === 'Escape') {
       e.preventDefault()
       onClose()
-    } else if (e.key === 'Backspace' && e.metaKey && items[index]?.kind === 'project') {
+    } else if (e.key === 'Backspace' && mod(e) && items[index]?.kind === 'project') {
       e.preventDefault()
       forgetProject(items[index].path)
     }
@@ -155,7 +156,7 @@ export function ProjectPalette({ openTabs, onOpen, onClose }: Props) {
           ))}
           {items.length === 0 && (
             <div className="palette-empty">
-              {query.trim() ? `No projects match “${query}”.` : 'No projects yet. Open one with ⌘O.'}
+              {query.trim() ? `No projects match “${query}”.` : `No projects yet. Open one with ${keys('⌘O')}.`}
             </div>
           )}
         </div>
@@ -169,7 +170,7 @@ export function ProjectPalette({ openTabs, onOpen, onClose }: Props) {
             <kbd>↵</kbd> open
           </span>
           <span>
-            <kbd>⌘⌫</kbd> forget project
+            <kbd>{keys('⌘⌫')}</kbd> forget project
           </span>
           <span>
             <kbd>esc</kbd> close
