@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { DiffTarget } from '../../../shared/types'
 import { useAsync } from '../hooks'
-import { codeLineHeight, useSettings } from '../settings'
+import { codeLineHeight, updateSettings, useSettings } from '../settings'
 
 type LineKind = 'hunk' | 'add' | 'del' | 'ctx' | 'note'
+
+const MAX_SPLIT_ROWS = 4000
 
 export interface Line {
   kind: LineKind
@@ -69,6 +71,67 @@ export function parseDiff(text: string): Parsed {
   return { lines, added, removed, maxLen }
 }
 
+/** A row of the split view: indexes into the parsed lines for each side, or a full-width row. */
+export type SplitRow = { full: number } | { left?: number; right?: number }
+
+/**
+ * Pairs lines for side-by-side display: context lines sit on both sides, a run of removed lines
+ * lines up with the run of added lines that follows it, and hunk headers span both columns.
+ */
+export function pairLines(lines: Line[]): SplitRow[] {
+  const rows: SplitRow[] = []
+  let dels: number[] = []
+  let adds: number[] = []
+  const flush = (): void => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) rows.push({ left: dels[i], right: adds[i] })
+    dels = []
+    adds = []
+  }
+  lines.forEach((l, i) => {
+    if (l.kind === 'del') {
+      if (adds.length) flush()
+      dels.push(i)
+    } else if (l.kind === 'add') adds.push(i)
+    else {
+      flush()
+      rows.push(l.kind === 'ctx' ? { left: i, right: i } : { full: i })
+    }
+  })
+  flush()
+  return rows
+}
+
+/** One side of a split row: line number, sign and code, or an empty filler. */
+export function SplitHalf({ line, side }: { line: Line | undefined; side: 'left' | 'right' }) {
+  if (!line) return <span className="half empty" />
+  const no = side === 'left' ? line.oldNo : line.newNo
+  return (
+    <span className={`half ${line.kind}`}>
+      <span className="ln">{no ?? ''}</span>
+      <span className="sign">{line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}</span>
+      <span className="code">{line.text}</span>
+    </span>
+  )
+}
+
+export function DiffLayoutToggle() {
+  const { diffLayout } = useSettings()
+  return (
+    <span className="layout-toggle" role="group" aria-label="Diff layout">
+      {(
+        [
+          ['unified', 'Unified'],
+          ['split', 'Split']
+        ] as const
+      ).map(([id, label]) => (
+        <button key={id} className={diffLayout === id ? 'on' : ''} onClick={() => updateSettings({ diffLayout: id })}>
+          {label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
 interface Props {
   path: string
   target: DiffTarget | null
@@ -86,10 +149,14 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
     [path, key, nonce]
   )
   const parsed = useMemo(() => (data && !data.binary ? parseDiff(data.text) : null), [data])
+  // Split view wraps long lines so both sides stay visible; wrapped rows have varying heights, so it
+  // isn't virtualized and very large diffs fall back to the unified view.
+  const rows = useMemo(() => (parsed && settings.diffLayout === 'split' ? pairLines(parsed.lines) : null), [parsed, settings.diffLayout])
+  const split = !!rows && rows.length <= MAX_SPLIT_ROWS
   const parentRef = useRef<HTMLDivElement>(null)
 
   const virtualizer = useVirtualizer({
-    count: parsed?.lines.length ?? 0,
+    count: split ? 0 : (parsed?.lines.length ?? 0),
     getScrollElement: () => parentRef.current,
     estimateSize: () => lineH,
     overscan: 30
@@ -118,6 +185,7 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
           <span className="minus">−{parsed.removed}</span>
         </span>
       )}
+      <DiffLayoutToggle />
     </div>
   )
 
@@ -127,13 +195,42 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   else if (data.binary) body = <div className="empty-state small muted">Binary file — no text diff.</div>
   else if (parsed && parsed.lines.length === 0)
     body = <div className="empty-state small muted">No content changes (mode or rename only).</div>
+  else if (parsed && split && rows)
+    body = (
+      <div className="diff-scroll" ref={parentRef}>
+        <div className="diff-lines side-by-side">
+          {rows.map((row, i) => {
+            if ('full' in row) {
+              const l = parsed.lines[row.full]
+              return (
+                <div key={i} className={`diff-line ${l.kind}`}>
+                  <span className="code">{l.text}</span>
+                  {l.kind === 'hunk' && hunkAction && !data.truncated && (
+                    <button className="hunk-btn" onClick={() => hunkAction.run(l.hunk!, l.text)}>
+                      {hunkAction.label}
+                    </button>
+                  )}
+                </div>
+              )
+            }
+            return (
+              <div key={i} className="diff-line split-row">
+                <SplitHalf line={row.left !== undefined ? parsed.lines[row.left] : undefined} side="left" />
+                <SplitHalf line={row.right !== undefined ? parsed.lines[row.right] : undefined} side="right" />
+              </div>
+            )
+          })}
+        </div>
+        {data.truncated && <div className="list-footnote">Diff truncated — file is too large to show in full.</div>}
+      </div>
+    )
   else if (parsed)
     body = (
       <div className="diff-scroll" ref={parentRef}>
-        <div
-          className="diff-lines"
-          style={{ height: virtualizer.getTotalSize(), minWidth: `calc(${parsed.maxLen + 2}ch + 8em)` }}
-        >
+        {rows && !split && (
+          <div className="list-footnote">This diff is too large for side by side; showing it unified.</div>
+        )}
+        <div className="diff-lines" style={{ height: virtualizer.getTotalSize(), minWidth: `calc(${parsed.maxLen + 2}ch + 8em)` }}>
           {virtualizer.getVirtualItems().map((v) => {
             const l = parsed.lines[v.index]
             return (

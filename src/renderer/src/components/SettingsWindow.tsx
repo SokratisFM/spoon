@@ -15,6 +15,7 @@ import {
   updateSettings,
   useSettings,
   type Density,
+  type DiffLayout,
   type Settings
 } from '../settings'
 import {
@@ -135,6 +136,18 @@ function AppearanceTab() {
           ]}
           onChange={(density) => updateSettings({ density })}
         />
+      </div>
+      <div className="field">
+        <span className="field-label">Diff layout</span>
+        <Segmented<DiffLayout>
+          value={s.diffLayout}
+          options={[
+            ['unified', 'Unified'],
+            ['split', 'Side by side']
+          ]}
+          onChange={(diffLayout) => updateSettings({ diffLayout })}
+        />
+        <span className="hint">Also switchable from any diff’s header.</span>
       </div>
       <SidebarSectionsField />
       <PullGroupsField />

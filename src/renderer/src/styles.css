@@ -2432,10 +2432,12 @@ kbd.soft {
   color: var(--accent-text);
   font-size: 0.9em;
 }
-.patch .diff-line:hover .add-comment {
+.patch:not(.side-by-side) .diff-line:hover .add-comment,
+.patch.side-by-side .half:hover .add-comment {
   display: flex;
 }
-.patch .diff-line:hover .sign-char {
+.patch:not(.side-by-side) .diff-line:hover .sign-char,
+.patch.side-by-side .half:hover .sign-char {
   visibility: hidden;
 }
 .patch .diff-line.in-draft {
@@ -2679,6 +2681,106 @@ kbd.soft {
   border: 1px solid var(--border);
   font-family: var(--font-ui);
   white-space: pre-wrap;
+}
+
+/* ---------- split (side-by-side) diffs ---------- */
+
+/* Split rows flow normally (not virtualized) and wrap long lines, so both sides always fit. */
+.diff-lines.side-by-side,
+.patch.side-by-side {
+  position: static;
+  min-width: 0;
+}
+.diff-lines.side-by-side .diff-line,
+.patch.side-by-side .diff-line {
+  position: relative;
+  transform: none;
+  min-height: calc(var(--code-size) * 1.6);
+  line-height: calc(var(--code-size) * 1.6);
+}
+.diff-lines.side-by-side .diff-line.hunk {
+  padding-left: 1em;
+}
+.split-row .code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  flex: 1;
+  padding-right: 0.6em;
+}
+
+.diff-line.split-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.half {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+.half + .half {
+  border-left: 1px solid var(--border);
+}
+.half .ln {
+  flex: none;
+  width: 4.2em;
+  padding-right: 0.8em;
+  text-align: right;
+  color: var(--text-faint);
+  user-select: none;
+  font-size: 0.9em;
+}
+.half .sign {
+  position: relative;
+  flex: none;
+  width: 1.6em;
+  text-align: center;
+  user-select: none;
+}
+.half.add {
+  background: var(--add-bg);
+}
+.half.add .ln,
+.half.add .sign {
+  color: var(--add-text);
+}
+.half.del {
+  background: var(--del-bg);
+}
+.half.del .ln,
+.half.del .sign {
+  color: var(--del-text);
+}
+/* The side with no counterpart: a faint hatch, like GitHub's split view. */
+.half.empty {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--text) 4%, transparent) 6px 7px
+  );
+}
+
+.layout-toggle {
+  flex: none;
+  display: inline-flex;
+  padding: 0.12rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.layout-toggle button {
+  border: 0;
+  background: none;
+  padding: 0.12rem 0.55rem;
+  border-radius: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-weight: 550;
+}
+.layout-toggle button.on {
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border-strong);
 }
 
 /* ---------- scrollbars ---------- */

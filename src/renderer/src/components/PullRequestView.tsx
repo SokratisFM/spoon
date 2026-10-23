@@ -14,7 +14,8 @@ import { splitPath } from '../format'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { Markdown } from './Markdown'
-import { parseDiff, type Line } from './DiffView'
+import { DiffLayoutToggle, pairLines, parseDiff, type Line } from './DiffView'
+import { useSettings } from '../settings'
 import { CloseIcon, PlusIcon, PullRequestIcon } from './Icons'
 import { keys, mod } from '../platform'
 
@@ -497,7 +498,9 @@ function PatchView({
   onReply: (id: number, body: string) => Promise<boolean>
   prUrl: string
 }) {
-  const lines = useMemo(() => (file.patch ? parseDiff(file.patch).lines : []), [file.patch])
+  const parsed = useMemo(() => (file.patch ? parseDiff(file.patch) : null), [file.patch])
+  const lines = parsed?.lines ?? []
+  const split = useSettings().diffLayout === 'split'
   const [draft, setDraft] = useState<Draft | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -538,6 +541,7 @@ function PatchView({
   }
 
   const shown = lines.slice(0, MAX_PATCH_LINES)
+  const units = split ? pairLines(shown) : shown.map((_, i) => ({ full: i }))
 
   return (
     <div className="diff">
@@ -550,6 +554,7 @@ function PatchView({
           <span className="plus">+{file.additions}</span>
           <span className="minus">−{file.deletions}</span>
         </span>
+        <DiffLayoutToggle />
         <label className="check viewed-toggle">
           <input type="checkbox" checked={viewed} onChange={onToggleViewed} /> Viewed
         </label>
@@ -571,38 +576,71 @@ function PatchView({
             </a>
           </div>
         ) : (
-          <div className="patch">
-            {shown.map((l, i) => {
-              const anchor = anchorOf(l)
-              const key = anchor ? `${anchor.side}:${anchor.line}` : ''
-              const inDraft = draft && i >= draft.from && i <= draft.to
-              return (
-                <Fragment key={i}>
+          <div className={`patch ${split ? 'side-by-side' : ''}`}>
+            {units.map((unit, u) => {
+              // The lines this row shows; comments for any of them go right under the row.
+              const idxs = 'full' in unit ? [unit.full] : [...new Set([unit.left, unit.right].filter((x) => x !== undefined))]
+              const keys = [...new Set(idxs.map((i) => anchorOf(lines[i])).filter(Boolean).map((a) => `${a!.side}:${a!.line}`))]
+              const inDraft = draft && idxs.some((i) => i >= draft.from && i <= draft.to)
+              const plus = (i: number) =>
+                anchorOf(lines[i]) ? (
+                  <button
+                    className="add-comment"
+                    title="Comment on this line (⇧-click another line for a range)"
+                    onClick={(e) => startComment(i, e.shiftKey)}
+                  >
+                    <PlusIcon />
+                  </button>
+                ) : null
+              let row
+              if ('full' in unit || !split) {
+                const i = 'full' in unit ? unit.full : unit.left!
+                const l = lines[i]
+                row = (
                   <div className={`diff-line ${l.kind} ${inDraft ? 'in-draft' : ''}`}>
                     <span className="ln">{l.oldNo ?? ''}</span>
                     <span className="ln">{l.newNo ?? ''}</span>
                     <span className="sign">
-                      {anchor ? (
-                        <button
-                          className="add-comment"
-                          title="Comment on this line (⇧-click another line for a range)"
-                          onClick={(e) => startComment(i, e.shiftKey)}
-                        >
-                          <PlusIcon />
-                        </button>
-                      ) : null}
+                      {plus(i)}
                       <span className="sign-char">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
                     </span>
                     <span className="code">{l.text}</span>
                   </div>
-                  {key &&
-                    byAnchor.get(key)?.map((t) => (
+                )
+              } else {
+                const half = (i: number | undefined, side: 'left' | 'right') => {
+                  if (i === undefined) return <span className="half empty" />
+                  const l = lines[i]
+                  return (
+                    <span className={`half ${l.kind}`}>
+                      <span className="ln">{(side === 'left' ? l.oldNo : l.newNo) ?? ''}</span>
+                      <span className="sign">
+                        {plus(i)}
+                        <span className="sign-char">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
+                      </span>
+                      <span className="code">{l.text}</span>
+                    </span>
+                  )
+                }
+                row = (
+                  <div className={`diff-line split-row ${inDraft ? 'in-draft' : ''}`}>
+                    {half(unit.left, 'left')}
+                    {half(unit.right, 'right')}
+                  </div>
+                )
+              }
+              return (
+                <Fragment key={u}>
+                  {row}
+                  {keys.flatMap((key) =>
+                    (byAnchor.get(key) ?? []).map((t) => (
                       <div key={t.root.id} className="inline-block">
                         <Thread root={t.root} replies={t.replies} onReply={onReply} />
                       </div>
-                    ))}
-                  {key &&
-                    pendingByAnchor.get(key)?.map((p) => (
+                    ))
+                  )}
+                  {keys.flatMap((key) =>
+                    (pendingByAnchor.get(key) ?? []).map((p) => (
                       <div key={p.id} className="inline-block">
                         <div className="thread pending">
                           <div className="thread-head">
@@ -620,8 +658,9 @@ function PatchView({
                           <Markdown text={p.body} />
                         </div>
                       </div>
-                    ))}
-                  {draft && draft.to === i && (
+                    ))
+                  )}
+                  {draft && idxs.includes(draft.to) && (
                     <div className="inline-block">
                       <div className="thread">
                         {draft.from !== draft.to && (
