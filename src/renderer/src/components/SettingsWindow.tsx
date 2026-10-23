@@ -405,6 +405,8 @@ function AccountsTab() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [device, setDevice] = useState<DeviceCode | null>(null)
+  // Once connected, the sign-in options only come back when you choose to switch accounts.
+  const [switching, setSwitching] = useState(false)
 
   useEffect(() => {
     window.spoon.ghCliLogin().then(setCliLogin)
@@ -416,6 +418,7 @@ function AccountsTab() {
     try {
       await fn()
       await refreshGitHubAccount()
+      setSwitching(false)
     } catch (err) {
       setError(cleanError(err))
     } finally {
@@ -447,6 +450,11 @@ function AccountsTab() {
               @{account.login} · {sourceLabel[account.source]} · {account.scopes.join(', ') || 'no scopes listed'}
             </span>
           </div>
+          {!switching && (
+            <button className="btn" onClick={() => setSwitching(true)}>
+              Switch account…
+            </button>
+          )}
           <button
             className="btn"
             onClick={() =>
@@ -466,111 +474,118 @@ function AccountsTab() {
         <p className="error-text">This sign-in lacks the “repo” scope, so private repositories won’t load.</p>
       )}
 
-      <div className="connect-list">
-        <div className="connect-row">
-          <div className="palette-text">
-            <span className="palette-name">Use your GitHub CLI sign-in</span>
-            <span className="palette-path">
-              {cliLogin === undefined
-                ? 'Checking…'
-                : cliLogin
-                  ? `Signed in as ${cliLogin}. Spoon asks gh for the token when it needs it.`
-                  : 'gh isn’t installed or signed in (run gh auth login).'}
-            </span>
-          </div>
-          <button className="btn" disabled={!cliLogin || !!busy} onClick={() => attempt('cli', () => window.spoon.ghConnectCli())}>
-            {busy === 'cli' ? 'Connecting…' : 'Use this account'}
-          </button>
-        </div>
-
-        <div className="connect-row column">
-          <div className="palette-text">
-            <span className="palette-name">Sign in with browser</span>
-            <span className="palette-path">
-              Uses your own GitHub OAuth app (one-time setup):{' '}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault()
-                  window.spoon.openExternal('https://github.com/settings/applications/new')
-                }}
-              >
-                register one
-              </a>
-              , tick “Enable Device Flow”, then paste its Client ID here.
-            </span>
-          </div>
-          <div className="form-row">
-            <input
-              placeholder="OAuth app Client ID"
-              value={s.githubClientId}
-              onChange={(e) => updateSettings({ githubClientId: e.target.value.trim() })}
-              spellCheck={false}
-              className="mono"
-            />
-            <button className="btn" disabled={!s.githubClientId || !!busy} onClick={browserSignIn}>
-              {busy === 'browser' ? 'Waiting…' : 'Sign in'}
+      {(!account || switching) && (
+        <div className="connect-list">
+          <div className="connect-row">
+            <div className="palette-text">
+              <span className="palette-name">Use your GitHub CLI sign-in</span>
+              <span className="palette-path">
+                {cliLogin === undefined
+                  ? 'Checking…'
+                  : cliLogin
+                    ? `Signed in as ${cliLogin}. Spoon asks gh for the token when it needs it.`
+                    : 'gh isn’t installed or signed in (run gh auth login).'}
+              </span>
+            </div>
+            <button className="btn" disabled={!cliLogin || !!busy} onClick={() => attempt('cli', () => window.spoon.ghConnectCli())}>
+              {busy === 'cli' ? 'Connecting…' : 'Use this account'}
             </button>
           </div>
-          {device && (
-            <div className="device-code">
-              <span className="muted">Enter this code on GitHub:</span>
-              <span className="device-code-value mono">{device.userCode}</span>
-              <button
-                className="btn primary"
-                onClick={() => {
-                  navigator.clipboard.writeText(device.userCode)
-                  window.spoon.openExternal(device.verificationUri)
-                }}
-              >
-                Copy code and open GitHub
-              </button>
-              <button className="btn" onClick={() => window.spoon.ghDeviceCancel()}>
-                Cancel
+
+          <div className="connect-row column">
+            <div className="palette-text">
+              <span className="palette-name">Sign in with browser</span>
+              <span className="palette-path">
+                Uses your own GitHub OAuth app (one-time setup):{' '}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    window.spoon.openExternal('https://github.com/settings/applications/new')
+                  }}
+                >
+                  register one
+                </a>
+                , tick “Enable Device Flow”, then paste its Client ID here.
+              </span>
+            </div>
+            <div className="form-row">
+              <input
+                placeholder="OAuth app Client ID"
+                value={s.githubClientId}
+                onChange={(e) => updateSettings({ githubClientId: e.target.value.trim() })}
+                spellCheck={false}
+                className="mono"
+              />
+              <button className="btn" disabled={!s.githubClientId || !!busy} onClick={browserSignIn}>
+                {busy === 'browser' ? 'Waiting…' : 'Sign in'}
               </button>
             </div>
-          )}
-        </div>
+            {device && (
+              <div className="device-code">
+                <span className="muted">Enter this code on GitHub:</span>
+                <span className="device-code-value mono">{device.userCode}</span>
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    navigator.clipboard.writeText(device.userCode)
+                    window.spoon.openExternal(device.verificationUri)
+                  }}
+                >
+                  Copy code and open GitHub
+                </button>
+                <button className="btn" onClick={() => window.spoon.ghDeviceCancel()}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
 
-        <div className="connect-row column">
-          <div className="palette-text">
-            <span className="palette-name">Personal access token</span>
-            <span className="palette-path">
-              Stored in your macOS Keychain.{' '}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault()
-                  window.spoon.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org&description=Spoon')
-                }}
+          <div className="connect-row column">
+            <div className="palette-text">
+              <span className="palette-name">Personal access token</span>
+              <span className="palette-path">
+                Stored in your macOS Keychain.{' '}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    window.spoon.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org&description=Spoon')
+                  }}
+                >
+                  Create a token
+                </a>{' '}
+                with the repo and read:org scopes.
+              </span>
+            </div>
+            <div className="form-row">
+              <input
+                type="password"
+                placeholder="ghp_…"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                spellCheck={false}
+                className="mono text-like"
+              />
+              <button
+                className="btn"
+                disabled={!token.trim() || !!busy}
+                onClick={() => attempt('token', async () => {
+                  await window.spoon.ghConnectToken(token)
+                  setToken('')
+                })}
               >
-                Create a token
-              </a>{' '}
-              with the repo and read:org scopes.
-            </span>
-          </div>
-          <div className="form-row">
-            <input
-              type="password"
-              placeholder="ghp_…"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              spellCheck={false}
-              className="mono text-like"
-            />
-            <button
-              className="btn"
-              disabled={!token.trim() || !!busy}
-              onClick={() => attempt('token', async () => {
-                await window.spoon.ghConnectToken(token)
-                setToken('')
-              })}
-            >
-              {busy === 'token' ? 'Checking…' : 'Connect'}
-            </button>
+                {busy === 'token' ? 'Checking…' : 'Connect'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+      {account && switching && (
+        <button className="btn cancel-switch" onClick={() => setSwitching(false)}>
+          Keep {account.login}
+        </button>
+      )}
       {error && <p className="error-text">{error}</p>}
     </>
   )
