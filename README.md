@@ -35,6 +35,15 @@ To change the icon, edit `build/icon.svg` and run `npm run icon`.
 - `src/preload/index.ts`: the `window.spoon` API exposed to the UI.
 - `src/renderer/src/`: React UI. `settings.ts` holds scaling, `graph.ts` lays out the commit graph, `styles.css` holds the theme tokens.
 
+## Settings (⌘,)
+
+- **Appearance**: interface size, diff font size, row spacing and theme: System, Spoon Dark/Light,
+  Discord Dark, Claude (follows macOS light/dark) or Custom.
+- **Theme colors**: pick a color for every element. Editing any color switches to Custom, starting from the
+  current theme; hover, selection and diff backgrounds are derived from these colors automatically.
+- **Author colors**: map author names (or emails) to colors; their commits get a colored dot, avatar
+  and row tint. "Add all authors from this repository" fills the list in one click.
+
 ## Everyday use
 
 - **Local Changes**: double-click or press Enter to stage/unstage; ⌘-click and ⇧-click select several files; right-click for more.
@@ -44,6 +53,12 @@ To change the icon, edit `build/icon.svg` and run `npm run icon`.
   Badges show how many commits you are behind/ahead.
 - **Checkout**: double-click a branch, remote branch or tag in the sidebar, or right-click a commit.
   Checking out a remote branch creates (or switches to) the matching local tracking branch.
+
+- **Submodules**: the header chip lists every submodule and its state (up to date, modified, out of date,
+  not initialized), with Update and Open; the sidebar has the same list. Double-click opens one in a new tab.
+- **Stale branches**: the sidebar's Stale section lists local branches whose origin branch was deleted
+  ("gone") or that match origin exactly ("synced"). Tick and delete; branches with commits found nowhere
+  else ask for confirmation first. Fetch prunes deleted remote branches so this list stays current.
 
 Git errors (rejected pushes, conflicts, hooks) are shown in full, exactly as git printed them.
 

@@ -16,7 +16,9 @@ import type {
   PullOptions,
   PushOptions,
   Stash,
+  Submodule,
   SyncInfo,
+  DeleteResult,
   WorkingTree
 } from '../shared/types'
 
@@ -95,12 +97,13 @@ export async function openRepo(path: string): Promise<RepoState> {
   const root = (await git(path, ['rev-parse', '--show-toplevel'])).trim()
   const gitDir = (await git(root, ['rev-parse', '--absolute-git-dir'])).trim()
 
-  const [branchOut, headOut, refs, stashes, remotesOut] = await Promise.all([
+  const [branchOut, headOut, refs, stashes, remotesOut, submodules] = await Promise.all([
     git(root, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]),
     git(root, ['rev-parse', '-q', '--verify', 'HEAD'], [0, 1]),
     readRefs(root),
     readStashes(root),
-    git(root, ['remote'])
+    git(root, ['remote']),
+    readSubmodules(root)
   ])
 
   return {
@@ -111,8 +114,41 @@ export async function openRepo(path: string): Promise<RepoState> {
     refs,
     stashes,
     remotes: remotesOut.split('\n').filter(Boolean),
-    operation: detectOperation(gitDir)
+    operation: detectOperation(gitDir),
+    submodules
   }
+}
+
+async function readSubmodules(root: string): Promise<Submodule[]> {
+  if (!existsSync(join(root, '.gitmodules'))) return []
+  // Lines look like " <sha> path (describe)"; the first char is ' ' ok, '-' not initialized,
+  // '+' checked-out commit differs from the recorded one, 'U' merge conflict.
+  const out = await git(root, ['submodule', 'status'], [0, 1])
+  const subs = out
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const m = /^([ \-+U])([0-9a-f]+) (.+?)(?: \(.*\))?$/.exec(line)
+      if (!m) return null
+      const state = m[1] === '-' ? 'uninitialized' : m[1] === '+' ? 'outdated' : m[1] === 'U' ? 'conflict' : 'ok'
+      return { path: m[3], name: m[3].split('/').pop()!, hash: m[2], branch: null, state, dirty: false } as Submodule
+    })
+    .filter((s): s is Submodule => s !== null)
+
+  await Promise.all(
+    subs
+      .filter((s) => s.state !== 'uninitialized')
+      .map(async (s) => {
+        const dir = join(root, s.path)
+        const [branch, status] = await Promise.all([
+          git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).catch(() => ''),
+          git(dir, ['status', '--porcelain', '--untracked-files=no']).catch(() => '')
+        ])
+        s.branch = branch.trim() || null
+        s.dirty = status.trim().length > 0
+      })
+  )
+  return subs
 }
 
 function detectOperation(gitDir: string): string | null {
@@ -417,4 +453,37 @@ export async function push(cwd: string, opts: PushOptions, onProgress: (l: strin
   if (opts.setUpstream) args.push('-u')
   if (opts.tags) args.push('--tags')
   await run(cwd, [...args, opts.remote, `refs/heads/${info.branch}:refs/heads/${opts.remoteBranch}`], { onProgress })
+}
+
+export async function updateSubmodule(cwd: string, submodulePath: string): Promise<void> {
+  await run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', '--', submodulePath])
+}
+
+// ---------- branch cleanup ----------
+
+/**
+ * Deletes local branches. Without force, a branch is only deleted when its tip is also reachable
+ * from another branch, remote branch or tag, so no commits are lost; the rest are reported back
+ * so the UI can ask before forcing.
+ */
+export async function deleteBranches(cwd: string, names: string[], force: boolean): Promise<DeleteResult> {
+  const deleted: string[] = []
+  const unmerged: string[] = []
+  for (const name of names) {
+    const ref = `refs/heads/${name}`
+    if (!force) {
+      const containing = (
+        await git(cwd, ['for-each-ref', '--format=%(refname)', `--contains=${ref}`, 'refs/heads', 'refs/remotes', 'refs/tags'])
+      )
+        .split('\n')
+        .filter((r) => r && r !== ref && !r.endsWith('/HEAD'))
+      if (containing.length === 0) {
+        unmerged.push(name)
+        continue
+      }
+    }
+    await git(cwd, ['branch', '-D', '--', name])
+    deleted.push(name)
+  }
+  return { deleted, unmerged }
 }

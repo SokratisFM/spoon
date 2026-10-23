@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CheckoutTarget, Commit, MenuCommand, RepoState, WorkingTree } from '../../../shared/types'
 import { buildGraph } from '../graph'
 import { cleanError, usePersistentState } from '../hooks'
+import { setKnownAuthors } from '../authors'
 import { Split } from './Split'
 import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
@@ -9,6 +10,7 @@ import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
 import { ErrorModal } from './Modal'
 import { PullDialog, PushDialog } from './SyncDialogs'
+import { SubmoduleChip, submoduleActions } from './Submodules'
 import { FetchIcon, PullIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
 
 const LOG_LIMIT = 5000
@@ -28,7 +30,13 @@ interface Busy {
   progress?: string
 }
 
-export function RepoView({ path, command }: { path: string; command: { name: MenuCommand; n: number } | null }) {
+interface Props {
+  path: string
+  command: { name: MenuCommand; n: number } | null
+  onOpenRepo: (path: string) => void
+}
+
+export function RepoView({ path, command, onOpenRepo }: Props) {
   const [repo, setRepo] = useState<RepoState | null>(null)
   const [commits, setCommits] = useState<Commit[]>([])
   const [tree, setTree] = useState<WorkingTree>({ staged: [], unstaged: [] })
@@ -57,6 +65,7 @@ export function RepoView({ path, command }: { path: string; command: { name: Men
         refsSignature.current = sig
         const log = await window.spoon.log(path, LOG_LIMIT)
         setCommits(log)
+        setKnownAuthors(log.map((c) => c.authorName))
         setSelected((s) => (s && log.some((c) => c.hash === s) ? s : r.headHash))
       }
     } catch (err) {
@@ -120,9 +129,11 @@ export function RepoView({ path, command }: { path: string; command: { name: Men
   )
 
   const ops = useMemo<Ops>(() => ({ run, checkout }), [run, checkout])
+  const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo), [path, ops, onOpenRepo])
 
   const fetchAll = (): void => {
-    run('Fetching…', () => window.spoon.fetch(path, false), 'Fetch failed')
+    // Prune, so branches whose remote was deleted show up as stale.
+    run('Fetching…', () => window.spoon.fetch(path, true), 'Fetch failed')
   }
 
   useEffect(() => {
@@ -173,21 +184,25 @@ export function RepoView({ path, command }: { path: string; command: { name: Men
             {repo.headBranch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
           </span>
           {repo.operation && <span className="op-chip">{repo.operation}</span>}
+          <SubmoduleChip submodules={repo.submodules} actions={subActions} />
         </div>
 
         <div className="toolbar-actions">
           <button className="tool-btn" disabled={networkBusy} onClick={fetchAll} title="Fetch all remotes (⇧⌘F)">
             <FetchIcon />
             <span>Fetch</span>
+            <kbd className="tool-key">⇧⌘F</kbd>
           </button>
           <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('pull')} title="Pull (⇧⌘L)">
             <PullIcon />
             <span>Pull</span>
+            <kbd className="tool-key">⇧⌘L</kbd>
             {!!head?.behind && <span className="tool-count">{head.behind}</span>}
           </button>
           <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('push')} title="Push (⇧⌘P)">
             <PushIcon />
             <span>Push</span>
+            <kbd className="tool-key">⇧⌘P</kbd>
             {!!head?.ahead && <span className="tool-count">{head.ahead}</span>}
           </button>
         </div>
@@ -228,7 +243,15 @@ export function RepoView({ path, command }: { path: string; command: { name: Men
       {error && <div className="banner error">{error}</div>}
 
       <Split id="sidebar" direction="row" mode="rem" initial={17} min={11} max={36}>
-        <Sidebar repo={repo} changeCount={changeCount} view={view} onView={setView} onJump={jumpTo} ops={ops} />
+        <Sidebar
+          repo={repo}
+          changeCount={changeCount}
+          view={view}
+          onView={setView}
+          onJump={jumpTo}
+          ops={ops}
+          subActions={subActions}
+        />
         {view === 'changes' ? (
           <ChangesView
             path={path}

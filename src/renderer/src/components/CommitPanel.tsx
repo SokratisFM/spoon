@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FileChange } from '../../../shared/types'
 import { fullDate, hueFor, initials } from '../format'
 import { useAsync } from '../hooks'
+import { authorColorMap, useSettings } from '../settings'
 import { Split } from './Split'
 import { FileList } from './FileList'
 import { DiffView } from './DiffView'
@@ -20,6 +21,7 @@ export function CommitPanel({ path, hash, onJump }: Props) {
   )
   const [file, setFile] = useState<FileChange | null>(null)
   const [copied, setCopied] = useState(false)
+  const authorColors = authorColorMap(useSettings())
 
   // Keep the same file selected when moving between commits that both touch it.
   useEffect(() => {
@@ -32,6 +34,8 @@ export function CommitPanel({ path, hash, onJump }: Props) {
   if (!details) return <div className="panel" />
 
   const [subject, ...body] = details.message.split('\n')
+  const authorColor =
+    authorColors?.get(details.authorName.toLowerCase()) ?? authorColors?.get(details.authorEmail.toLowerCase())
   const copyHash = (): void => {
     navigator.clipboard.writeText(details.hash)
     setCopied(true)
@@ -45,7 +49,10 @@ export function CommitPanel({ path, hash, onJump }: Props) {
           <h2 className="commit-subject">{subject}</h2>
           {body.join('\n').trim() && <pre className="commit-body">{body.join('\n').trim()}</pre>}
           <div className="commit-meta">
-            <span className="avatar large" style={{ '--hue': hueFor(details.authorEmail) } as React.CSSProperties}>
+            <span
+              className={`avatar large ${authorColor ? 'authored' : ''}`}
+              style={{ '--hue': hueFor(details.authorEmail), '--author': authorColor } as React.CSSProperties}
+            >
               {initials(details.authorName)}
             </span>
             <div className="meta-text">

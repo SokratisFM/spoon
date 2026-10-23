@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Commit, Ref, RepoState } from '../../../shared/types'
 import { LANE_COLORS, type Graph, type GraphRow } from '../graph'
 import { hueFor, initials, shortDate } from '../format'
-import { rowHeight, useSettings } from '../settings'
+import { authorColorMap, rowHeight, useSettings } from '../settings'
 import { CloudIcon, TagIcon } from './Icons'
 import type { Ops } from './RepoView'
 
@@ -61,6 +61,7 @@ function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
 export function CommitList({ commits, graph, repo, selected, onSelect, scrollTo, filter, truncated, ops }: Props) {
   const settings = useSettings()
   const rowH = rowHeight(settings)
+  const authorColors = useMemo(() => authorColorMap(settings), [settings])
   const parentRef = useRef<HTMLDivElement>(null)
   const badges = useMemo(() => badgesByCommit(repo), [repo])
 
@@ -157,6 +158,7 @@ export function CommitList({ commits, graph, repo, selected, onSelect, scrollTo,
                 row={showGraph ? graph.rows[i] : null}
                 badges={badges.get(c.hash)}
                 isHead={c.hash === repo.headHash}
+                authorColor={authorColors?.get(c.authorName.toLowerCase()) ?? authorColors?.get(c.authorEmail.toLowerCase())}
                 selected={c.hash === selected}
                 onSelect={onSelect}
                 onContextMenu={onContextMenu}
@@ -181,6 +183,7 @@ interface RowProps {
   row: GraphRow | null
   badges: Badge[] | undefined
   isHead: boolean
+  authorColor: string | undefined
   selected: boolean
   onSelect: (hash: string) => void
   onContextMenu: (c: Commit) => void
@@ -194,8 +197,15 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
   const { commit: c } = p
   return (
     <div
-      className={`commit-row ${p.selected ? 'selected' : ''} ${p.isHead ? 'is-head' : ''}`}
-      style={{ transform: `translateY(${p.top}px)`, height: p.rowH, gridTemplateColumns: p.gridTemplate }}
+      className={`commit-row ${p.selected ? 'selected' : ''} ${p.isHead ? 'is-head' : ''} ${p.authorColor ? 'authored' : ''}`}
+      style={
+        {
+          transform: `translateY(${p.top}px)`,
+          height: p.rowH,
+          gridTemplateColumns: p.gridTemplate,
+          '--author': p.authorColor
+        } as React.CSSProperties
+      }
       onMouseDown={() => p.onSelect(c.hash)}
       onContextMenu={(e) => {
         e.preventDefault()
@@ -203,7 +213,9 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
       }}
     >
       <span className="cell subject">
-        {p.row && <GraphCell row={p.row} rowH={p.rowH} laneW={p.laneW} isHead={p.isHead} />}
+        {p.row && (
+          <GraphCell row={p.row} rowH={p.rowH} laneW={p.laneW} isHead={p.isHead} nodeColor={p.authorColor} />
+        )}
         {p.badges?.map((b) => (
           <span key={b.key} className={`ref-badge ${b.kind} ${b.current ? 'current' : ''}`}>
             {b.kind === 'tag' && <TagIcon />}
@@ -234,12 +246,15 @@ function GraphCell({
   row,
   rowH,
   laneW,
-  isHead
+  isHead,
+  nodeColor
 }: {
   row: GraphRow
   rowH: number
   laneW: number
   isHead: boolean
+  /** Author color, replacing the lane color on the commit dot. */
+  nodeColor?: string
 }) {
   // Each row is only as wide as its own lanes, so the text starts right after the graph (like Fork).
   const width = laneW * Math.min(row.width, MAX_GRAPH_LANES) + laneW * 0.5
@@ -262,14 +277,14 @@ function GraphCell({
         return <path key={i} d={d} stroke={color(s.color)} strokeWidth={stroke} fill="none" />
       })}
       {row.isMerge ? (
-        <circle cx={x(row.col)} cy={mid} r={r * 0.6} fill={color(row.color)} />
+        <circle cx={x(row.col)} cy={mid} r={r * 0.6} fill={nodeColor ?? color(row.color)} />
       ) : (
         <circle
           cx={x(row.col)}
           cy={mid}
           r={r}
-          fill={isHead ? 'var(--bg-list)' : color(row.color)}
-          stroke={color(row.color)}
+          fill={isHead ? 'var(--bg-list)' : (nodeColor ?? color(row.color))}
+          stroke={nodeColor ?? color(row.color)}
           strokeWidth={isHead ? stroke * 1.4 : 0}
         />
       )}

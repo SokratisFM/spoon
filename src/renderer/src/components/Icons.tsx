@@ -123,3 +123,14 @@ export const CopyIcon = (p: P) => (
     <path d="M5 15V6a2 2 0 0 1 2-2h8" />
   </Icon>
 )
+export const BoxIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
+    <path d="M4 7.5l8 4.5 8-4.5M12 12v9" />
+  </Icon>
+)
+export const BroomIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M14 4l6 6M9.5 8.5l6 6M4 20c2-1 3.5-3.5 5.5-5.5l-1-5L4 14z" />
+  </Icon>
+)

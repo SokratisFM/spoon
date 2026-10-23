@@ -13,7 +13,26 @@ function buildMenu(): void {
   const isMac = process.platform === 'darwin'
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      ...(isMac ? [{ role: 'appMenu' as const }] : []),
+      ...(isMac
+        ? [
+            {
+              label: app.name,
+              submenu: [
+                { role: 'about' as const },
+                { type: 'separator' as const },
+                { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('settings') },
+                { type: 'separator' as const },
+                { role: 'services' as const },
+                { type: 'separator' as const },
+                { role: 'hide' as const },
+                { role: 'hideOthers' as const },
+                { role: 'unhide' as const },
+                { type: 'separator' as const },
+                { role: 'quit' as const }
+              ]
+            }
+          ]
+        : []),
       {
         label: 'File',
         submenu: [
@@ -107,6 +126,10 @@ function registerIpc(): void {
   )
   ipcMain.handle('repo:checkout', (_e, path: string, target: CheckoutTarget) => git.checkout(path, target))
   ipcMain.handle('repo:syncInfo', (_e, path: string) => git.syncInfo(path))
+  ipcMain.handle('repo:updateSubmodule', (_e, path: string, sub: string) => git.updateSubmodule(path, sub))
+  ipcMain.handle('repo:deleteBranches', (_e, path: string, names: string[], force: boolean) =>
+    git.deleteBranches(path, names, force)
+  )
 
   // Network operations stream git's progress lines back to the window that started them.
   const progress = (e: Electron.IpcMainInvokeEvent, path: string) => (line: string) =>

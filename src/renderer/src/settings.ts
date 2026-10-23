@@ -1,20 +1,39 @@
 // User-adjustable appearance. The whole UI is sized in rem, so changing the root font size
 // (uiScale) scales every element; row heights are derived from the same numbers.
 import { useSyncExternalStore } from 'react'
+import { resolveTheme, type BaseThemeChoice, type ColorKey, type ThemeChoice, type ThemeDef } from './themes'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
-export type Theme = 'system' | 'dark' | 'light'
+
+export interface AuthorColor {
+  name: string // author name (or email), matched case-insensitively
+  color: string
+}
 
 export interface Settings {
   uiScale: number // 0.8 – 2.0, multiplies everything
   codeSize: number // diff font size in px at 100% scale
   density: Density
-  theme: Theme
+  theme: ThemeChoice
+  /** The theme the Custom theme starts from; customColors override its colors. */
+  customBase: BaseThemeChoice
+  customColors: Partial<Record<ColorKey, string>>
+  authorColorsEnabled: boolean
+  authorColors: AuthorColor[]
 }
 
 const BASE_FONT_PX = 13
 const KEY = 'spoon.settings'
-const DEFAULTS: Settings = { uiScale: 1.15, codeSize: 12.5, density: 'comfortable', theme: 'system' }
+const DEFAULTS: Settings = {
+  uiScale: 1.15,
+  codeSize: 12.5,
+  density: 'comfortable',
+  theme: 'system',
+  customBase: 'spoon-dark',
+  customColors: {},
+  authorColorsEnabled: false,
+  authorColors: []
+}
 
 export const SCALE_MIN = 0.8
 export const SCALE_MAX = 2.0
@@ -24,11 +43,24 @@ const DENSITY_ROW: Record<Density, number> = { compact: 1.85, comfortable: 2.3, 
 
 function load(): Settings {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
+    const s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
+    // Themes from before named themes existed.
+    if ((s.theme as string) === 'dark') s.theme = 'spoon-dark'
+    if ((s.theme as string) === 'light') s.theme = 'spoon-light'
+    return s
   } catch {
     return DEFAULTS
   }
 }
+
+/** The theme currently on screen, with custom colors applied. */
+export function activeTheme(s: Settings): ThemeDef {
+  if (s.theme !== 'custom') return resolveTheme(s.theme)
+  const base = resolveTheme(s.customBase)
+  return { ...base, name: 'Custom', colors: { ...base.colors, ...s.customColors } }
+}
+
+let appliedExtra: string[] = []
 
 let current = load()
 const listeners = new Set<() => void>()
@@ -39,10 +71,20 @@ function apply(s: Settings): void {
   root.style.setProperty('--code-size', `${(s.codeSize * s.uiScale).toFixed(2)}px`)
   root.style.setProperty('--row-h', `${rowHeight(s)}px`)
   root.dataset.density = s.density
-  if (s.theme === 'system') delete root.dataset.theme
-  else root.dataset.theme = s.theme
+
+  const theme = activeTheme(s)
+  for (const [key, value] of Object.entries(theme.colors)) root.style.setProperty(`--${key}`, value)
+  appliedExtra.forEach((k) => root.style.removeProperty(k))
+  appliedExtra = Object.keys(theme.extra ?? {})
+  for (const [k, v] of Object.entries(theme.extra ?? {})) root.style.setProperty(k, v)
+  root.style.colorScheme = theme.scheme
 }
 apply(current)
+// "System" and "Claude" follow the macOS appearance.
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  apply(current)
+  listeners.forEach((l) => l())
+})
 
 export function updateSettings(patch: Partial<Settings>): void {
   current = { ...current, ...patch }
@@ -83,4 +125,10 @@ export function codeLineHeight(s: Settings): number {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v))
+}
+
+/** Color for a commit author, if author coloring is on and the author is listed. */
+export function authorColorMap(s: Settings): Map<string, string> | null {
+  if (!s.authorColorsEnabled || s.authorColors.length === 0) return null
+  return new Map(s.authorColors.filter((a) => a.name.trim()).map((a) => [a.name.trim().toLowerCase(), a.color]))
 }

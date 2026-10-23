@@ -1,8 +1,11 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { Ref, RepoState } from '../../../shared/types'
+import { submoduleStatus, type SubmoduleActions } from './Submodules'
 import { usePersistentState } from '../hooks'
 import type { Ops, View } from './RepoView'
 import {
+  BoxIcon,
+  BroomIcon,
   BranchIcon,
   ChangesIcon,
   CheckIcon,
@@ -22,6 +25,7 @@ interface Props {
   onView: (v: View) => void
   onJump: (hash: string) => void
   ops: Ops
+  subActions: SubmoduleActions
 }
 
 interface TreeNode {
@@ -55,7 +59,7 @@ function buildTree(refs: Ref[], strip = 0): TreeNode[] {
   return sort(root.children)
 }
 
-export function Sidebar({ repo, changeCount, view, onView, onJump, ops }: Props) {
+export function Sidebar({ repo, changeCount, view, onView, onJump, ops, subActions }: Props) {
   const checkoutRef = (ref: Ref): void => {
     if (ref.kind === 'head') {
       if (ref.name !== repo.headBranch) ops.checkout({ kind: 'branch', name: ref.name }, ref.name)
@@ -107,6 +111,17 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops }: Props)
     return { branches: buildTree(heads), remotes: byRemote, tags: tagRefs }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo, q])
+
+  // Stale = local branches that are safe to drop locally: their origin branch was deleted,
+  // or they match it exactly. The checked-out branch is never stale.
+  const stale = repo.refs.filter(
+    (r): r is Ref =>
+      r.kind === 'head' &&
+      r.name !== repo.headBranch &&
+      !!r.upstream &&
+      (r.gone === true || (!r.ahead && !r.behind)) &&
+      match(r)
+  )
 
   const stashes = repo.stashes.filter((s) => !q || s.message.toLowerCase().includes(q))
 
@@ -181,6 +196,35 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops }: Props)
       </div>
 
       <div className="side-scroll">
+        {repo.submodules.length > 0 &&
+          section(
+            'submodules',
+            'Submodules',
+            repo.submodules.length,
+            repo.submodules
+              .filter((sm) => !q || sm.path.toLowerCase().includes(q))
+              .map((sm) => {
+                const st = submoduleStatus(sm)
+                return (
+                  <div
+                    key={sm.path}
+                    className="side-item"
+                    style={{ paddingLeft: '1.85rem' }}
+                    title={`${sm.path} · ${sm.branch ?? sm.hash.slice(0, 7)} · ${st.label}\nDouble-click to open in a new tab`}
+                    onDoubleClick={() => sm.state !== 'uninitialized' && subActions.open(sm)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      subActions.menu(sm)
+                    }}
+                  >
+                    <BoxIcon />
+                    <span className="side-label">{sm.name}</span>
+                    <span className={`tone-dot ${st.tone}`} title={st.label} />
+                  </div>
+                )
+              })
+          )}
+
         {section(
           'branches',
           'Branches',
@@ -242,7 +286,92 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops }: Props)
             </div>
           ))
         )}
+
+        {section(
+          'stale',
+          'Stale',
+          stale.length,
+          <StaleBranches stale={stale} path={repo.path} ops={ops} onJump={onJump} />
+        )}
       </div>
     </nav>
+  )
+}
+
+function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: string; ops: Ops; onJump: (h: string) => void }) {
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const names = stale.map((r) => r.name)
+  const selected = names.filter((n) => picked.has(n))
+  const all = selected.length === names.length && names.length > 0
+
+  const toggle = (name: string): void =>
+    setPicked((p) => {
+      const next = new Set(p)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+
+  const remove = async (): Promise<void> => {
+    const list = selected.length > 12 ? `${selected.slice(0, 12).join('\n')}\n…and ${selected.length - 12} more` : selected.join('\n')
+    const ok = await window.spoon.confirm({
+      message: `Delete ${selected.length} local branch${selected.length === 1 ? '' : 'es'}?`,
+      detail: `${list}\n\nOnly the local branches are deleted; nothing on the remote changes.`,
+      confirmLabel: 'Delete'
+    })
+    if (!ok) return
+    await ops.run(
+      'Deleting branches…',
+      async () => {
+        const res = await window.spoon.deleteBranches(path, selected, false)
+        if (res.unmerged.length === 0) return
+        const force = await window.spoon.confirm({
+          message: `${res.unmerged.length} branch${res.unmerged.length === 1 ? ' has' : 'es have'} commits that aren’t on any other branch`,
+          detail: `${res.unmerged.join('\n')}\n\nDeleting will drop those commits (git keeps them in the reflog for a while).`,
+          confirmLabel: 'Delete anyway'
+        })
+        if (force) await window.spoon.deleteBranches(path, res.unmerged, true)
+      },
+      'Delete failed'
+    )
+    setPicked(new Set())
+  }
+
+  if (stale.length === 0)
+    return <div className="side-empty">No stale branches. Fetch to check for deleted remotes.</div>
+
+  return (
+    <div className="stale">
+      <label className="side-item stale-all" style={{ paddingLeft: '1.85rem' }}>
+        <input type="checkbox" checked={all} onChange={() => setPicked(all ? new Set() : new Set(names))} />
+        <span className="side-label muted">Select all</span>
+      </label>
+      {stale.map((r) => (
+        <label
+          key={r.fullName}
+          className="side-item"
+          style={{ paddingLeft: '1.85rem' }}
+          title={`${r.name} → ${r.upstream}`}
+          onDoubleClick={() => onJump(r.target)}
+        >
+          <input type="checkbox" checked={picked.has(r.name)} onChange={() => toggle(r.name)} />
+          <span className="side-label">{r.name}</span>
+          {r.gone ? (
+            <span className="badge danger" title="The origin branch was deleted">
+              gone
+            </span>
+          ) : (
+            <span className="badge" title="Identical to its origin branch">
+              synced
+            </span>
+          )}
+        </label>
+      ))}
+      <div className="stale-actions">
+        <button className="btn danger" disabled={selected.length === 0} onClick={remove}>
+          <BroomIcon /> Delete {selected.length || ''}
+        </button>
+      </div>
+    </div>
   )
 }

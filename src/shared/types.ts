@@ -40,6 +40,23 @@ export interface RepoState {
   stashes: Stash[]
   remotes: string[]
   operation: string | null // "MERGING", "REBASING", ...
+  submodules: Submodule[]
+}
+
+export interface Submodule {
+  path: string // relative to the parent repo
+  name: string // last path segment
+  hash: string // checked-out commit
+  branch: string | null // null when detached (the usual state for submodules)
+  /** uninitialized: not cloned yet; outdated: checked-out commit differs from the one the parent records */
+  state: 'ok' | 'uninitialized' | 'outdated' | 'conflict'
+  dirty: boolean // uncommitted changes inside the submodule
+}
+
+export interface DeleteResult {
+  deleted: string[]
+  /** Branches git refused to delete with -d because their commits exist nowhere else. */
+  unmerged: string[]
 }
 
 export type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | '?'
@@ -135,6 +152,8 @@ export interface SpoonApi {
   checkout(path: string, target: CheckoutTarget): Promise<void>
   syncInfo(path: string): Promise<SyncInfo>
   fetch(path: string, prune: boolean): Promise<void>
+  updateSubmodule(path: string, submodulePath: string): Promise<void>
+  deleteBranches(path: string, names: string[], force: boolean): Promise<DeleteResult>
   pull(path: string, opts: PullOptions): Promise<void>
   push(path: string, opts: PushOptions): Promise<void>
   /** Progress lines from the running fetch/pull/push of a repo. */
@@ -156,3 +175,4 @@ export type MenuCommand =
   | 'pull'
   | 'push'
   | 'commit'
+  | 'settings'
