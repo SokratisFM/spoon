@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8fa2ff"/>
+      <stop offset="0.55" stop-color="#5b67ea"/>
+      <stop offset="1" stop-color="#3a2f9e"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dfe4ff"/>
+    </linearGradient>
+    <filter id="drop" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#0b0b2a" flood-opacity="0.35"/>
+    </filter>
+    <filter id="glyph" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#1b1660" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- macOS icon grid: 824×824 body centered on a 1024 canvas -->
+  <g filter="url(#drop)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  </g>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#shine)"/>
+
+  <!-- the spoon: bowl + handle, tilted; the handle doubles as a branch line with commits -->
+  <g transform="translate(24 20) rotate(-38 512 512)" filter="url(#glyph)">
+    <ellipse cx="512" cy="330" rx="128" ry="168" fill="url(#metal)"/>
+    <ellipse cx="490" cy="300" rx="62" ry="96" fill="#ffffff" opacity="0.55"/>
+    <path d="M512 470 L512 800" stroke="#eef1ff" stroke-width="64" stroke-linecap="round"/>
+    <circle cx="512" cy="600" r="30" fill="#5b67ea"/>
+    <circle cx="512" cy="600" r="14" fill="#ffffff"/>
+    <circle cx="512" cy="730" r="30" fill="#4b4fcf"/>
+    <circle cx="512" cy="730" r="14" fill="#ffffff"/>
+  </g>
+</svg>

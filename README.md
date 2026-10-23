@@ -10,6 +10,18 @@ npm run dev      # hot-reloading dev build
 npm run build && npx electron .   # production build
 ```
 
+## Install as a Mac app
+
+```bash
+npm run install:mac
+```
+
+Builds `Spoon.app` and copies it to `/Applications`, so it opens from Spotlight, Launchpad or the Dock.
+Run it again after pulling changes to update the installed app. The app is ad-hoc signed (no Apple
+certificate needed); the build copy goes to `dist.noindex/` so Spotlight lists only the installed one.
+
+To change the icon, edit `build/icon.svg` and run `npm run icon`.
+
 ## Resizing the UI
 
 - **⌘+ / ⌘− / ⌘0** scale the whole interface (80%–200%).
