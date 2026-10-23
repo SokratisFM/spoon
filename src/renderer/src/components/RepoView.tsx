@@ -1,0 +1,275 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CheckoutTarget, Commit, MenuCommand, RepoState, WorkingTree } from '../../../shared/types'
+import { buildGraph } from '../graph'
+import { cleanError, usePersistentState } from '../hooks'
+import { Split } from './Split'
+import { Sidebar } from './Sidebar'
+import { CommitList } from './CommitList'
+import { CommitPanel } from './CommitPanel'
+import { ChangesView } from './ChangesView'
+import { ErrorModal } from './Modal'
+import { PullDialog, PushDialog } from './SyncDialogs'
+import { FetchIcon, PullIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
+
+const LOG_LIMIT = 5000
+
+export type View = 'history' | 'changes'
+
+/** Repo-level actions handed to child views. */
+export interface Ops {
+  /** Runs after any operation already in flight, refreshes afterwards, shows git's error on failure. */
+  run: (label: string, fn: () => Promise<unknown>, failTitle: string) => Promise<boolean>
+  checkout: (target: CheckoutTarget, description: string) => void
+}
+
+interface Busy {
+  label: string
+  network: boolean
+  progress?: string
+}
+
+export function RepoView({ path, command }: { path: string; command: { name: MenuCommand; n: number } | null }) {
+  const [repo, setRepo] = useState<RepoState | null>(null)
+  const [commits, setCommits] = useState<Commit[]>([])
+  const [tree, setTree] = useState<WorkingTree>({ staged: [], unstaged: [] })
+  const [error, setError] = useState<string | null>(null)
+  const [view, setView] = usePersistentState<View>(`spoon.view.${path}`, 'history')
+  const [selected, setSelected] = useState<string | null>(null)
+  const [scrollTo, setScrollTo] = useState<{ hash: string; n: number } | null>(null)
+  const [filter, setFilter] = useState('')
+  const [busy, setBusy] = useState<Busy | null>(null)
+  const [opError, setOpError] = useState<{ title: string; message: string } | null>(null)
+  const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
+  const [commitRequest, setCommitRequest] = useState(0)
+  const clearCommitRequest = useCallback(() => setCommitRequest(0), [])
+  const refsSignature = useRef('')
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+
+  const load = useCallback(async () => {
+    try {
+      const [r, t] = await Promise.all([window.spoon.openRepo(path), window.spoon.workingTree(path)])
+      setRepo(r)
+      setTree(t)
+      setError(null)
+      // Only re-read history when a ref moved; status refreshes are cheap and frequent.
+      const sig = `${r.headHash}|${r.refs.map((x) => x.fullName + x.target).join(',')}`
+      if (sig !== refsSignature.current) {
+        refsSignature.current = sig
+        const log = await window.spoon.log(path, LOG_LIMIT)
+        setCommits(log)
+        setSelected((s) => (s && log.some((c) => c.hash === s) ? s : r.headHash))
+      }
+    } catch (err) {
+      setError(cleanError(err))
+    }
+  }, [path])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  useEffect(() => {
+    window.addEventListener('focus', load)
+    return () => window.removeEventListener('focus', load)
+  }, [load])
+
+  useEffect(
+    () =>
+      window.spoon.onProgress((repoPath, line) => {
+        if (repoPath === path) setBusy((b) => (b ? { ...b, progress: line } : b))
+      }),
+    [path]
+  )
+
+  const run = useCallback<Ops['run']>(
+    (label, fn, failTitle) => {
+      const network = /^(Fetch|Pull|Push)/.test(label)
+      // Serialize git writes so quick clicks never collide on index.lock.
+      const task = queue.current.then(async () => {
+        setBusy({ label, network })
+        try {
+          await fn()
+          return true
+        } catch (err) {
+          setOpError({ title: failTitle, message: cleanError(err) })
+          return false
+        } finally {
+          setBusy(null)
+          await load()
+        }
+      })
+      queue.current = task
+      return task
+    },
+    [load]
+  )
+
+  const checkout = useCallback<Ops['checkout']>(
+    async (target, description) => {
+      if (target.kind === 'commit') {
+        const ok = await window.spoon.confirm({
+          message: `Check out ${description}?`,
+          detail: 'This puts the repository in detached HEAD state. New commits won’t belong to any branch until you create one.',
+          confirmLabel: 'Checkout'
+        })
+        if (!ok) return
+      }
+      run(`Checking out ${description}…`, () => window.spoon.checkout(path, target), 'Checkout failed')
+    },
+    [path, run]
+  )
+
+  const ops = useMemo<Ops>(() => ({ run, checkout }), [run, checkout])
+
+  const fetchAll = (): void => {
+    run('Fetching…', () => window.spoon.fetch(path, false), 'Fetch failed')
+  }
+
+  useEffect(() => {
+    if (!command) return
+    if (command.name === 'refresh') load()
+    else if (command.name === 'fetch') fetchAll()
+    else if (command.name === 'pull') setDialog('pull')
+    else if (command.name === 'push') setDialog('push')
+    else if (command.name === 'commit') {
+      setView('changes')
+      setCommitRequest(Date.now())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [command])
+
+  const graph = useMemo(() => buildGraph(commits), [commits])
+
+  const jumpTo = (hash: string): void => {
+    setView('history')
+    setFilter('')
+    setSelected(hash)
+    setScrollTo({ hash, n: Date.now() })
+  }
+
+  if (error && !repo) {
+    return (
+      <div className="empty-state">
+        <p>Couldn’t open this repository.</p>
+        <pre>{error}</pre>
+        <button className="btn" onClick={load}>
+          Try again
+        </button>
+      </div>
+    )
+  }
+  if (!repo) return <div className="empty-state muted">Loading…</div>
+
+  const changeCount = new Set([...tree.staged, ...tree.unstaged].map((f) => f.path)).size
+  const head = repo.refs.find((r) => r.kind === 'head' && r.name === repo.headBranch)
+  const networkBusy = !!busy?.network
+
+  return (
+    <div className="repo">
+      <div className="toolbar">
+        <div className="toolbar-repo">
+          <span className="repo-name">{repo.name}</span>
+          <span className="branch-chip" title={repo.headHash ?? ''}>
+            {repo.headBranch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
+          </span>
+          {repo.operation && <span className="op-chip">{repo.operation}</span>}
+        </div>
+
+        <div className="toolbar-actions">
+          <button className="tool-btn" disabled={networkBusy} onClick={fetchAll} title="Fetch all remotes (⇧⌘F)">
+            <FetchIcon />
+            <span>Fetch</span>
+          </button>
+          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('pull')} title="Pull (⇧⌘L)">
+            <PullIcon />
+            <span>Pull</span>
+            {!!head?.behind && <span className="tool-count">{head.behind}</span>}
+          </button>
+          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('push')} title="Push (⇧⌘P)">
+            <PushIcon />
+            <span>Push</span>
+            {!!head?.ahead && <span className="tool-count">{head.ahead}</span>}
+          </button>
+        </div>
+
+        <div className="toolbar-right">
+          {busy && (
+            <div className="activity" title={busy.progress}>
+              <span className="spinner" />
+              <span className="activity-text">
+                {busy.label}
+                {busy.progress && <span className="muted"> {busy.progress}</span>}
+              </span>
+            </div>
+          )}
+          <div className="search">
+            <SearchIcon />
+            <input
+              placeholder="Filter commits"
+              value={filter}
+              onChange={(e) => {
+                setFilter(e.target.value)
+                setView('history')
+              }}
+              onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+            />
+            {filter && (
+              <button className="icon-btn" onClick={() => setFilter('')} aria-label="Clear filter">
+                <CloseIcon />
+              </button>
+            )}
+          </div>
+          <button className="icon-btn" onClick={load} title="Refresh (⌘R)">
+            <RefreshIcon />
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="banner error">{error}</div>}
+
+      <Split id="sidebar" direction="row" mode="rem" initial={17} min={11} max={36}>
+        <Sidebar repo={repo} changeCount={changeCount} view={view} onView={setView} onJump={jumpTo} ops={ops} />
+        {view === 'changes' ? (
+          <ChangesView
+            path={path}
+            tree={tree}
+            ops={ops}
+            commitRequest={commitRequest}
+            onCommitHandled={clearCommitRequest}
+          />
+        ) : (
+          <Split id="history" direction="column" mode="fraction" initial={0.55} min={0.15} max={0.85}>
+            <CommitList
+              commits={commits}
+              graph={graph}
+              repo={repo}
+              selected={selected}
+              onSelect={setSelected}
+              scrollTo={scrollTo}
+              filter={filter}
+              truncated={commits.length >= LOG_LIMIT}
+              ops={ops}
+            />
+            <CommitPanel path={path} hash={selected} onJump={jumpTo} />
+          </Split>
+        )}
+      </Split>
+
+      {dialog === 'pull' && (
+        <PullDialog
+          path={path}
+          onClose={() => setDialog(null)}
+          onPull={(opts) => run('Pulling…', () => window.spoon.pull(path, opts), 'Pull failed')}
+        />
+      )}
+      {dialog === 'push' && (
+        <PushDialog
+          path={path}
+          onClose={() => setDialog(null)}
+          onPush={(opts) => run('Pushing…', () => window.spoon.push(path, opts), 'Push failed')}
+        />
+      )}
+      {opError && <ErrorModal title={opError.title} message={opError.message} onClose={() => setOpError(null)} />}
+    </div>
+  )
+}
