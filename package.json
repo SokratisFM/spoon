@@ -22,9 +22,11 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "dompurify": "^3.4.17",
     "electron": "^45.0.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^6.0.0",
+    "marked": "^18.1.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^5.9.3",
@@ -34,7 +36,7 @@
   "build": {
     "appId": "com.sokratis.spoon",
     "productName": "Spoon",
-    "copyright": "\u00a9 2026 Sokratis Vogiatzakis",
+    "copyright": "© 2026 Sokratis Vogiatzakis",
     "directories": {
       "output": "dist.noindex",
       "buildResources": "build"

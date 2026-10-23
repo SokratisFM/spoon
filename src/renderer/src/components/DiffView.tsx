@@ -6,7 +6,7 @@ import { codeLineHeight, useSettings } from '../settings'
 
 type LineKind = 'hunk' | 'add' | 'del' | 'ctx' | 'note'
 
-interface Line {
+export interface Line {
   kind: LineKind
   text: string
   oldNo?: number
@@ -26,7 +26,7 @@ interface Parsed {
   maxLen: number
 }
 
-function parseDiff(text: string): Parsed {
+export function parseDiff(text: string): Parsed {
   const lines: Line[] = []
   let oldNo = 0
   let newNo = 0

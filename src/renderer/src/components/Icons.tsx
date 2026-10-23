@@ -134,3 +134,16 @@ export const BroomIcon = (p: P) => (
     <path d="M14 4l6 6M9.5 8.5l6 6M4 20c2-1 3.5-3.5 5.5-5.5l-1-5L4 14z" />
   </Icon>
 )
+export const PullRequestIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="6" cy="5" r="2.2" />
+    <circle cx="6" cy="19" r="2.2" />
+    <circle cx="18" cy="19" r="2.2" />
+    <path d="M6 7.2v9.6M18 16.8V9a3 3 0 0 0-3-3h-4M13 3.5L10.5 6 13 8.5" />
+  </Icon>
+)
+export const BackIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M15 6l-6 6 6 6" />
+  </Icon>
+)

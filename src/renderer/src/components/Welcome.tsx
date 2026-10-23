@@ -1,21 +1,27 @@
-import { CloseIcon, FolderIcon } from './Icons'
+import { CloseIcon, FolderIcon, SearchIcon } from './Icons'
 
 interface Props {
   recents: string[]
   onPick: () => void
   onOpen: (path: string) => void
   onForget: (path: string) => void
+  onSearch: () => void
 }
 
-export function Welcome({ recents, onPick, onOpen, onForget }: Props) {
+export function Welcome({ recents, onPick, onOpen, onForget, onSearch }: Props) {
   return (
     <div className="welcome">
       <div className="welcome-card">
         <h1>Spoon</h1>
         <p className="muted">Open a git repository to get started.</p>
-        <button className="btn primary large" onClick={onPick}>
-          <FolderIcon /> Open Repository… <kbd>⌘O</kbd>
-        </button>
+        <div className="welcome-actions">
+          <button className="btn primary large" onClick={onPick}>
+            <FolderIcon /> Open Repository… <kbd>⌘O</kbd>
+          </button>
+          <button className="btn large" onClick={onSearch}>
+            <SearchIcon /> Find Project <kbd className="soft">Tab</kbd>
+          </button>
+        </div>
 
         {recents.length > 0 && (
           <>

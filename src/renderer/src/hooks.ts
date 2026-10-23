@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import * as storage from './storage'
 
 export function readStored<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key)
+    const raw = storage.getItem(key)
     return raw === null ? fallback : (JSON.parse(raw) as T)
   } catch {
     return fallback
@@ -11,7 +12,7 @@ export function readStored<T>(key: string, fallback: T): T {
 
 function writeStored(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value))
+    storage.setItem(key, JSON.stringify(value))
   } catch {
     // storage unavailable; keep in memory only
   }

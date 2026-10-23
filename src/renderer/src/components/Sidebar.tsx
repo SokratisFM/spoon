@@ -1,5 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import type { Ref, RepoState } from '../../../shared/types'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { useSettings, type SidebarSection } from '../settings'
+import type { PullSummary, Ref, RepoState } from '../../../shared/types'
 import { submoduleStatus, type SubmoduleActions } from './Submodules'
 import { usePersistentState } from '../hooks'
 import type { Ops, View } from './RepoView'
@@ -13,6 +14,7 @@ import {
   CloudIcon,
   FolderIcon,
   HistoryIcon,
+  PullRequestIcon,
   SearchIcon,
   StashIcon,
   TagIcon
@@ -26,6 +28,11 @@ interface Props {
   onJump: (hash: string) => void
   ops: Ops
   subActions: SubmoduleActions
+  /** null until loaded; undefined when the repo has no GitHub remote. */
+  prs: PullSummary[] | null | undefined
+  prError: string | null
+  selectedPr: number | null
+  onSelectPr: (n: number) => void
 }
 
 interface TreeNode {
@@ -59,7 +66,9 @@ function buildTree(refs: Ref[], strip = 0): TreeNode[] {
   return sort(root.children)
 }
 
-export function Sidebar({ repo, changeCount, view, onView, onJump, ops, subActions }: Props) {
+export function Sidebar(props: Props) {
+  const { repo, changeCount, view, onView, onJump, ops, subActions, prs, prError, selectedPr, onSelectPr } = props
+  const settings = useSettings()
   const checkoutRef = (ref: Ref): void => {
     if (ref.kind === 'head') {
       if (ref.name !== repo.headBranch) ops.checkout({ kind: 'branch', name: ref.name }, ref.name)
@@ -176,27 +185,9 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops, subActio
     </div>
   )
 
-  return (
-    <nav className="sidebar">
-      <div className="side-nav">
-        <div className={`side-item nav ${view === 'changes' ? 'selected' : ''}`} onClick={() => onView('changes')}>
-          <ChangesIcon />
-          <span className="side-label">Local Changes</span>
-          {changeCount > 0 && <span className="badge accent">{changeCount}</span>}
-        </div>
-        <div className={`side-item nav ${view === 'history' ? 'selected' : ''}`} onClick={() => onView('history')}>
-          <HistoryIcon />
-          <span className="side-label">All Commits</span>
-        </div>
-      </div>
-
-      <div className="side-filter">
-        <SearchIcon />
-        <input placeholder="Filter" value={query} onChange={(e) => setQuery(e.target.value)} />
-      </div>
-
-      <div className="side-scroll">
-        {repo.submodules.length > 0 &&
+  const blocks: Record<SidebarSection, ReactNode> = {
+    submodules:
+      repo.submodules.length > 0 &&
           section(
             'submodules',
             'Submodules',
@@ -223,16 +214,16 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops, subActio
                   </div>
                 )
               })
-          )}
+          ),
 
-        {section(
+    branches: section(
           'branches',
           'Branches',
           repo.refs.filter((r) => r.kind === 'head').length,
           renderTree(branches, 1, 'b')
-        )}
+        ),
 
-        {section(
+    remotes: section(
           'remotes',
           'Remotes',
           repo.remotes.length,
@@ -249,9 +240,9 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops, subActio
               </div>
             )
           })
-        )}
+        ),
 
-        {section(
+    tags: section(
           'tags',
           'Tags',
           repo.refs.filter((r) => r.kind === 'tag').length,
@@ -268,9 +259,9 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops, subActio
               <span className="side-label">{t.name}</span>
             </div>
           ))
-        )}
+        ),
 
-        {section(
+    stashes: section(
           'stashes',
           'Stashes',
           repo.stashes.length,
@@ -285,14 +276,53 @@ export function Sidebar({ repo, changeCount, view, onView, onJump, ops, subActio
               <span className="side-label">{s.message.replace(/^(WIP )?[Oo]n [^:]+: /, '')}</span>
             </div>
           ))
-        )}
+        ),
 
-        {section(
+    stale: section(
           'stale',
           'Stale',
           stale.length,
           <StaleBranches stale={stale} path={repo.path} ops={ops} onJump={onJump} />
+        ),
+  }
+
+  return (
+    <nav className="sidebar">
+      <div className="side-nav">
+        <div className={`side-item nav ${view === 'changes' ? 'selected' : ''}`} onClick={() => onView('changes')}>
+          <ChangesIcon />
+          <span className="side-label">Local Changes</span>
+          {changeCount > 0 && <span className="badge accent">{changeCount}</span>}
+        </div>
+        <div className={`side-item nav ${view === 'history' ? 'selected' : ''}`} onClick={() => onView('history')}>
+          <HistoryIcon />
+          <span className="side-label">All Commits</span>
+        </div>
+        {prs !== undefined && (
+          <div className={`side-item nav ${view === 'prs' ? 'selected' : ''}`} onClick={() => onView('prs')}>
+            <PullRequestIcon />
+            <span className="side-label">Pull Requests</span>
+            {!!prs?.filter((p) => p.reviewRequested).length && (
+              <span className="badge warn" title="Waiting for your review">
+                {prs.filter((p) => p.reviewRequested).length}
+              </span>
+            )}
+          </div>
         )}
+        {view === 'prs' && <PullList prs={prs ?? null} error={prError} selected={selectedPr} onSelect={onSelectPr} />}
+      </div>
+
+      <div className="side-filter">
+        <SearchIcon />
+        <input placeholder="Filter" value={query} onChange={(e) => setQuery(e.target.value)} />
+      </div>
+
+      <div className="side-scroll">
+        {settings.sidebarSections
+          .filter((x) => x.visible)
+          .map((x) => (
+            <Fragment key={x.id}>{blocks[x.id]}</Fragment>
+          ))}
       </div>
     </nav>
   )
@@ -372,6 +402,50 @@ function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: strin
           <BroomIcon /> Delete {selected.length || ''}
         </button>
       </div>
+    </div>
+  )
+}
+
+function PullList({
+  prs,
+  error,
+  selected,
+  onSelect
+}: {
+  prs: PullSummary[] | null
+  error: string | null
+  selected: number | null
+  onSelect: (n: number) => void
+}) {
+  if (error) return <div className="side-empty error-text">{error}</div>
+  if (!prs) return <div className="side-empty">Loading pull requests…</div>
+  if (prs.length === 0) return <div className="side-empty">No open pull requests.</div>
+  const groups: [string, PullSummary[]][] = [
+    ['Review requested', prs.filter((p) => p.reviewRequested)],
+    ['Yours', prs.filter((p) => p.mine && !p.reviewRequested)],
+    ['Others', prs.filter((p) => !p.mine && !p.reviewRequested)]
+  ]
+  return (
+    <div className="pr-list">
+      {groups
+        .filter(([, list]) => list.length)
+        .map(([title, list]) => (
+          <div key={title}>
+            <div className="pr-group">{title}</div>
+            {list.map((p) => (
+              <div
+                key={p.number}
+                className={`pr-item ${selected === p.number ? 'selected' : ''}`}
+                onClick={() => onSelect(p.number)}
+                title={`${p.title}\n${p.headRef} → ${p.baseRef}`}
+              >
+                <span className={`pr-num ${p.draft ? 'draft' : ''}`}>#{p.number}</span>
+                <span className="side-label">{p.title}</span>
+                <img className="gh-avatar" src={p.author.avatarUrl} alt={p.author.login} title={p.author.login} />
+              </div>
+            ))}
+          </div>
+        ))}
     </div>
   )
 }

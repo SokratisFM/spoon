@@ -4,47 +4,97 @@ import { cleanError, usePersistentState } from './hooks'
 import { resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
 import { RepoView } from './components/RepoView'
 import { SettingsPopover } from './components/SettingsPopover'
-import { SettingsWindow } from './components/SettingsWindow'
+import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { Welcome } from './components/Welcome'
-import { CloseIcon, PlusIcon, TextSizeIcon } from './components/Icons'
+import { ProjectPalette } from './components/ProjectPalette'
+import { CloseIcon, FolderIcon, PlusIcon, SearchIcon, TextSizeIcon } from './components/Icons'
+import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 
 export function App() {
   const settings = useSettings()
   const [tabs, setTabs] = usePersistentState<string[]>('spoon.tabs', [])
   const [active, setActive] = usePersistentState<string | null>('spoon.activeTab', null)
-  const [recents, setRecents] = usePersistentState<string[]>('spoon.recents', [])
+  const projects = useProjects()
+  const [palette, setPalette] = useState(false)
+  const [currentMissing, setCurrentMissing] = useState(false)
   const [command, setCommand] = useState<{ name: MenuCommand; n: number } | null>(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [settingsWindow, setSettingsWindow] = useState(false)
+  const [settingsWindow, setSettingsWindow] = useState<false | SettingsTab>(false)
   const [toast, setToast] = useState<string | null>(null)
 
   const current = active && tabs.includes(active) ? active : null
 
+  const dropTab = useCallback(
+    (path: string) => {
+      setTabs((t) => {
+        const i = t.indexOf(path)
+        const next = t.filter((p) => p !== path)
+        setActive((a) => (a === path ? (next[Math.min(i, next.length - 1)] ?? null) : a))
+        return next
+      })
+    },
+    [setTabs, setActive]
+  )
+
   const openRepo = useCallback(
-    async (path: string) => {
+    async (path: string): Promise<void> => {
+      const [exists] = await window.spoon.pathsExist([path])
+      if (!exists) return resolveMissing(path)
       try {
         const repo = await window.spoon.openRepo(path)
+        if (repo.path !== path) forgetProject(path) // opened a subfolder: remember the repo root instead
         setTabs((t) => (t.includes(repo.path) ? t : [...t, repo.path]))
-        setRecents((r) => [repo.path, ...r.filter((p) => p !== repo.path)].slice(0, 12))
+        rememberProject(repo.path)
         setActive(repo.path)
       } catch (err) {
         setToast(cleanError(err))
       }
     },
-    [setTabs, setRecents, setActive]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setTabs, setActive]
   )
+
+  /** Like Fork: a project that's gone can be removed from the list or pointed at its new location. */
+  const resolveMissing = async (path: string): Promise<void> => {
+    const choice = await window.spoon.missingProject(path)
+    if (choice === 'remove') {
+      forgetProject(path)
+      dropTab(path)
+    } else if (choice === 'locate') {
+      const found = await window.spoon.pickFolder(`Locate ${projectName(path)}`)
+      if (!found) return
+      forgetProject(path)
+      dropTab(path)
+      openRepo(found)
+    }
+  }
 
   const pickRepo = useCallback(async () => {
     const path = await window.spoon.pickRepo()
     if (path) openRepo(path)
   }, [openRepo])
 
-  const closeTab = (path: string): void => {
-    const i = tabs.indexOf(path)
-    const next = tabs.filter((p) => p !== path)
-    setTabs(next)
-    if (current === path) setActive(next[Math.min(i, next.length - 1)] ?? null)
-  }
+  // A tab restored at startup may point at a folder that has since been moved or deleted.
+  useEffect(() => {
+    if (!current) return setCurrentMissing(false)
+    window.spoon.pathsExist([current]).then(([ok]) => setCurrentMissing(!ok))
+  }, [current])
+
+  // Tab opens the project palette, unless you're typing or a dialog is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab' || e.metaKey || e.ctrlKey || e.altKey || palette) return
+      const t = e.target as HTMLElement
+      if (t.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (document.querySelector('.modal-backdrop, .popover')) return
+      e.preventDefault()
+      setPalette(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [palette])
+
+  const closeTab = (path: string): void => dropTab(path)
 
   useEffect(
     () =>
@@ -53,7 +103,7 @@ export function App() {
         else if (cmd === 'zoom-out') updateSettings({ uiScale: settings.uiScale - SCALE_STEP })
         else if (cmd === 'zoom-reset') resetScale()
         else if (cmd === 'open-repo') pickRepo()
-        else if (cmd === 'settings') setSettingsWindow(true)
+        else if (cmd === 'settings') setSettingsWindow('appearance')
         else setCommand({ name: cmd, n: Date.now() }) // repo-level commands go to the active RepoView
       }),
     [settings.uiScale, pickRepo]
@@ -95,6 +145,9 @@ export function App() {
           </button>
         </div>
         <div className="titlebar-right">
+          <button className="icon-btn" onClick={() => setPalette(true)} title="Go to project (Tab)">
+            <SearchIcon />
+          </button>
           <button
             className={`icon-btn ${showSettings ? 'on' : ''}`}
             onClick={() => setShowSettings((s) => !s)}
@@ -109,24 +162,49 @@ export function App() {
             onClose={() => setShowSettings(false)}
             onMore={() => {
               setShowSettings(false)
-              setSettingsWindow(true)
+              setSettingsWindow('appearance')
             }}
           />
         )}
       </header>
 
-      {current ? (
-        <RepoView key={current} path={current} command={command} onOpenRepo={openRepo} />
+      {current && currentMissing ? (
+        <div className="empty-state">
+          <FolderIcon className="icon big-icon" />
+          <p>
+            <b>{projectName(current)}</b> can’t be found.
+          </p>
+          <p className="muted">{current}</p>
+          <div className="form-row">
+            <button className="btn" onClick={() => resolveMissing(current)}>
+              Remove or locate…
+            </button>
+            <button className="btn" onClick={() => dropTab(current)}>
+              Close tab
+            </button>
+          </div>
+        </div>
+      ) : current ? (
+        <RepoView
+          key={current}
+          path={current}
+          command={command}
+          onOpenRepo={openRepo}
+          onOpenSettings={(tab) => setSettingsWindow(tab)}
+        />
       ) : (
         <Welcome
-          recents={recents}
+          recents={projects.slice(0, 12).map((p) => p.path)}
           onPick={pickRepo}
           onOpen={openRepo}
-          onForget={(p) => setRecents((r) => r.filter((x) => x !== p))}
+          onForget={forgetProject}
+          onSearch={() => setPalette(true)}
         />
       )}
 
-      {settingsWindow && <SettingsWindow onClose={() => setSettingsWindow(false)} />}
+      {palette && <ProjectPalette openTabs={tabs} onOpen={openRepo} onClose={() => setPalette(false)} />}
+
+      {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
 
       {toast && (
         <div className="toast" role="alert" onClick={() => setToast(null)}>

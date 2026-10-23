@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
+import { cleanError } from '../hooks'
+import type { DeviceCode } from '../../../shared/types'
+import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
 import { knownAuthors } from '../authors'
 import {
+  SIDEBAR_SECTIONS,
   activeTheme,
   SCALE_MAX,
   SCALE_MIN,
@@ -22,7 +27,8 @@ import {
 import { Modal } from './Modal'
 import { CloseIcon, PlusIcon } from './Icons'
 
-type Tab = 'appearance' | 'colors' | 'authors'
+export type SettingsTab = 'appearance' | 'colors' | 'authors' | 'projects' | 'accounts'
+type Tab = SettingsTab
 
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab)
@@ -42,7 +48,9 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
           [
             ['appearance', 'Appearance'],
             ['colors', 'Theme colors'],
-            ['authors', 'Author colors']
+            ['authors', 'Author colors'],
+            ['projects', 'Projects'],
+            ['accounts', 'Accounts']
           ] as const
         ).map(([id, label]) => (
           <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
@@ -54,6 +62,8 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
         {tab === 'appearance' && <AppearanceTab />}
         {tab === 'colors' && <ColorsTab />}
         {tab === 'authors' && <AuthorsTab />}
+        {tab === 'projects' && <ProjectsTab />}
+        {tab === 'accounts' && <AccountsTab />}
       </div>
     </Modal>
   )
@@ -121,6 +131,7 @@ function AppearanceTab() {
           onChange={(density) => updateSettings({ density })}
         />
       </div>
+      <SidebarSectionsField />
       <div className="field">
         <span className="field-label">Theme</span>
         <div className="theme-grid">
@@ -130,6 +141,45 @@ function AppearanceTab() {
         </div>
       </div>
     </>
+  )
+}
+
+function SidebarSectionsField() {
+  const s = useSettings()
+  const list = s.sidebarSections
+  const move = (i: number, d: -1 | 1): void => {
+    const next = [...list]
+    ;[next[i], next[i + d]] = [next[i + d], next[i]]
+    updateSettings({ sidebarSections: next })
+  }
+  return (
+    <div className="field">
+      <span className="field-label">Sidebar sections</span>
+      <div className="section-order">
+        {list.map((x, i) => (
+          <div key={x.id} className={`section-order-row ${x.visible ? '' : 'hidden'}`}>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={x.visible}
+                onChange={(e) =>
+                  updateSettings({ sidebarSections: list.map((y) => (y.id === x.id ? { ...y, visible: e.target.checked } : y)) })
+                }
+              />
+              {SIDEBAR_SECTIONS.find((d) => d.id === x.id)?.label}
+            </label>
+            <span className="spacer" />
+            <button className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">
+              ↑
+            </button>
+            <button className="icon-btn" disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label="Move down">
+              ↓
+            </button>
+          </div>
+        ))}
+      </div>
+      <span className="hint">Untick to hide a section; arrows change the order.</span>
+    </div>
   )
 }
 
@@ -340,6 +390,277 @@ function AuthorsTab() {
             Add all {missing.length} authors from this repository
           </button>
         )}
+      </div>
+    </>
+  )
+}
+
+// ---------- accounts ----------
+
+function AccountsTab() {
+  const s = useSettings()
+  const account = useGitHubAccount()
+  const [cliLogin, setCliLogin] = useState<string | null | undefined>(undefined)
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [device, setDevice] = useState<DeviceCode | null>(null)
+
+  useEffect(() => {
+    window.spoon.ghCliLogin().then(setCliLogin)
+  }, [])
+
+  const attempt = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
+    setBusy(label)
+    setError(null)
+    try {
+      await fn()
+      await refreshGitHubAccount()
+    } catch (err) {
+      setError(cleanError(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const browserSignIn = (): Promise<void> =>
+    attempt('browser', async () => {
+      const code = await window.spoon.ghDeviceStart(s.githubClientId)
+      setDevice(code)
+      try {
+        await window.spoon.ghDeviceWait(s.githubClientId, code)
+      } finally {
+        setDevice(null)
+      }
+    })
+
+  const sourceLabel = { gh: 'GitHub CLI sign-in', token: 'Personal access token', browser: 'Browser sign-in' }
+
+  return (
+    <>
+      {account ? (
+        <div className="account-card">
+          <img className="gh-avatar large" src={account.avatarUrl} alt="" />
+          <div className="palette-text">
+            <span className="palette-name">{account.name ?? account.login}</span>
+            <span className="palette-path">
+              @{account.login} · {sourceLabel[account.source]} · {account.scopes.join(', ') || 'no scopes listed'}
+            </span>
+          </div>
+          <button
+            className="btn"
+            onClick={() =>
+              attempt('disconnect', async () => {
+                await window.spoon.ghDisconnect()
+                setGitHubAccount(null)
+              })
+            }
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <p className="hint">Connect GitHub to see pull requests, review them and submit reviews from Spoon.</p>
+      )}
+      {account && !account.scopes.includes('repo') && account.source !== 'token' && (
+        <p className="error-text">This sign-in lacks the “repo” scope, so private repositories won’t load.</p>
+      )}
+
+      <div className="connect-list">
+        <div className="connect-row">
+          <div className="palette-text">
+            <span className="palette-name">Use your GitHub CLI sign-in</span>
+            <span className="palette-path">
+              {cliLogin === undefined
+                ? 'Checking…'
+                : cliLogin
+                  ? `Signed in as ${cliLogin}. Spoon asks gh for the token when it needs it.`
+                  : 'gh isn’t installed or signed in (run gh auth login).'}
+            </span>
+          </div>
+          <button className="btn" disabled={!cliLogin || !!busy} onClick={() => attempt('cli', () => window.spoon.ghConnectCli())}>
+            {busy === 'cli' ? 'Connecting…' : 'Use this account'}
+          </button>
+        </div>
+
+        <div className="connect-row column">
+          <div className="palette-text">
+            <span className="palette-name">Sign in with browser</span>
+            <span className="palette-path">
+              Uses your own GitHub OAuth app (one-time setup):{' '}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  window.spoon.openExternal('https://github.com/settings/applications/new')
+                }}
+              >
+                register one
+              </a>
+              , tick “Enable Device Flow”, then paste its Client ID here.
+            </span>
+          </div>
+          <div className="form-row">
+            <input
+              placeholder="OAuth app Client ID"
+              value={s.githubClientId}
+              onChange={(e) => updateSettings({ githubClientId: e.target.value.trim() })}
+              spellCheck={false}
+              className="mono"
+            />
+            <button className="btn" disabled={!s.githubClientId || !!busy} onClick={browserSignIn}>
+              {busy === 'browser' ? 'Waiting…' : 'Sign in'}
+            </button>
+          </div>
+          {device && (
+            <div className="device-code">
+              <span className="muted">Enter this code on GitHub:</span>
+              <span className="device-code-value mono">{device.userCode}</span>
+              <button
+                className="btn primary"
+                onClick={() => {
+                  navigator.clipboard.writeText(device.userCode)
+                  window.spoon.openExternal(device.verificationUri)
+                }}
+              >
+                Copy code and open GitHub
+              </button>
+              <button className="btn" onClick={() => window.spoon.ghDeviceCancel()}>
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="connect-row column">
+          <div className="palette-text">
+            <span className="palette-name">Personal access token</span>
+            <span className="palette-path">
+              Stored in your macOS Keychain.{' '}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  window.spoon.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org&description=Spoon')
+                }}
+              >
+                Create a token
+              </a>{' '}
+              with the repo and read:org scopes.
+            </span>
+          </div>
+          <div className="form-row">
+            <input
+              type="password"
+              placeholder="ghp_…"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              spellCheck={false}
+              className="mono text-like"
+            />
+            <button
+              className="btn"
+              disabled={!token.trim() || !!busy}
+              onClick={() => attempt('token', async () => {
+                await window.spoon.ghConnectToken(token)
+                setToken('')
+              })}
+            >
+              {busy === 'token' ? 'Checking…' : 'Connect'}
+            </button>
+          </div>
+        </div>
+      </div>
+      {error && <p className="error-text">{error}</p>}
+    </>
+  )
+}
+
+// ---------- projects ----------
+
+function ProjectsTab() {
+  const s = useSettings()
+  const projects = useProjects()
+  const [home, setHome] = useState('')
+  const [missing, setMissing] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    window.spoon.homeDir().then(setHome)
+  }, [])
+  useEffect(() => {
+    window.spoon
+      .pathsExist(projects.map((p) => p.path))
+      .then((ok) => setMissing(new Set(projects.filter((_, i) => !ok[i]).map((p) => p.path))))
+  }, [projects])
+
+  const choose = async (): Promise<void> => {
+    const folder = await window.spoon.pickFolder('Folder to search for repositories')
+    if (folder) updateSettings({ scanFolder: tildify(folder, home) })
+  }
+
+  return (
+    <>
+      <div className="field">
+        <span className="field-label">Search for repositories in</span>
+        <div className="form-row">
+          <input
+            value={s.scanFolder}
+            onChange={(e) => updateSettings({ scanFolder: e.target.value })}
+            spellCheck={false}
+            className="mono"
+          />
+          <button className="btn" onClick={choose}>
+            Choose…
+          </button>
+        </div>
+        <span className="hint">
+          Press Tab anywhere to search your projects. Repos in this folder you haven’t opened yet are listed too.
+        </span>
+      </div>
+      <div className="form-row">
+        <span className="field-label">Look</span>
+        <select value={s.scanDepth} onChange={(e) => updateSettings({ scanDepth: Number(e.target.value) })}>
+          {[1, 2, 3, 4, 5].map((d) => (
+            <option key={d} value={d}>
+              {d} folder{d === 1 ? '' : 's'} deep
+            </option>
+          ))}
+        </select>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={s.scanNested}
+            onChange={(e) => updateSettings({ scanNested: e.target.checked })}
+          />
+          Include repos inside other repos (submodules)
+        </label>
+      </div>
+
+      <div className="field">
+        <div className="form-row">
+          <span className="field-label">Your projects ({projects.length})</span>
+          <span className="spacer" />
+          {missing.size > 0 && (
+            <button className="btn" onClick={() => forgetProjects([...missing])}>
+              Remove {missing.size} missing
+            </button>
+          )}
+        </div>
+        <div className="project-list">
+          {projects.map((p) => (
+            <div key={p.path} className={`project-row ${missing.has(p.path) ? 'missing' : ''}`}>
+              <div className="palette-text">
+                <span className="palette-name">{projectName(p.path)}</span>
+                <span className="palette-path">{tildify(p.path, home)}</span>
+              </div>
+              {missing.has(p.path) && <span className="badge danger">missing</span>}
+              <button className="icon-btn" title="Remove from Spoon" onClick={() => forgetProject(p.path)}>
+                <CloseIcon />
+              </button>
+            </div>
+          ))}
+          {projects.length === 0 && <p className="muted">Projects you open are remembered here.</p>}
+        </div>
       </div>
     </>
   )

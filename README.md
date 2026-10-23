@@ -35,6 +35,33 @@ To change the icon, edit `build/icon.svg` and run `npm run icon`.
 - `src/preload/index.ts`: the `window.spoon` API exposed to the UI.
 - `src/renderer/src/`: React UI. `settings.ts` holds scaling, `graph.ts` lays out the commit graph, `styles.css` holds the theme tokens.
 
+## Finding projects (Tab)
+
+Press **Tab** anywhere outside a text field (or click the search icon in the title bar) to open a
+Spotlight-style switcher. It lists every project Spoon has opened, plus git repos in your scan folder
+that you haven't opened yet (Settings → Projects: folder, depth, and whether to include repos inside
+other repos). Type to fuzzy-search, ↵ to open, ⌘⌫ to forget a project.
+
+Spoon remembers every project it opens. If one has been moved or deleted, opening it offers
+**Remove from Spoon** or **Locate…**, like Fork; Settings → Projects can also remove all missing ones.
+
+## GitHub
+
+Settings → Accounts connects GitHub in one of three ways:
+
+- **GitHub CLI**: reuses `gh`'s sign-in; Spoon asks `gh` for the token whenever it needs one.
+- **Browser sign-in** (like Fork): needs a one-time OAuth app. On GitHub open Settings → Developer
+  settings → OAuth Apps → New OAuth App (any name; homepage and callback URL can both be
+  `https://github.com`), tick **Enable Device Flow**, register, and paste the **Client ID** into Spoon.
+  No client secret is needed.
+- **Personal access token** with `repo` and `read:org`, stored in the macOS Keychain.
+
+Repos with a GitHub remote get **Pull Requests** in the sidebar (review requested / yours / others).
+A pull request opens with Conversation, Commits and Files changed. Hover a diff line and click **+**
+(⇧-click a second line for a range) to add comments to a pending review, tick files as viewed, then
+**Review changes** to submit as Comment, Approve or Request changes. Pending comments are saved until
+you submit. **Check out branch** switches to the PR's branch (forks become `pr-<number>`).
+
 ## Settings (⌘,)
 
 - **Appearance**: interface size, diff font size, row spacing and theme: System, Spoon Dark/Light,
@@ -43,6 +70,10 @@ To change the icon, edit `build/icon.svg` and run `npm run icon`.
   current theme; hover, selection and diff backgrounds are derived from these colors automatically.
 - **Author colors**: map author names (or emails) to colors; their commits get a colored dot, avatar
   and row tint. "Add all authors from this repository" fills the list in one click.
+
+Everything (settings, tabs, projects, review drafts) is saved to
+`~/Library/Application Support/Spoon/spoon-state.json` as you go, so it survives rebuilds, updates and
+force-quits. Sidebar sections can be reordered or hidden in Settings → Appearance.
 
 ## Everyday use
 
@@ -54,7 +85,7 @@ To change the icon, edit `build/icon.svg` and run `npm run icon`.
 - **Checkout**: double-click a branch, remote branch or tag in the sidebar, or right-click a commit.
   Checking out a remote branch creates (or switches to) the matching local tracking branch.
 
-- **Submodules**: the header chip lists every submodule and its state (up to date, modified, out of date,
+- **Submodules**: inside a submodule, a **← parent** chip takes you back. The header chip lists every submodule and its state (up to date, modified, out of date,
   not initialized), with Update and Open; the sidebar has the same list. Double-click opens one in a new tab.
 - **Stale branches**: the sidebar's Stale section lists local branches whose origin branch was deleted
   ("gone") or that match origin exactly ("synced"). Tick and delete; branches with commits found nowhere

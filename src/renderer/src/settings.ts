@@ -2,8 +2,19 @@
 // (uiScale) scales every element; row heights are derived from the same numbers.
 import { useSyncExternalStore } from 'react'
 import { resolveTheme, type BaseThemeChoice, type ColorKey, type ThemeChoice, type ThemeDef } from './themes'
+import * as storage from './storage'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
+
+export type SidebarSection = 'submodules' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'stale'
+export const SIDEBAR_SECTIONS: { id: SidebarSection; label: string }[] = [
+  { id: 'submodules', label: 'Submodules' },
+  { id: 'branches', label: 'Branches' },
+  { id: 'remotes', label: 'Remotes' },
+  { id: 'tags', label: 'Tags' },
+  { id: 'stashes', label: 'Stashes' },
+  { id: 'stale', label: 'Stale branches' }
+]
 
 export interface AuthorColor {
   name: string // author name (or email), matched case-insensitively
@@ -20,6 +31,14 @@ export interface Settings {
   customColors: Partial<Record<ColorKey, string>>
   authorColorsEnabled: boolean
   authorColors: AuthorColor[]
+  /** Folder the project palette searches for repos you haven't opened yet. */
+  scanFolder: string
+  scanDepth: number
+  scanNested: boolean
+  /** Client ID of your own GitHub OAuth app, for "Sign in with browser". */
+  githubClientId: string
+  /** Sidebar sections in display order; hidden ones keep their place for when they're shown again. */
+  sidebarSections: { id: SidebarSection; visible: boolean }[]
 }
 
 const BASE_FONT_PX = 13
@@ -32,7 +51,12 @@ const DEFAULTS: Settings = {
   customBase: 'spoon-dark',
   customColors: {},
   authorColorsEnabled: false,
-  authorColors: []
+  authorColors: [],
+  scanFolder: '~',
+  scanDepth: 3,
+  scanNested: false,
+  githubClientId: '',
+  sidebarSections: SIDEBAR_SECTIONS.map((x) => ({ id: x.id, visible: true }))
 }
 
 export const SCALE_MIN = 0.8
@@ -43,10 +67,16 @@ const DENSITY_ROW: Record<Density, number> = { compact: 1.85, comfortable: 2.3, 
 
 function load(): Settings {
   try {
-    const s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
+    const s = { ...DEFAULTS, ...JSON.parse(storage.getItem(KEY) ?? '{}') }
     // Themes from before named themes existed.
     if ((s.theme as string) === 'dark') s.theme = 'spoon-dark'
     if ((s.theme as string) === 'light') s.theme = 'spoon-light'
+    // Sections added in later versions go to the end, visible.
+    const known = new Set(s.sidebarSections.map((x: { id: SidebarSection }) => x.id))
+    s.sidebarSections = [
+      ...s.sidebarSections.filter((x: { id: SidebarSection }) => SIDEBAR_SECTIONS.some((d) => d.id === x.id)),
+      ...SIDEBAR_SECTIONS.filter((d) => !known.has(d.id)).map((d) => ({ id: d.id, visible: true }))
+    ]
     return s
   } catch {
     return DEFAULTS
@@ -91,7 +121,7 @@ export function updateSettings(patch: Partial<Settings>): void {
   current.uiScale = Math.round(clamp(current.uiScale, SCALE_MIN, SCALE_MAX) * 100) / 100
   current.codeSize = clamp(current.codeSize, 9, 24)
   try {
-    localStorage.setItem(KEY, JSON.stringify(current))
+    storage.setItem(KEY, JSON.stringify(current))
   } catch {
     // not persisted; still applied for this session
   }

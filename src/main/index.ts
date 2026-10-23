@@ -1,7 +1,15 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import * as git from './git'
-import type { CheckoutTarget, ConfirmOptions, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions } from '../shared/types'
+import { pathsExist, scanRepos } from './scan'
+import * as gh from './github'
+import { initStore } from './store'
+import { homedir } from 'node:os'
+import { basename } from 'node:path'
+import type { DeviceCode, ReviewSubmission, CheckoutTarget, ConfirmOptions, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions } from '../shared/types'
+
+// Lets a test run keep its own settings and tabs instead of sharing yours.
+if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
 
 let win: BrowserWindow | null = null
 
@@ -106,12 +114,57 @@ function registerIpc(): void {
     })
     return res.canceled ? null : res.filePaths[0]
   })
+  ipcMain.handle('ui:pickFolder', async (_e, title: string) => {
+    const res = await dialog.showOpenDialog(win!, { title, properties: ['openDirectory', 'createDirectory'] })
+    return res.canceled ? null : res.filePaths[0]
+  })
+  ipcMain.handle('fs:exists', (_e, paths: string[]) => pathsExist(paths))
+  ipcMain.handle('fs:scanRepos', (_e, root: string, depth: number, nested: boolean) =>
+    scanRepos(root, depth, nested)
+  )
+  ipcMain.handle('fs:home', () => homedir())
+  ipcMain.handle('ui:missingProject', async (e, path: string) => {
+    const owner = BrowserWindow.fromWebContents(e.sender)!
+    const res = await dialog.showMessageBox(owner, {
+      type: 'warning',
+      message: `“${basename(path)}” can’t be found`,
+      detail: `${path}\n\nIt may have been moved, renamed or deleted.`,
+      buttons: ['Remove from Spoon', 'Locate…', 'Cancel'],
+      defaultId: 0,
+      cancelId: 2
+    })
+    return (['remove', 'locate', 'cancel'] as const)[res.response]
+  })
   ipcMain.handle('repo:open', (_e, path: string) => git.openRepo(path))
   ipcMain.handle('repo:log', (_e, path: string, limit: number) => git.log(path, limit))
   ipcMain.handle('repo:commit', (_e, path: string, hash: string) => git.commitDetails(path, hash))
   ipcMain.handle('repo:status', (_e, path: string) => git.workingTree(path))
   ipcMain.handle('repo:diff', (_e, path: string, target: DiffTarget) => git.diff(path, target))
   ipcMain.handle('shell:reveal', (_e, path: string) => shell.showItemInFolder(path))
+  ipcMain.handle('shell:openExternal', (_e, url: string) => {
+    if (/^https:\/\//.test(url)) return shell.openExternal(url)
+  })
+
+  ipcMain.handle('gh:account', () => gh.getAccount())
+  ipcMain.handle('gh:cliLogin', () => gh.cliLogin())
+  ipcMain.handle('gh:connectCli', () => gh.connectCli())
+  ipcMain.handle('gh:connectToken', (_e, token: string) => gh.connectToken(token))
+  ipcMain.handle('gh:deviceStart', (_e, clientId: string) => gh.deviceStart(clientId))
+  ipcMain.handle('gh:deviceWait', (_e, clientId: string, code: DeviceCode) => gh.deviceWait(clientId, code))
+  ipcMain.handle('gh:deviceCancel', () => gh.deviceCancel())
+  ipcMain.handle('gh:disconnect', () => gh.disconnect())
+  ipcMain.handle('gh:repo', (_e, path: string) => gh.repoSlug(path))
+  ipcMain.handle('gh:pulls', (_e, path: string) => gh.pulls(path))
+  ipcMain.handle('gh:pull', (_e, path: string, n: number) => gh.pull(path, n))
+  ipcMain.handle('gh:comment', (_e, path: string, n: number, body: string) => gh.comment(path, n, body))
+  ipcMain.handle('gh:reply', (_e, path: string, n: number, id: number, body: string) => gh.reply(path, n, id, body))
+  ipcMain.handle('gh:submitReview', (_e, path: string, n: number, review: ReviewSubmission) =>
+    gh.submitReview(path, n, review)
+  )
+  ipcMain.handle('gh:setViewed', (_e, _path: string, nodeId: string, file: string, viewed: boolean) =>
+    gh.setViewed(nodeId, file, viewed)
+  )
+  ipcMain.handle('gh:checkoutPull', (_e, path: string, n: number) => gh.checkoutPull(path, n))
 
   ipcMain.handle('repo:stage', (_e, path: string, files: string[]) => git.stage(path, files))
   ipcMain.handle('repo:unstage', (_e, path: string, files: string[]) => git.unstage(path, files))
@@ -166,6 +219,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  initStore()
   buildMenu()
   registerIpc()
   createWindow()

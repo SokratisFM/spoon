@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CheckoutTarget, Commit, MenuCommand, RepoState, WorkingTree } from '../../../shared/types'
+import type { CheckoutTarget, Commit, MenuCommand, PullSummary, RepoState, WorkingTree } from '../../../shared/types'
+import { useGitHubAccount } from '../github'
+import { PullRequestView } from './PullRequestView'
 import { buildGraph } from '../graph'
 import { cleanError, usePersistentState } from '../hooks'
 import { setKnownAuthors } from '../authors'
@@ -10,12 +12,14 @@ import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
 import { ErrorModal } from './Modal'
 import { PullDialog, PushDialog } from './SyncDialogs'
-import { SubmoduleChip, submoduleActions } from './Submodules'
-import { FetchIcon, PullIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
+import { ParentChip, SubmoduleChip, submoduleActions } from './Submodules'
+import { FetchIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
+
+const PullRequestIconLarge = () => <PullRequestIcon className="icon big-icon" />
 
 const LOG_LIMIT = 5000
 
-export type View = 'history' | 'changes'
+export type View = 'history' | 'changes' | 'prs'
 
 /** Repo-level actions handed to child views. */
 export interface Ops {
@@ -34,9 +38,10 @@ interface Props {
   path: string
   command: { name: MenuCommand; n: number } | null
   onOpenRepo: (path: string) => void
+  onOpenSettings: (tab: 'accounts') => void
 }
 
-export function RepoView({ path, command, onOpenRepo }: Props) {
+export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [repo, setRepo] = useState<RepoState | null>(null)
   const [commits, setCommits] = useState<Commit[]>([])
   const [tree, setTree] = useState<WorkingTree>({ staged: [], unstaged: [] })
@@ -51,6 +56,12 @@ export function RepoView({ path, command, onOpenRepo }: Props) {
   const [commitRequest, setCommitRequest] = useState(0)
   const clearCommitRequest = useCallback(() => setCommitRequest(0), [])
   const refsSignature = useRef('')
+  const account = useGitHubAccount()
+  const [ghSlug, setGhSlug] = useState<string | null | undefined>(undefined)
+  const [prs, setPrs] = useState<PullSummary[] | null>(null)
+  const [prError, setPrError] = useState<string | null>(null)
+  const [selectedPr, setSelectedPr] = usePersistentState<number | null>(`spoon.pr.selected.${path}`, null)
+  const prsLoadedAt = useRef(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
 
   const load = useCallback(async () => {
@@ -81,6 +92,34 @@ export function RepoView({ path, command, onOpenRepo }: Props) {
     window.addEventListener('focus', load)
     return () => window.removeEventListener('focus', load)
   }, [load])
+
+  useEffect(() => {
+    window.spoon.ghRepo(path).then(setGhSlug)
+  }, [path])
+
+  // Pull requests: loaded when the account and a GitHub remote are there, refreshed at most once a minute.
+  const loadPrs = useCallback(
+    async (force = false) => {
+      if (!account || !ghSlug) return
+      if (!force && Date.now() - prsLoadedAt.current < 60_000) return
+      prsLoadedAt.current = Date.now()
+      try {
+        setPrs(await window.spoon.ghPulls(path))
+        setPrError(null)
+      } catch (err) {
+        setPrError(cleanError(err))
+      }
+    },
+    [account, ghSlug, path]
+  )
+  useEffect(() => {
+    loadPrs(true)
+  }, [loadPrs])
+  useEffect(() => {
+    const onFocus = (): void => void loadPrs()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [loadPrs])
 
   useEffect(
     () =>
@@ -184,6 +223,7 @@ export function RepoView({ path, command, onOpenRepo }: Props) {
             {repo.headBranch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
           </span>
           {repo.operation && <span className="op-chip">{repo.operation}</span>}
+          {repo.superproject && <ParentChip parent={repo.superproject} onOpen={onOpenRepo} />}
           <SubmoduleChip submodules={repo.submodules} actions={subActions} />
         </div>
 
@@ -251,8 +291,26 @@ export function RepoView({ path, command, onOpenRepo }: Props) {
           onJump={jumpTo}
           ops={ops}
           subActions={subActions}
+          prs={ghSlug ? (account ? prs : []) : undefined}
+          prError={!account && ghSlug ? 'Connect GitHub in Settings → Accounts.' : prError}
+          selectedPr={selectedPr}
+          onSelectPr={setSelectedPr}
         />
-        {view === 'changes' ? (
+        {view === 'prs' ? (
+          !account ? (
+            <div className="empty-state">
+              <PullRequestIconLarge />
+              <p>Connect GitHub to see and review this repository’s pull requests.</p>
+              <button className="btn primary" onClick={() => onOpenSettings('accounts')}>
+                Connect GitHub…
+              </button>
+            </div>
+          ) : selectedPr ? (
+            <PullRequestView key={selectedPr} path={path} number={selectedPr} ops={ops} onJump={jumpTo} />
+          ) : (
+            <div className="empty-state muted">Select a pull request.</div>
+          )
+        ) : view === 'changes' ? (
           <ChangesView
             path={path}
             tree={tree}

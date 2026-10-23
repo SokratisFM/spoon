@@ -97,13 +97,14 @@ export async function openRepo(path: string): Promise<RepoState> {
   const root = (await git(path, ['rev-parse', '--show-toplevel'])).trim()
   const gitDir = (await git(root, ['rev-parse', '--absolute-git-dir'])).trim()
 
-  const [branchOut, headOut, refs, stashes, remotesOut, submodules] = await Promise.all([
+  const [branchOut, headOut, refs, stashes, remotesOut, submodules, superOut] = await Promise.all([
     git(root, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]),
     git(root, ['rev-parse', '-q', '--verify', 'HEAD'], [0, 1]),
     readRefs(root),
     readStashes(root),
     git(root, ['remote']),
-    readSubmodules(root)
+    readSubmodules(root),
+    git(root, ['rev-parse', '--show-superproject-working-tree'], [0, 1]).catch(() => '')
   ])
 
   return {
@@ -115,7 +116,8 @@ export async function openRepo(path: string): Promise<RepoState> {
     stashes,
     remotes: remotesOut.split('\n').filter(Boolean),
     operation: detectOperation(gitDir),
-    submodules
+    submodules,
+    superproject: superOut.trim() || null
   }
 }
 
@@ -131,7 +133,7 @@ async function readSubmodules(root: string): Promise<Submodule[]> {
       const m = /^([ \-+U])([0-9a-f]+) (.+?)(?: \(.*\))?$/.exec(line)
       if (!m) return null
       const state = m[1] === '-' ? 'uninitialized' : m[1] === '+' ? 'outdated' : m[1] === 'U' ? 'conflict' : 'ok'
-      return { path: m[3], name: m[3].split('/').pop()!, hash: m[2], branch: null, state, dirty: false } as Submodule
+      return { path: m[3], name: m[3].split('/').pop()!, hash: m[2], branch: null, state, dirty: false, recorded: m[2] } as Submodule
     })
     .filter((s): s is Submodule => s !== null)
 
@@ -146,6 +148,18 @@ async function readSubmodules(root: string): Promise<Submodule[]> {
         ])
         s.branch = branch.trim() || null
         s.dirty = status.trim().length > 0
+        if (s.state === 'outdated') {
+          // Ahead is the normal state while you're developing inside the submodule; behind means
+          // someone moved the parent's pointer and Update would catch you up.
+          s.recorded = (await git(root, ['rev-parse', `HEAD:${s.path}`]).catch(() => s.hash)).trim()
+          const counts = await git(dir, ['rev-list', '--left-right', '--count', `${s.recorded}...${s.hash}`]).catch(() => '')
+          const [behind, ahead] = counts.trim().split(/\s+/).map(Number)
+          if (!Number.isNaN(ahead)) {
+            s.ahead = ahead
+            s.behind = behind
+            s.relation = behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged'
+          }
+        }
       })
   )
   return subs
@@ -486,4 +500,20 @@ export async function deleteBranches(cwd: string, names: string[], force: boolea
     deleted.push(name)
   }
   return { deleted, unmerged }
+}
+
+// ---------- remotes ----------
+
+export async function remoteUrls(cwd: string): Promise<Record<string, string>> {
+  const out = await git(cwd, ['remote', '-v'])
+  const urls: Record<string, string> = {}
+  for (const line of out.split('\n')) {
+    const m = /^(\S+)\s+(\S+)\s+\(fetch\)$/.exec(line)
+    if (m) urls[m[1]] = m[2]
+  }
+  return urls
+}
+
+export async function fetchRef(cwd: string, remote: string, refspec: string): Promise<void> {
+  await run(cwd, ['fetch', remote, refspec])
 }
