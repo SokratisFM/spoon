@@ -68,15 +68,18 @@ export function PullDialog({ path, onClose, onPull }: PullProps) {
 
 interface PushProps {
   path: string
+  /** The branch and its remote have each moved (e.g. after a rebase): offer a force push. */
+  diverged?: boolean
   onClose: () => void
   onPush: (opts: PushOptions) => void
 }
 
-export function PushDialog({ path, onClose, onPush }: PushProps) {
+export function PushDialog({ path, diverged, onClose, onPush }: PushProps) {
   const { data: info, error } = useAsync(() => window.spoon.syncInfo(path), [path])
   const [remote, setRemote] = useState<string | null>(null)
   const [remoteBranch, setRemoteBranch] = useState<string | null>(null)
   const [tags, setTags] = useState(false)
+  const [force, setForce] = useState(!!diverged)
 
   // Defaults: the branch's upstream if it has one, otherwise origin (or the first remote) with the same name.
   const effRemote = remote ?? info?.upstreamRemote ?? (info?.remotes.includes('origin') ? 'origin' : info?.remotes[0]) ?? ''
@@ -89,7 +92,7 @@ export function PushDialog({ path, onClose, onPush }: PushProps) {
   const submit = (): void => {
     if (!canPush) return
     onClose()
-    onPush({ remote: effRemote, remoteBranch: effBranch.trim(), setUpstream: effSetUpstream, tags })
+    onPush({ remote: effRemote, remoteBranch: effBranch.trim(), setUpstream: effSetUpstream, tags, force })
   }
 
   return (
@@ -134,6 +137,16 @@ export function PushDialog({ path, onClose, onPush }: PushProps) {
             <input type="checkbox" checked={tags} onChange={(e) => setTags(e.target.checked)} />
             Push all tags
           </label>
+          <label className="check">
+            <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+            Force push (with lease)
+          </label>
+          {diverged && (
+            <span className="hint">
+              The remote branch has commits this one doesn’t, as after a rebase. A force push replaces them; the
+              lease refuses if someone else pushed in the meantime.
+            </span>
+          )}
         </>
       )}
     </Modal>

@@ -1964,6 +1964,212 @@ input[type='color']::-webkit-color-swatch {
   white-space: nowrap;
 }
 
+/* ---------- interactive rebase ---------- */
+
+.rebase-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: none;
+  padding: 0.55rem 0.9rem;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.rebase-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.rebase-bar-text .muted {
+  font-size: 0.88em;
+}
+.rebase-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: none;
+  padding: 0.45rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9em;
+}
+.rebase-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--warn);
+}
+.rebase-note.error {
+  color: var(--danger);
+}
+.rebase-rows {
+  padding: 0.3rem 0;
+}
+.rebase-row {
+  display: grid;
+  grid-template-columns: 1rem 0.9rem 5.6rem minmax(0, 1fr) minmax(0, 9rem) 6.5rem 4.6rem;
+  align-items: center;
+  column-gap: 0.7rem;
+  height: 2.1rem;
+  padding: 0 0.9rem 0 0.4rem;
+  white-space: nowrap;
+  cursor: default;
+}
+.rebase-row:hover {
+  background: var(--bg-hover);
+}
+.rebase-row.selected {
+  background: var(--bg-selected);
+}
+.rebase-rows:focus .rebase-row.selected {
+  background: var(--bg-selected-strong);
+}
+.rebase-row.dragging {
+  opacity: 0.45;
+}
+.rebase-grip {
+  color: var(--text-faint);
+  font-size: 0.8em;
+  letter-spacing: -0.15em;
+  cursor: grab;
+  visibility: hidden;
+}
+.rebase-row:hover .rebase-grip {
+  visibility: visible;
+}
+.rebase-lane {
+  width: 0.9rem;
+  height: 100%;
+  overflow: visible;
+}
+.rebase-lane line {
+  stroke: var(--lane-0);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.rebase-lane circle {
+  fill: var(--lane-0);
+}
+.rebase-row.base .rebase-lane line,
+.rebase-row.base .rebase-lane circle {
+  stroke: var(--lane-2);
+  fill: var(--lane-2);
+}
+.rebase-row.base {
+  grid-template-columns: 1rem 0.9rem auto minmax(0, 1fr);
+  color: var(--text-muted);
+}
+.rebase-action {
+  justify-self: start;
+  padding: 0.12rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font-size: 0.82em;
+  font-weight: 600;
+  font-family: var(--font-code);
+  cursor: pointer;
+}
+.rebase-action:hover {
+  border-color: var(--text-muted);
+}
+.act-reword .rebase-action {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.act-edit .rebase-action {
+  color: var(--rename);
+  border-color: var(--rename);
+}
+.act-squash .rebase-action,
+.act-fixup .rebase-action {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.act-drop .rebase-action {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.rebase-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.act-squash .rebase-subject,
+.act-fixup .rebase-subject,
+.act-drop .rebase-subject,
+.act-squash .rebase-lane,
+.act-fixup .rebase-lane {
+  color: var(--text-muted);
+}
+.act-fixup .rebase-subject {
+  font-style: italic;
+}
+.act-drop .rebase-subject {
+  text-decoration: line-through;
+  color: var(--text-faint);
+}
+.act-drop .rebase-lane circle {
+  fill: none;
+  stroke: var(--lane-0);
+  stroke-width: 1.5;
+}
+.rebase-tag {
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.78em;
+  color: var(--rename);
+  background: color-mix(in srgb, var(--rename) 15%, transparent);
+}
+.rebase-message {
+  height: 1.6rem;
+  min-width: 0;
+  padding: 0 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.3rem;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.rebase-author,
+.rebase-date,
+.rebase-hash {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+.rebase-hash {
+  color: var(--text-faint);
+}
+.rebase-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: none;
+  padding: 0.5rem 1rem;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+  color: var(--text);
+}
+.rebase-banner > .icon {
+  color: var(--warn);
+  flex: none;
+}
+.rebase-banner.conflict {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+.rebase-banner.conflict > .icon {
+  color: var(--danger);
+}
+.rebase-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---------- Jira links ---------- */
 
 .ref-label {

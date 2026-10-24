@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CheckoutTarget, Commit, MenuCommand, PullSummary, Ref, RepoState, WorkingTree } from '../../../shared/types'
+import type {
+  CheckoutTarget,
+  Commit,
+  MenuCommand,
+  PullSummary,
+  RebasePlan,
+  Ref,
+  RepoState,
+  WorkingTree
+} from '../../../shared/types'
 import { useGitHubAccount } from '../github'
 import { PullRequestView } from './PullRequestView'
 import { buildGraph, type ColorRules } from '../graph'
@@ -17,6 +26,8 @@ import { PullDialog, PushDialog } from './SyncDialogs'
 import { ParentChip, SubmoduleChip, submoduleActions } from './Submodules'
 import { NetButton, type NetKind, type NetState } from './NetButton'
 import { DeleteBranchDialog } from './DeleteBranchDialog'
+import { RebaseEditor } from './RebaseEditor'
+import { RebaseBanner } from './RebaseBanner'
 import { FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
 import { keys } from '../platform'
 
@@ -31,6 +42,8 @@ export interface Ops {
   /** Runs after any operation already in flight, refreshes afterwards, shows git's error on failure. */
   run: (label: string, fn: () => Promise<unknown>, failTitle: string) => Promise<boolean>
   checkout: (target: CheckoutTarget, description: string) => void
+  /** Rebase the current branch onto a branch; interactive opens the editable plan first. */
+  rebase: (onto: string, interactive: boolean) => void
 }
 
 interface Busy {
@@ -48,6 +61,8 @@ interface Props {
 
 export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [repo, setRepo] = useState<RepoState | null>(null)
+  const repoRef = useRef<RepoState | null>(null)
+  repoRef.current = repo
   const [commits, setCommits] = useState<Commit[]>([])
   const [tree, setTree] = useState<WorkingTree>({ staged: [], unstaged: [] })
   const [error, setError] = useState<string | null>(null)
@@ -65,6 +80,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const lastLog = useRef<Commit[]>([])
   const [net, setNet] = useState<NetState | null>(null)
   const [deleting, setDeleting] = useState<Ref | null>(null)
+  // Interactive rebase being planned: the commit list turns into its editor.
+  const [rebasing, setRebasing] = useState<{ onto: string; branch: string; plan: RebasePlan } | null>(null)
   // Commits that just arrived (fetch/pull); the list slides them in and flashes them once.
   const [fresh, setFresh] = useState<{ hashes: Set<string>; n: number } | null>(null)
   const account = useGitHubAccount()
@@ -173,7 +190,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       if (target.kind === 'commit') {
         const ok = await window.spoon.confirm({
           message: `Check out ${description}?`,
-          detail: 'This puts the repository in detached HEAD state. New commits won’t belong to any branch until you create one.',
+          detail:
+            'This puts the repository in detached HEAD state. New commits won’t belong to any branch until you create one.',
           confirmLabel: 'Checkout'
         })
         if (!ok) return
@@ -183,7 +201,51 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     [path, run]
   )
 
-  const ops = useMemo<Ops>(() => ({ run, checkout }), [run, checkout])
+  const rebase = useCallback<Ops['rebase']>(
+    async (onto, interactive) => {
+      const branch = repoRef.current?.headBranch
+      if (!branch) return
+      let plan: RebasePlan
+      try {
+        plan = await window.spoon.rebasePlan(path, onto)
+      } catch (err) {
+        setOpError({ title: 'Rebase failed', message: cleanError(err) })
+        return
+      }
+      if (interactive) {
+        if (!plan.commits.length) {
+          setOpError({
+            title: 'Nothing to rebase',
+            message: `${branch} has no commits that aren’t already on ${onto}.`
+          })
+          return
+        }
+        setView('history')
+        setFilter('')
+        setRebasing({ onto, branch, plan })
+        return
+      }
+      const n = plan.commits.length
+      const ok = await window.spoon.confirm({
+        message: `Rebase ${branch} onto ${onto}?`,
+        detail: [
+          n
+            ? `${n} ${n === 1 ? 'commit' : 'commits'} will be replayed on top of ${onto}.`
+            : `${branch} has no commits of its own; it moves to ${onto}.`,
+          plan.pushed ? 'Some of them are already pushed, so you’ll need to force push afterwards.' : '',
+          plan.merges ? `${plan.merges} merge ${plan.merges === 1 ? 'commit' : 'commits'} will be flattened.` : ''
+        ]
+          .filter(Boolean)
+          .join(' '),
+        confirmLabel: 'Rebase'
+      })
+      if (ok) run(`Rebasing onto ${onto}…`, () => window.spoon.rebase(path, onto), 'Rebase failed')
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [path, run]
+  )
+
+  const ops = useMemo<Ops>(() => ({ run, checkout, rebase }), [run, checkout, rebase])
   const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo), [path, ops, onOpenRepo])
 
   // Fetch/pull/push with their button animation: working (ring follows git's %), then done
@@ -274,13 +336,17 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
             disabled={!repo.headHash}
             onClick={() => repo.headHash && jumpTo(repo.headHash)}
           >
-            {repo.headBranch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
+            {repo.headBranch ?? repo.rebase?.branch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
           </button>
           {(() => {
             const jira = jiraConfig(settings)
             const key = ticketKeys(repo.headBranch ?? '', jira)[0]
             return key && jira ? (
-              <button className="jira-chip" title={`Open ${key} in Jira`} onClick={() => window.spoon.openExternal(jiraUrl(jira, key))}>
+              <button
+                className="jira-chip"
+                title={`Open ${key} in Jira`}
+                onClick={() => window.spoon.openExternal(jiraUrl(jira, key))}
+              >
                 <JiraIcon /> {key}
               </button>
             ) : null
@@ -359,6 +425,21 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       </div>
 
       {error && <div className="banner error">{error}</div>}
+      {repo.rebase && (
+        <RebaseBanner
+          progress={repo.rebase}
+          conflicts={tree.unstaged.filter((f) => f.status === 'U').length}
+          busy={!!busy}
+          onShowChanges={() => setView('changes')}
+          onAction={(action) =>
+            run(
+              action === 'abort' ? 'Aborting rebase…' : action === 'skip' ? 'Skipping commit…' : 'Continuing rebase…',
+              () => window.spoon.rebaseContinue(path, action),
+              'Rebase failed'
+            )
+          }
+        />
+      )}
 
       <Split id="sidebar" direction="row" mode="rem" initial={17} min={11} max={36}>
         <Sidebar
@@ -399,19 +480,39 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           />
         ) : (
           <Split id="history" direction="column" mode="fraction" initial={0.55} min={0.15} max={0.85}>
-            <CommitList
-              commits={commits}
-              graph={graph}
-              repo={repo}
-              selected={selected}
-              onSelect={setSelected}
-              scrollTo={scrollTo}
-              filter={filter}
-              truncated={commits.length >= LOG_LIMIT}
-              fresh={fresh}
-              onDeleteBranch={setDeleting}
-              ops={ops}
-            />
+            {rebasing ? (
+              <RebaseEditor
+                plan={rebasing.plan}
+                branch={rebasing.branch}
+                onto={rebasing.onto}
+                selected={selected}
+                onSelect={setSelected}
+                onCancel={() => setRebasing(null)}
+                onApply={(steps) => {
+                  const { onto } = rebasing
+                  setRebasing(null)
+                  run(
+                    `Rebasing onto ${onto}…`,
+                    () => window.spoon.rebaseInteractive(path, onto, steps),
+                    'Rebase failed'
+                  )
+                }}
+              />
+            ) : (
+              <CommitList
+                commits={commits}
+                graph={graph}
+                repo={repo}
+                selected={selected}
+                onSelect={setSelected}
+                scrollTo={scrollTo}
+                filter={filter}
+                truncated={commits.length >= LOG_LIMIT}
+                fresh={fresh}
+                onDeleteBranch={setDeleting}
+                ops={ops}
+              />
+            )}
             <CommitPanel path={path} hash={selected} onJump={jumpTo} />
           </Split>
         )}
@@ -427,6 +528,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       {dialog === 'push' && (
         <PushDialog
           path={path}
+          diverged={!!head?.ahead && !!head?.behind}
           onClose={() => setDialog(null)}
           onPush={(opts) => netOp('push', 'Pushing…', () => window.spoon.push(path, opts), 'Push failed')}
         />

@@ -10,7 +10,7 @@ import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
 import { basename } from 'node:path'
-import type { DeviceCode, ReviewSubmission, CheckoutTarget, ConfirmOptions, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions } from '../shared/types'
+import type { DeviceCode, ReviewSubmission, CheckoutTarget, ConfirmOptions, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -235,6 +235,14 @@ function registerIpc(): void {
   ipcMain.handle('repo:updateSubmodule', (_e, path: string, sub: string) => git.updateSubmodule(path, sub))
   ipcMain.handle('repo:deleteRemoteBranch', (_e, path: string, remote: string, branch: string) =>
     git.deleteRemoteBranch(path, remote, branch)
+  )
+  ipcMain.handle('repo:rebasePlan', (_e, path: string, onto: string) => git.rebasePlan(path, onto))
+  ipcMain.handle('repo:rebase', (_e, path: string, onto: string) => git.rebase(path, onto))
+  ipcMain.handle('repo:rebaseInteractive', (_e, path: string, onto: string, steps: RebaseStep[]) =>
+    git.rebaseInteractive(path, onto, steps)
+  )
+  ipcMain.handle('repo:rebaseContinue', (_e, path: string, action: 'continue' | 'skip' | 'abort') =>
+    git.rebaseContinue(path, action)
   )
   ipcMain.handle('repo:deleteBranches', (_e, path: string, names: string[], force: boolean) =>
     git.deleteBranches(path, names, force)

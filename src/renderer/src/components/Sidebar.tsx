@@ -90,9 +90,17 @@ export function Sidebar(props: Props) {
         : ref.kind === 'remote'
           ? `Checkout ${ref.name} as Local Branch`
           : `Checkout Tag ${ref.name}…`
+    const canRebase = !!repo.headBranch && ref.kind !== 'tag' && !isCurrent && ref.target !== repo.headHash
     setPicked(ref.fullName)
     const choice = await window.spoon.contextMenu([
       { id: 'checkout', label: checkoutLabel, enabled: !isCurrent },
+      ...(canRebase
+        ? [
+            { separator: true },
+            { id: 'rebase', label: `Rebase ${repo.headBranch} onto ${ref.name}` },
+            { id: 'irebase', label: `Interactive Rebase ${repo.headBranch} onto ${ref.name}…` }
+          ]
+        : []),
       { separator: true },
       { id: 'show', label: 'Show in History' },
       { id: 'copy', label: 'Copy Name' },
@@ -103,6 +111,7 @@ export function Sidebar(props: Props) {
     if (choice?.startsWith('jira:') && jira) window.spoon.openExternal(jiraUrl(jira, choice.slice(5)))
     else if (choice === 'delete') onDeleteBranch(ref)
     else if (choice === 'checkout') checkoutRef(ref)
+    else if (choice === 'rebase' || choice === 'irebase') ops.rebase(ref.name, choice === 'irebase')
     else if (choice === 'show') onJump(ref.target)
     else if (choice === 'copy') navigator.clipboard.writeText(ref.name)
   }

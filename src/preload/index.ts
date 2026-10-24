@@ -31,6 +31,10 @@ const api: SpoonApi = {
   deleteBranches: (path, names, force) => ipcRenderer.invoke('repo:deleteBranches', path, names, force),
   pull: (path, opts) => ipcRenderer.invoke('repo:pull', path, opts),
   push: (path, opts) => ipcRenderer.invoke('repo:push', path, opts),
+  rebasePlan: (path, onto) => ipcRenderer.invoke('repo:rebasePlan', path, onto),
+  rebase: (path, onto) => ipcRenderer.invoke('repo:rebase', path, onto),
+  rebaseInteractive: (path, onto, steps) => ipcRenderer.invoke('repo:rebaseInteractive', path, onto, steps),
+  rebaseContinue: (path, action) => ipcRenderer.invoke('repo:rebaseContinue', path, action),
   onProgress: (handler) => {
     const listener = (_e: unknown, repo: string, line: string): void => handler(repo, line)
     ipcRenderer.on('progress', listener)

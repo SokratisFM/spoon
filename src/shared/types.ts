@@ -40,9 +40,52 @@ export interface RepoState {
   stashes: Stash[]
   remotes: string[]
   operation: string | null // "MERGING", "REBASING", ...
+  /** While a rebase is stopped: where it is and why it stopped. */
+  rebase: RebaseProgress | null
   submodules: Submodule[]
   /** When this repo is itself a submodule: the parent repo's path. */
   superproject: string | null
+}
+
+export interface RebaseProgress {
+  branch: string | null // the branch being rebased
+  onto: string // commit hash it's being replayed onto
+  step: number
+  total: number
+  /** The step it stopped on: "edit" stops on purpose, anything else stopped on a conflict. */
+  stoppedAction: string | null
+  stoppedSubject: string | null
+}
+
+export type RebaseAction = 'pick' | 'reword' | 'edit' | 'squash' | 'fixup' | 'drop'
+
+export interface RebaseCommit {
+  hash: string
+  subject: string
+  body: string
+  authorName: string
+  authorTime: number
+}
+
+export interface RebasePlan {
+  /** Commits that would be replayed, newest first. */
+  commits: RebaseCommit[]
+  /** Merge commits in the range; a rebase flattens them. */
+  merges: number
+  /** Some of these commits are already on a remote, so the result needs a force push. */
+  pushed: boolean
+}
+
+export interface RebaseStep {
+  hash: string
+  action: RebaseAction
+  /** New message for "reword". */
+  message?: string
+}
+
+/** done: the rebase finished. Otherwise it stopped (conflict or "edit") and is still in progress. */
+export interface RebaseResult {
+  done: boolean
 }
 
 export interface Submodule {
@@ -127,6 +170,8 @@ export interface PushOptions {
   remoteBranch: string
   setUpstream: boolean
   tags: boolean
+  /** --force-with-lease: needed after rewriting commits that were already pushed. */
+  force?: boolean
 }
 
 export interface MenuItem {
@@ -308,6 +353,12 @@ export interface SpoonApi {
   deleteRemoteBranch(path: string, remote: string, branch: string): Promise<void>
   pull(path: string, opts: PullOptions): Promise<void>
   push(path: string, opts: PushOptions): Promise<void>
+  rebasePlan(path: string, onto: string): Promise<RebasePlan>
+  /** Plain rebase of the current branch onto a ref. */
+  rebase(path: string, onto: string): Promise<RebaseResult>
+  /** Steps are oldest first, like git's todo list. */
+  rebaseInteractive(path: string, onto: string, steps: RebaseStep[]): Promise<RebaseResult>
+  rebaseContinue(path: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult>
   /** Progress lines from the running fetch/pull/push of a repo. */
   onProgress(handler: (repo: string, line: string) => void): () => void
 

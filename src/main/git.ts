@@ -1,7 +1,7 @@
 // Thin wrapper over the git CLI. Every call shells out to `git` with machine-readable
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, delimiter, join } from 'node:path'
 import type {
   Commit,
@@ -19,6 +19,12 @@ import type {
   Submodule,
   SyncInfo,
   DeleteResult,
+  RebaseAction,
+  RebaseCommit,
+  RebasePlan,
+  RebaseProgress,
+  RebaseResult,
+  RebaseStep,
   WorkingTree
 } from '../shared/types'
 
@@ -56,12 +62,13 @@ interface RunOptions {
   input?: string
   /** Receives git's progress lines ("Receiving objects:  42% ...") as they arrive. */
   onProgress?: (line: string) => void
+  env?: Record<string, string>
 }
 
 function run(cwd: string, args: string[], opts: RunOptions = {}): Promise<string> {
   const okCodes = opts.okCodes ?? [0]
   return new Promise((resolve, reject) => {
-    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args], { cwd, env })
+    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args], { cwd, env: opts.env ? { ...env, ...opts.env } : env })
     const out: Buffer[] = []
     let err = ''
     child.stdout.on('data', (b: Buffer) => out.push(b))
@@ -120,6 +127,7 @@ export async function openRepo(path: string): Promise<RepoState> {
     stashes,
     remotes: remotesOut.split('\n').filter(Boolean),
     operation: detectOperation(gitDir),
+    rebase: readRebaseProgress(gitDir),
     submodules,
     superproject: superOut.trim() || null
   }
@@ -470,6 +478,7 @@ export async function push(cwd: string, opts: PushOptions, onProgress: (l: strin
   const args = ['push', '--progress']
   if (opts.setUpstream) args.push('-u')
   if (opts.tags) args.push('--tags')
+  if (opts.force) args.push('--force-with-lease')
   await run(cwd, [...args, opts.remote, `refs/heads/${info.branch}:refs/heads/${opts.remoteBranch}`], { onProgress })
 }
 
@@ -538,4 +547,128 @@ export async function fetchRef(cwd: string, remote: string, refspec: string): Pr
 /** Deletes a branch on a remote (git push <remote> --delete <branch>). */
 export async function deleteRemoteBranch(cwd: string, remote: string, branch: string): Promise<void> {
   await run(cwd, ['push', remote, '--delete', branch])
+}
+
+// ---------- rebase ----------
+
+function readRebaseProgress(gitDir: string): RebaseProgress | null {
+  const dir = join(gitDir, 'rebase-merge')
+  if (!existsSync(dir)) return null
+  const read = (f: string): string => {
+    try {
+      return readFileSync(join(dir, f), 'utf8').trim()
+    } catch {
+      return ''
+    }
+  }
+  // The last line of "done" is the step it stopped on: "edit <hash> <subject>", "pick ...", ...
+  const last = read('done').split('\n').filter((l) => l && !l.startsWith('#')).pop() ?? ''
+  // Newer git writes "pick <hash> # <subject>".
+  const m = /^(\w+)\s+[0-9a-f]+\s*(?:#\s*)?(.*)$/.exec(last)
+  return {
+    branch: read('head-name').replace(/^refs\/heads\//, '') || null,
+    onto: read('onto'),
+    step: Number(read('msgnum')) || 0,
+    total: Number(read('end')) || 0,
+    stoppedAction: m?.[1] ?? null,
+    stoppedSubject: m?.[2] || null
+  }
+}
+
+async function gitDirOf(cwd: string): Promise<string> {
+  return (await git(cwd, ['rev-parse', '--absolute-git-dir'])).trim()
+}
+
+/** Messages for reworded commits live in the git dir while the rebase runs (it can stop and resume). */
+const scratchDir = (gitDir: string): string => join(gitDir, 'spoon-rebase')
+
+async function rebaseOutcome(cwd: string, attempt: Promise<unknown>): Promise<RebaseResult> {
+  const gitDir = await gitDirOf(cwd)
+  const inProgress = (): boolean => existsSync(join(gitDir, 'rebase-merge')) || existsSync(join(gitDir, 'rebase-apply'))
+  try {
+    await attempt
+  } catch (err) {
+    // Stopping on a conflict is part of rebasing, not a failure.
+    if (!inProgress()) throw err
+  }
+  const done = !inProgress()
+  if (done) rmSync(scratchDir(gitDir), { recursive: true, force: true })
+  return { done }
+}
+
+/** The commits a rebase of HEAD onto `onto` would replay (the same ones git would put in its todo). */
+export async function rebasePlan(cwd: string, onto: string): Promise<RebasePlan> {
+  const range = `${onto}...HEAD`
+  const out = await git(cwd, [
+    'log',
+    '--cherry-pick',
+    '--right-only',
+    '--no-merges',
+    `--format=%H${FS}%s${FS}%b${FS}%an${FS}%at${RS}`,
+    range,
+    '--'
+  ])
+  const commits: RebaseCommit[] = out
+    .split(RS)
+    .map((r) => r.replace(/^\n/, ''))
+    .filter(Boolean)
+    .map((r) => {
+      const [hash, subject, body, authorName, at] = r.split(FS)
+      return { hash, subject, body: body.trim(), authorName, authorTime: Number(at) }
+    })
+  const merges = Number((await git(cwd, ['rev-list', '--count', '--merges', `${onto}..HEAD`, '--'])).trim()) || 0
+  const oldest = commits[commits.length - 1]?.hash
+  const pushed = oldest
+    ? !!(await git(cwd, ['for-each-ref', '--count=1', '--contains', oldest, 'refs/remotes'])).trim()
+    : false
+  return { commits, merges, pushed }
+}
+
+export async function rebase(cwd: string, onto: string): Promise<RebaseResult> {
+  return rebaseOutcome(cwd, git(cwd, ['rebase', '--autostash', onto]))
+}
+
+const ACTIONS: RebaseAction[] = ['pick', 'reword', 'edit', 'squash', 'fixup', 'drop']
+
+/** Runs `git rebase -i` with our own todo list in place of the one git would open in an editor. */
+export async function rebaseInteractive(cwd: string, onto: string, steps: RebaseStep[]): Promise<RebaseResult> {
+  for (const s of steps) {
+    assertHash(s.hash)
+    if (!ACTIONS.includes(s.action)) throw new Error(`Unknown rebase action: ${s.action}`)
+  }
+  const first = steps.find((s) => s.action !== 'drop')
+  if (first && (first.action === 'squash' || first.action === 'fixup'))
+    throw new Error('The oldest commit can’t be squashed: there’s nothing below it to squash into.')
+
+  const gitDir = await gitDirOf(cwd)
+  const dir = scratchDir(gitDir)
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  // Forward slashes and single quotes keep the paths intact for git's shell on every platform.
+  const shPath = (p: string): string => `'${p.replace(/\\/g, '/').replace(/'/g, `'\\''`)}'`
+
+  const lines: string[] = []
+  steps.forEach((s, i) => {
+    if (s.action === 'reword' && s.message?.trim()) {
+      const file = join(dir, `message-${i}.txt`)
+      writeFileSync(file, s.message.trim() + '\n')
+      lines.push(`pick ${s.hash}`, `exec git commit --amend --allow-empty --no-verify --cleanup=strip -F ${shPath(file)}`)
+    } else {
+      lines.push(`${s.action === 'reword' ? 'pick' : s.action} ${s.hash}`)
+    }
+  })
+  const todo = join(dir, 'todo')
+  writeFileSync(todo, lines.join('\n') + '\n')
+
+  return rebaseOutcome(
+    cwd,
+    run(cwd, ['rebase', '-i', '--autostash', onto], {
+      // git opens its todo with this "editor": copying ours over it is the whole edit.
+      env: { GIT_SEQUENCE_EDITOR: `cp ${shPath(todo)}` }
+    })
+  )
+}
+
+export async function rebaseContinue(cwd: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult> {
+  return rebaseOutcome(cwd, git(cwd, ['rebase', `--${action}`]))
 }
