@@ -10,6 +10,8 @@ export type DiffLayout = 'unified' | 'split'
 export type SubmoduleTabs = 'grouped' | 'labelled'
 /** How tags show in the commit list: collapsed onto the graph dot (diamond or count badge), as one chip, or all. */
 export type TagDisplay = 'diamond' | 'badge' | 'chip' | 'all'
+/** How the checked-out commit stands out: tinted row with an edge bar, a HEAD label, or a glowing dot. */
+export type HeadHighlight = 'band' | 'pill' | 'ring'
 
 export type SidebarSection = 'submodules' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'stale'
 export const SIDEBAR_SECTIONS: { id: SidebarSection; label: string }[] = [
@@ -50,6 +52,7 @@ export interface Settings {
   diffLayout: DiffLayout
   submoduleTabs: SubmoduleTabs
   tagDisplay: TagDisplay
+  headHighlight: HeadHighlight
 }
 
 const BASE_FONT_PX = 13
@@ -71,7 +74,8 @@ const DEFAULTS: Settings = {
   prGroups: { yours: false, others: false },
   diffLayout: 'unified',
   submoduleTabs: 'grouped',
-  tagDisplay: 'diamond'
+  tagDisplay: 'diamond',
+  headHighlight: 'band'
 }
 
 export const SCALE_MIN = 0.8

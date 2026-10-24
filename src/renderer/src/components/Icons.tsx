@@ -157,3 +157,9 @@ export const CheckoutIcon = (p: P) => (
     <path d="M4 12h11M11 7l5 5-5 5M20 4v16" />
   </Icon>
 )
+export const PinIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z" />
+    <circle cx="12" cy="10.5" r="2.2" />
+  </Icon>
+)

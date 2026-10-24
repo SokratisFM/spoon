@@ -4,7 +4,7 @@ import type { Commit, Ref, RepoState } from '../../../shared/types'
 import { LANE_COLORS, type Graph, type GraphRow } from '../graph'
 import { hueFor, initials, shortDate } from '../format'
 import { authorColorMap, rowHeight, useSettings } from '../settings'
-import { CheckoutIcon, CloudIcon, CopyIcon, TagIcon } from './Icons'
+import { CheckoutIcon, CloudIcon, CopyIcon, PinIcon, TagIcon } from './Icons'
 import type { Ops } from './RepoView'
 
 const MAX_GRAPH_LANES = 14
@@ -169,6 +169,7 @@ export function CommitList({ commits, graph, repo, selected, onSelect, scrollTo,
                 row={showGraph ? graph.rows[i] : null}
                 badges={badges.get(c.hash)}
                 tagMode={tagMode}
+                headStyle={settings.headHighlight}
                 onTagsClick={openTags}
                 isHead={c.hash === repo.headHash}
                 authorColor={authorColors?.get(c.authorName.toLowerCase()) ?? authorColors?.get(c.authorEmail.toLowerCase())}
@@ -274,6 +275,7 @@ interface RowProps {
   row: GraphRow | null
   badges: Badge[] | undefined
   tagMode: 'diamond' | 'badge' | 'chip' | 'all'
+  headStyle: 'band' | 'pill' | 'ring'
   onTagsClick: (hash: string, e: React.MouseEvent) => void
   isHead: boolean
   authorColor: string | undefined
@@ -296,7 +298,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
   }
   return (
     <div
-      className={`commit-row ${p.selected ? 'selected' : ''} ${p.isHead ? 'is-head' : ''} ${p.authorColor ? 'authored' : ''}`}
+      className={`commit-row ${p.selected ? 'selected' : ''} ${p.isHead ? `is-head head-hl-${p.headStyle}` : ''} ${p.authorColor ? 'authored' : ''}`}
       style={
         {
           transform: `translateY(${p.top}px)`,
@@ -318,6 +320,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
             rowH={p.rowH}
             laneW={p.laneW}
             isHead={p.isHead}
+            headRing={p.isHead && p.headStyle === 'ring'}
             nodeColor={p.authorColor}
             tagCount={p.tagMode === 'diamond' || p.tagMode === 'badge' ? tags.length : 0}
             tagStyle={p.tagMode === 'badge' ? 'badge' : 'diamond'}
@@ -346,6 +349,11 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
           </button>
         )}
         <span className="subject-text">{c.subject}</span>
+        {p.isHead && p.headStyle === 'pill' && (
+          <span className="head-pill" title="The commit you have checked out">
+            <PinIcon /> HEAD
+          </span>
+        )}
       </span>
       <span className="cell author">
         <span className="avatar" style={{ '--hue': hueFor(c.authorEmail) } as React.CSSProperties}>
@@ -364,6 +372,7 @@ function GraphCell({
   rowH,
   laneW,
   isHead,
+  headRing,
   nodeColor,
   tagCount,
   tagStyle,
@@ -373,6 +382,8 @@ function GraphCell({
   rowH: number
   laneW: number
   isHead: boolean
+  /** Glowing-dot style for the checked-out commit. */
+  headRing?: boolean
   /** Author color, replacing the lane color on the commit dot. */
   nodeColor?: string
   /** Tags collapsed onto this dot (0 = none). */
@@ -400,6 +411,7 @@ function GraphCell({
         else d = x1 === x2 ? `M${x1} ${mid}V${rowH}` : `M${x1} ${mid}C${x1} ${rowH} ${x2} ${mid} ${x2} ${rowH}`
         return <path key={i} d={d} stroke={color(s.color)} strokeWidth={stroke} fill="none" />
       })}
+      {headRing && <circle className="head-halo" cx={x(row.col)} cy={mid} r={r * 1.75} fill="none" stroke="var(--add)" strokeWidth={stroke} />}
       {tagCount > 0 && tagStyle === 'diamond' ? (
         // Tagged commit: a diamond in the tag color, hollow when it's HEAD.
         <rect
@@ -420,9 +432,9 @@ function GraphCell({
           cx={x(row.col)}
           cy={mid}
           r={r}
-          fill={isHead ? 'var(--bg-list)' : (nodeColor ?? color(row.color))}
-          stroke={nodeColor ?? color(row.color)}
-          strokeWidth={isHead ? stroke * 1.4 : 0}
+          fill={headRing ? 'var(--add)' : isHead ? 'var(--bg-list)' : (nodeColor ?? color(row.color))}
+          stroke={headRing ? 'var(--add)' : (nodeColor ?? color(row.color))}
+          strokeWidth={isHead && !headRing ? stroke * 1.4 : 0}
         />
       )}
       {tagCount > 0 && tagStyle === 'badge' && (

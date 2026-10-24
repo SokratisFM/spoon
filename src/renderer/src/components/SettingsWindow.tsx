@@ -18,6 +18,7 @@ import {
   type DiffLayout,
   type SubmoduleTabs,
   type TagDisplay,
+  type HeadHighlight,
   type Settings
 } from '../settings'
 import {
@@ -165,6 +166,18 @@ function AppearanceTab() {
           onChange={(tagDisplay) => updateSettings({ tagDisplay })}
         />
         <span className="hint">Collapsed tags open in a list when you click the dot or chip.</span>
+      </div>
+      <div className="field">
+        <span className="field-label">Checked-out commit</span>
+        <Segmented<HeadHighlight>
+          value={s.headHighlight}
+          options={[
+            ['band', 'Highlighted row'],
+            ['pill', 'HEAD label'],
+            ['ring', 'Glowing dot']
+          ]}
+          onChange={(headHighlight) => updateSettings({ headHighlight })}
+        />
       </div>
       <div className="field">
         <span className="field-label">Submodule tabs</span>
