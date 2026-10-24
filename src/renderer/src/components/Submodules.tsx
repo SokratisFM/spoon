@@ -8,8 +8,10 @@ export function submoduleStatus(s: Submodule): { label: string; tone: 'ok' | 'wa
   if (s.state === 'uninitialized') return { label: 'not initialized', tone: 'off' }
   if (s.state === 'conflict') return { label: 'conflict', tone: 'danger' }
   if (s.state === 'outdated') {
-    if (s.relation === 'ahead') return { label: `${s.ahead} commit${s.ahead === 1 ? '' : 's'} ahead of recorded`, tone: 'warn' }
-    if (s.relation === 'behind') return { label: `${s.behind} commit${s.behind === 1 ? '' : 's'} behind recorded`, tone: 'danger' }
+    if (s.relation === 'ahead')
+      return { label: `${s.ahead} commit${s.ahead === 1 ? '' : 's'} ahead of recorded`, tone: 'warn' }
+    if (s.relation === 'behind')
+      return { label: `${s.behind} commit${s.behind === 1 ? '' : 's'} behind recorded`, tone: 'danger' }
     return { label: 'differs from recorded commit', tone: 'danger' }
   }
   if (s.dirty) return { label: 'modified', tone: 'warn' }
@@ -22,26 +24,21 @@ export interface SubmoduleActions {
   menu: (s: Submodule) => void
 }
 
-export function submoduleActions(repoPath: string, ops: Ops, onOpenRepo: (path: string) => void): SubmoduleActions {
-  const parent = repoPath.split('/').pop()
-  const update = async (s: Submodule): Promise<void> => {
-    // Update checks out the commit the parent records, detached. When you're ahead or on a branch,
-    // that moves you backwards, so say so first.
-    if (s.state === 'outdated' && (s.relation !== 'behind' || s.branch)) {
-      const where = s.branch ? `on ${s.branch}` : `at ${s.hash.slice(0, 7)}`
-      const ok = await window.spoon.confirm({
-        message: `Move ${s.name} back to the commit ${parent} records?`,
-        detail:
-          `${s.name} is ${where}` +
-          (s.relation === 'ahead' ? `, ${s.ahead} commit${s.ahead === 1 ? '' : 's'} ahead of what ${parent} records` : '') +
-          `.\n\nUpdate checks out ${s.recorded.slice(0, 7)} without a branch. Your branch and its commits stay, ` +
-          `uncommitted changes are kept unless they conflict.\n\n` +
-          `To keep the newer commit instead, commit the ${s.path} change in ${parent}.`,
-        confirmLabel: 'Move back'
-      })
-      if (!ok) return
-    }
-    ops.run(`Updating ${s.name}…`, () => window.spoon.updateSubmodule(repoPath, s.path), 'Submodule update failed')
+export function submoduleActions(
+  repoPath: string,
+  ops: Ops,
+  onOpenRepo: (path: string) => void,
+  /** Opens the dialog that explains and confirms an update/reset. */
+  askUpdate: (s: Submodule) => void
+): SubmoduleActions {
+  const update = (s: Submodule): void => {
+    if (s.state === 'uninitialized')
+      ops.run(
+        `Initializing ${s.name}…`,
+        () => window.spoon.updateSubmodule(repoPath, s.path),
+        'Submodule update failed'
+      )
+    else askUpdate(s)
   }
   const open = (s: Submodule): void => onOpenRepo(`${repoPath}/${s.path}`)
   return {
@@ -131,6 +128,7 @@ export function SubmoduleChip({ submodules, actions }: { submodules: Submodule[]
                     className="mini-btn"
                     onClick={(e) => {
                       e.stopPropagation()
+                      setOpen(false)
                       actions.update(s)
                     }}
                   >

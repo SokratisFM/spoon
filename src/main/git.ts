@@ -25,6 +25,8 @@ import type {
   RebaseProgress,
   RebaseResult,
   RebaseStep,
+  ShortCommit,
+  SubmoduleUpdatePreview,
   WorkingTree
 } from '../shared/types'
 
@@ -482,8 +484,100 @@ export async function push(cwd: string, opts: PushOptions, onProgress: (l: strin
   await run(cwd, [...args, opts.remote, `refs/heads/${info.branch}:refs/heads/${opts.remoteBranch}`], { onProgress })
 }
 
-export async function updateSubmodule(cwd: string, submodulePath: string): Promise<void> {
-  await run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', '--', submodulePath])
+async function hasCommit(cwd: string, hash: string): Promise<boolean> {
+  try {
+    await git(cwd, ['cat-file', '-e', `${hash}^{commit}`])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function shortLog(cwd: string, args: string[], limit = 6): Promise<{ list: ShortCommit[]; count: number }> {
+  const [out, count] = await Promise.all([
+    git(cwd, ['log', `-${limit}`, `--format=%H${FS}%s`, ...args, '--']),
+    git(cwd, ['rev-list', '--count', ...args, '--'])
+  ])
+  const list = out
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      const [hash, subject] = l.split(FS)
+      return { hash, subject }
+    })
+  return { list, count: Number(count.trim()) || 0 }
+}
+
+/** Where the parent records a submodule: the index if the pointer is staged, else HEAD. */
+async function recordedCommit(cwd: string, submodulePath: string): Promise<string> {
+  const line = (await git(cwd, ['ls-files', '-s', '--', submodulePath])).trim()
+  const hash = line.split(/\s+/)[1]
+  if (!hash) throw new Error(`${submodulePath} isn’t a submodule of this repository.`)
+  return hash
+}
+
+export async function submoduleUpdatePreview(cwd: string, submodulePath: string): Promise<SubmoduleUpdatePreview> {
+  const dir = join(cwd, submodulePath)
+  const recorded = await recordedCommit(cwd, submodulePath)
+  const [head, headSubject, branchOut, status] = await Promise.all([
+    git(dir, ['rev-parse', 'HEAD']).then((s) => s.trim()),
+    git(dir, ['log', '-1', '--format=%s']).then((s) => s.trim()),
+    git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]),
+    git(dir, ['status', '--porcelain', '--untracked-files=no'])
+  ])
+  const branch = branchOut.trim() || null
+  const dirtyFiles = status.split('\n').filter(Boolean).length
+  const needsFetch = !(await hasCommit(dir, recorded))
+  const none = { list: [] as ShortCommit[], count: 0 }
+  const [ahead, behind, subject, landing, orphaned] = await Promise.all([
+    needsFetch ? none : shortLog(dir, [head, '--not', recorded]),
+    needsFetch ? none : shortLog(dir, [recorded, '--not', head]),
+    needsFetch ? '' : git(dir, ['log', '-1', '--format=%s', recorded]),
+    needsFetch ? '' : git(dir, ['for-each-ref', '--points-at', recorded, '--format=%(refname:short)', 'refs/heads']),
+    branch ? none : shortLog(dir, [head, '--not', '--branches', '--remotes', '--tags'])
+  ])
+  const landingBranches = landing.split('\n').filter(Boolean)
+  return {
+    branch,
+    head,
+    headSubject,
+    recorded,
+    needsFetch,
+    ahead: ahead.list,
+    aheadCount: ahead.count,
+    behind: behind.list,
+    behindCount: behind.count,
+    recordedSubject: subject.trim() || null,
+    fastForward: !!branch && !needsFetch && ahead.count === 0 && behind.count > 0,
+    landingBranch: landingBranches.includes(branch ?? '') ? null : (landingBranches[0] ?? null),
+    orphaned: orphaned.list,
+    dirtyFiles
+  }
+}
+
+/**
+ * Brings a submodule to the commit the parent records. A branch that's simply behind is
+ * fast-forwarded (so it stays checked out), and a local branch already at that commit is switched
+ * to; only otherwise does it fall back to `git submodule update`, which checks the commit out directly.
+ */
+export async function updateSubmodule(cwd: string, submodulePath: string, backupBranch?: string): Promise<void> {
+  const dir = join(cwd, submodulePath)
+  const nested = (): Promise<string> =>
+    run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', '--', submodulePath])
+  if (!existsSync(join(dir, '.git'))) {
+    await nested()
+    return
+  }
+  if (backupBranch) await git(dir, ['branch', '--', backupBranch, 'HEAD'])
+  const recorded = await recordedCommit(cwd, submodulePath)
+  if (!(await hasCommit(dir, recorded))) await git(dir, ['fetch', '--all', '--quiet'])
+  if (await hasCommit(dir, recorded)) {
+    const preview = await submoduleUpdatePreview(cwd, submodulePath)
+    if (preview.fastForward) await git(dir, ['merge', '--ff-only', '--quiet', recorded])
+    else if (preview.landingBranch) await git(dir, ['switch', '--quiet', preview.landingBranch])
+  }
+  // Checks out the recorded commit if the steps above didn't get there, and updates nested submodules.
+  await nested()
 }
 
 // ---------- branch cleanup ----------

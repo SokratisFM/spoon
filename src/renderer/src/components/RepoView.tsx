@@ -7,6 +7,7 @@ import type {
   RebasePlan,
   Ref,
   RepoState,
+  Submodule,
   WorkingTree
 } from '../../../shared/types'
 import { useGitHubAccount } from '../github'
@@ -28,6 +29,7 @@ import { NetButton, type NetKind, type NetState } from './NetButton'
 import { DeleteBranchDialog } from './DeleteBranchDialog'
 import { RebaseEditor } from './RebaseEditor'
 import { RebaseBanner } from './RebaseBanner'
+import { SubmoduleUpdateDialog } from './SubmoduleUpdateDialog'
 import { FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
 import { keys } from '../platform'
 
@@ -80,6 +82,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const lastLog = useRef<Commit[]>([])
   const [net, setNet] = useState<NetState | null>(null)
   const [deleting, setDeleting] = useState<Ref | null>(null)
+  const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
   // Interactive rebase being planned: the commit list turns into its editor.
   const [rebasing, setRebasing] = useState<{ onto: string; branch: string; plan: RebasePlan } | null>(null)
   // Commits that just arrived (fetch/pull); the list slides them in and flashes them once.
@@ -246,7 +249,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   )
 
   const ops = useMemo<Ops>(() => ({ run, checkout, rebase }), [run, checkout, rebase])
-  const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo), [path, ops, onOpenRepo])
+  const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo, setSubUpdate), [path, ops, onOpenRepo])
 
   // Fetch/pull/push with their button animation: working (ring follows git's %), then done
   // (check, "+N" new commits, which also slide into the list) or failed (shake).
@@ -557,6 +560,24 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               },
               'Delete failed'
             )
+          }}
+        />
+      )}
+      {subUpdate && (
+        <SubmoduleUpdateDialog
+          repoPath={path}
+          sub={subUpdate}
+          onClose={() => setSubUpdate(null)}
+          onConfirm={(backup) =>
+            run(
+              `Updating ${subUpdate.name}…`,
+              () => window.spoon.updateSubmodule(path, subUpdate.path, backup),
+              'Submodule update failed'
+            )
+          }
+          onRecordCurrent={async () => {
+            if (await run(`Staging ${subUpdate.name}…`, () => window.spoon.stage(path, [subUpdate.path]), 'Stage failed'))
+              setView('changes')
           }}
         />
       )}

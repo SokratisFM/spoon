@@ -47,6 +47,37 @@ export interface RepoState {
   superproject: string | null
 }
 
+export interface ShortCommit {
+  hash: string
+  subject: string
+}
+
+/** What updating a submodule to the parent's recorded commit would do, for the confirmation dialog. */
+export interface SubmoduleUpdatePreview {
+  branch: string | null
+  head: string
+  headSubject: string
+  recorded: string
+  /** The recorded commit isn't in the submodule yet; it gets fetched first. */
+  needsFetch: boolean
+  /** Commits you have that the recorded one doesn't (newest first, capped), and how many in total. */
+  ahead: ShortCommit[]
+  aheadCount: number
+  /** Commits the recorded one has that you don't. */
+  behind: ShortCommit[]
+  behindCount: number
+  /** Subject of the recorded commit. */
+  recordedSubject: string | null
+  /** On a branch that can simply fast-forward to the recorded commit, so the branch is kept. */
+  fastForward: boolean
+  /** A local branch already at the recorded commit; the update switches to it. */
+  landingBranch: string | null
+  /** Commits reachable only from the current (detached) HEAD: they'd end up on no branch. */
+  orphaned: ShortCommit[]
+  /** Files with uncommitted changes. */
+  dirtyFiles: number
+}
+
 export interface RebaseProgress {
   branch: string | null // the branch being rebased
   onto: string // commit hash it's being replayed onto
@@ -348,7 +379,8 @@ export interface SpoonApi {
   checkout(path: string, target: CheckoutTarget): Promise<void>
   syncInfo(path: string): Promise<SyncInfo>
   fetch(path: string, prune: boolean): Promise<void>
-  updateSubmodule(path: string, submodulePath: string): Promise<void>
+  updateSubmodule(path: string, submodulePath: string, backupBranch?: string): Promise<void>
+  submoduleUpdatePreview(path: string, submodulePath: string): Promise<SubmoduleUpdatePreview>
   deleteBranches(path: string, names: string[], force: boolean): Promise<DeleteResult>
   deleteRemoteBranch(path: string, remote: string, branch: string): Promise<void>
   pull(path: string, opts: PullOptions): Promise<void>
