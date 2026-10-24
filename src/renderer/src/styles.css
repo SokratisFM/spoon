@@ -2951,6 +2951,31 @@ kbd.soft {
   box-shadow: 0 0 0 1px var(--border-strong);
 }
 
+/* ---------- dropdowns ---------- */
+
+/* Our own chevron (drawn with two gradients so it follows the theme) with room reserved for it,
+   instead of the system arrow squeezed against the edge. Listed with the dialog/popover selectors so
+   it wins over their `background` shorthand. */
+select,
+.modal select,
+.popover select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 2.1em !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.15em) 55%,
+    calc(100% - 0.8em) 55%;
+  background-size: 0.36em 0.36em;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+select:hover {
+  border-color: var(--border-strong);
+}
+
 /* ---------- scrollbars ---------- */
 
 ::-webkit-scrollbar {
