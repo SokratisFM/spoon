@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { DiffTarget } from '../../../shared/types'
-import { useAsync } from '../hooks'
+import type { DiffResult, DiffTarget } from '../../../shared/types'
+import { useAsync, useCachedAsync } from '../hooks'
+import { commitDiffCache } from '../repoCache'
 import { codeLineHeight, updateSettings, useSettings } from '../settings'
 
 type LineKind = 'hunk' | 'add' | 'del' | 'ctx' | 'note'
@@ -140,22 +141,30 @@ interface Props {
   hunkAction?: HunkAction
 }
 
+// Parsed lines of cached diffs, so showing a commit's file again doesn't parse it again.
+const parsedDiffs = new WeakMap<DiffResult, ReturnType<typeof parseDiff>>()
+
 export function DiffView({ path, target, nonce, hunkAction }: Props) {
   const settings = useSettings()
   const lineH = codeLineHeight(settings)
   const key = target ? JSON.stringify(target) : ''
-  const { data, error, loading } = useAsync(
-    () => (target ? window.spoon.diff(path, target) : Promise.resolve(null)),
-    [path, key, nonce]
+  // A commit's diff never changes, so it's cached; working-tree diffs reload on every refresh.
+  const isCommit = target?.kind === 'commit'
+  const live = useAsync(
+    () => (target && !isCommit ? window.spoon.diff(path, target) : Promise.resolve(null)),
+    [path, key, isCommit ? null : nonce]
   )
-  // Refreshes refetch the diff (the file may have changed on disk), but an unchanged diff keeps its
-  // parsed lines, so nothing below re-renders.
+  const cached = useCachedAsync(commitDiffCache, isCommit ? `${path}|${key}` : null, () => window.spoon.diff(path, target!))
+  const { data, error, loading } = isCommit ? cached : live
+  // An unchanged diff keeps its parsed lines, so nothing below re-renders.
   const lastParsed = useRef<{ text: string; parsed: ReturnType<typeof parseDiff> } | null>(null)
   const parsed = useMemo(() => {
     if (!data || data.binary) return null
-    if (lastParsed.current?.text === data.text) return lastParsed.current.parsed
-    const next = parseDiff(data.text)
+    const known = parsedDiffs.get(data)
+    if (known) return known
+    const next = lastParsed.current?.text === data.text ? lastParsed.current.parsed : parseDiff(data.text)
     lastParsed.current = { text: data.text, parsed: next }
+    parsedDiffs.set(data, next)
     return next
   }, [data])
   // Split view wraps long lines so both sides stay visible; wrapped rows have varying heights, so it

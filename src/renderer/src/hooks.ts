@@ -57,6 +57,26 @@ export function useAsync<T>(
   return state
 }
 
+/**
+ * useAsync over a cache: a cached value is returned in the same render (no loading flash), and
+ * a fresh one is stored once loaded. A null key means nothing to load.
+ */
+export function useCachedAsync<T>(
+  cache: { get(key: string): T | undefined; set(key: string, v: T): void },
+  key: string | null,
+  load: () => Promise<T>
+): { data: T | null; error: string | null; loading: boolean } {
+  const hit = key ? cache.get(key) : undefined
+  const res = useAsync(
+    () =>
+      !key ? Promise.resolve(null) : hit !== undefined ? Promise.resolve(hit) : load().then((v) => (cache.set(key, v), v)),
+    [key]
+  )
+  if (hit !== undefined) return { data: hit, error: null, loading: false }
+  // While a new key loads, don't show the previous key's value.
+  return res.loading ? { data: null, error: null, loading: true } : (res as { data: T | null; error: string | null; loading: boolean })
+}
+
 /** Strip Electron's "Error invoking remote method 'x': Error:" prefix. */
 export function cleanError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)

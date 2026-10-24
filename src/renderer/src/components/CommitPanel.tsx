@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { FileChange } from '../../../shared/types'
 import { fullDate, hueFor, initials } from '../format'
-import { useAsync } from '../hooks'
+import { useCachedAsync } from '../hooks'
+import { detailsCache } from '../repoCache'
 import { authorColorMap, useSettings } from '../settings'
 import { jiraConfig, jiraUrl, splitByTickets } from '../jira'
 import { Split } from './Split'
@@ -16,9 +17,9 @@ interface Props {
 }
 
 export function CommitPanel({ path, hash, onJump }: Props) {
-  const { data: details, error } = useAsync(
-    () => (hash ? window.spoon.commitDetails(path, hash) : Promise.resolve(null)),
-    [path, hash]
+  // Commits never change, so their details come from the cache when they've been shown before.
+  const { data: details, error } = useCachedAsync(detailsCache, hash ? `${path}|${hash}` : null, () =>
+    window.spoon.commitDetails(path, hash!)
   )
   const [file, setFile] = useState<FileChange | null>(null)
   const [copied, setCopied] = useState(false)

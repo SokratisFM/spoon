@@ -172,6 +172,11 @@ export function resetScale(): void {
   updateSettings({ uiScale: DEFAULTS.uiScale })
 }
 
+/** Current settings, for code outside React. */
+export function getSettings(): Settings {
+  return current
+}
+
 export function useSettings(): Settings {
   return useSyncExternalStore(
     (l) => {

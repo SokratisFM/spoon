@@ -210,17 +210,18 @@ async function assertRemote(cwd: string, remote: string): Promise<void> {
 }
 
 export async function openRepo(path: string): Promise<RepoState> {
-  const root = (await git(path, ['rev-parse', '--show-toplevel'])).trim()
-  const gitDir = (await git(root, ['rev-parse', '--absolute-git-dir'])).trim()
+  // One rev-parse for all three; the superproject line is only there for a submodule.
+  const [root, gitDir, superproject] = (
+    await git(path, ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--show-superproject-working-tree'])
+  ).split('\n')
 
-  const [branchOut, headOut, refs, stashes, remotesOut, submodules, superOut] = await Promise.all([
+  const [branchOut, headOut, refs, stashes, remotesOut, submodules] = await Promise.all([
     git(root, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]),
     git(root, ['rev-parse', '-q', '--verify', 'HEAD'], [0, 1]),
     readRefs(root),
     readStashes(root),
     git(root, ['remote']),
-    readSubmodules(root),
-    git(root, ['rev-parse', '--show-superproject-working-tree'], [0, 1]).catch(() => '')
+    readSubmodules(root)
   ])
 
   return {
@@ -234,73 +235,78 @@ export async function openRepo(path: string): Promise<RepoState> {
     operation: detectOperation(gitDir),
     rebase: readRebaseProgress(gitDir),
     submodules,
-    superproject: superOut.trim() || null
+    superproject: superproject || null
   }
 }
 
 async function readSubmodules(root: string): Promise<Submodule[]> {
   if (!existsSync(join(root, '.gitmodules'))) return []
-  // Lines look like " <sha> path (describe)"; the first char is ' ' ok, '-' not initialized,
-  // '+' checked-out commit differs from the recorded one, 'U' merge conflict.
-  const out = await git(root, ['submodule', 'status'], [0, 1])
-  const subs = out
-    .split('\n')
+  // Not `git submodule status`: it costs a few hundred ms in a Unity project and still needs a
+  // second look into each submodule for its branch and changes. Instead, one `status --branch`
+  // per submodule, all at once, gives its commit, branch and changes in a single process.
+  const config = await git(root, ['config', '-z', '-f', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'], [0, 1])
+  const paths = config
+    .split('\0')
+    .map((entry) => entry.slice(entry.indexOf('\n') + 1))
     .filter(Boolean)
-    .map((line) => {
-      const m = /^([ \-+U])([0-9a-f]+) (.+?)(?: \(.*\))?$/.exec(line)
-      if (!m) return null
-      const state = m[1] === '-' ? 'uninitialized' : m[1] === '+' ? 'outdated' : m[1] === 'U' ? 'conflict' : 'ok'
-      return { path: m[3], name: m[3].split('/').pop()!, hash: m[2], branch: null, state, dirty: false, recorded: m[2] } as Submodule
-    })
-    .filter((s): s is Submodule => s !== null)
+  if (!paths.length) return []
 
-  const live = subs.filter((s) => s.state !== 'uninitialized')
-  if (!live.length) return subs
-  // One status in the parent covers every submodule ("S.M." = tracked changes inside it), and one
-  // ls-files gives every recorded commit, instead of a few git processes per submodule.
-  const [statusOut, indexOut] = await Promise.all([
-    git(root, ['status', '--porcelain=v2', '-z', '--untracked-files=no', '--ignore-submodules=none', '--', ...live.map((s) => s.path)]).catch(() => ''),
-    git(root, ['ls-files', '-s', '-z', '--', ...live.map((s) => s.path)]).catch(() => '')
-  ])
-  const dirty = new Set<string>()
-  const tokens = statusOut.split('\0')
-  for (let i = 0; i < tokens.length; ) {
-    const rec = tokens[i++]
-    if (!rec) continue
-    const parts = rec.split(' ')
-    if (rec[0] === '2') i++ // rename: the old path follows
-    const skip = rec[0] === '1' ? 8 : rec[0] === '2' ? 9 : rec[0] === 'u' ? 10 : -1
-    if (skip !== -1 && parts[2]?.[0] === 'S' && parts[2][2] === 'M') dirty.add(parts.slice(skip).join(' '))
-  }
+  const looks = new Map(
+    paths.map((p) => {
+      const dir = join(root, p)
+      const look = existsSync(join(dir, '.git'))
+        ? git(dir, ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=no']).catch(() => null)
+        : Promise.resolve(null)
+      return [p, look] as const
+    })
+  )
+  // Recorded commits from the index; stages 1-3 mean the pointer itself is in conflict.
+  const index = await git(root, ['ls-files', '-s', '-z', '--', ...paths]).catch(() => '')
   const recorded = new Map<string, string>()
-  for (const entry of indexOut.split('\0')) {
-    const m = /^160000 ([0-9a-f]+) \d\t(.+)$/.exec(entry)
-    if (m) recorded.set(m[2], m[1])
+  const conflicted = new Set<string>()
+  for (const entry of index.split('\0')) {
+    const m = /^160000 ([0-9a-f]+) (\d)\t(.+)$/.exec(entry)
+    if (!m) continue
+    if (m[2] === '0') recorded.set(m[3], m[1])
+    else {
+      conflicted.add(m[3])
+      if (m[2] === '2') recorded.set(m[3], m[1]) // ours
+    }
   }
 
-  await Promise.all(
-    live.map(async (s) => {
-      const dir = join(root, s.path)
-      s.branch = (await git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).catch(() => '')).trim() || null
-      s.dirty = dirty.has(s.path)
-      if (s.state !== 'outdated') return
-      // Ahead is the normal state while you're developing inside the submodule; behind means
-      // someone moved the parent's pointer and Update would catch you up.
-      s.recorded = recorded.get(s.path) ?? s.hash
-      const key = `${dir}|${s.recorded}|${s.hash}`
-      let counts = aheadBehindCache.get(key)
-      if (counts === undefined) {
-        counts = await git(dir, ['rev-list', '--left-right', '--count', `${s.recorded}...${s.hash}`]).catch(() => '')
-        if (aheadBehindCache.size > 500) aheadBehindCache.clear()
-        if (counts) aheadBehindCache.set(key, counts)
-      }
-      const [behind, ahead] = counts.trim().split(/\s+/).map(Number)
-      if (!Number.isNaN(ahead)) {
-        s.ahead = ahead
-        s.behind = behind
-        s.relation = behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged'
-      }
-    })
+  const subs = await Promise.all(
+    paths
+      .filter((p) => recorded.has(p))
+      .map(async (p): Promise<Submodule> => {
+        const dir = join(root, p)
+        const rec = recorded.get(p)!
+        const sub: Submodule = { path: p, name: p.split('/').pop()!, hash: rec, branch: null, state: 'uninitialized', dirty: false, recorded: rec }
+        const out = await looks.get(p)
+        const oid = out && /(?:^|\0)# branch\.oid ([0-9a-f]+)/.exec(out)?.[1]
+        if (!out || !oid) return sub // no checkout yet
+        const head = /(?:^|\0)# branch\.head ([^\0]+)/.exec(out)?.[1]
+        sub.hash = oid
+        sub.branch = head && head !== '(detached)' ? head : null
+        sub.dirty = out.split('\0').some((r) => r && !r.startsWith('#'))
+        sub.state = conflicted.has(p) ? 'conflict' : oid === rec ? 'ok' : 'outdated'
+        if (sub.state !== 'outdated') return sub
+        // Ahead is the normal state while you're developing inside the submodule; behind means
+        // someone moved the parent's pointer and Update would catch you up.
+        const key = `${dir}|${rec}|${oid}`
+        let counts = aheadBehindCache.get(key)
+        if (counts === undefined) {
+          counts = await git(dir, ['rev-list', '--left-right', '--count', `${rec}...${oid}`]).catch(() => '')
+          if (aheadBehindCache.size > 500) aheadBehindCache.clear()
+          if (counts) aheadBehindCache.set(key, counts)
+        }
+        const [behind, ahead] = counts.trim().split(/\s+/).map(Number)
+        if (!Number.isNaN(ahead)) {
+          sub.ahead = ahead
+          sub.behind = behind
+          sub.relation = behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged'
+        }
+        return sub
+      })
   )
   return subs
 }
@@ -427,7 +433,9 @@ function parseNameStatus(out: string): FileChange[] {
 }
 
 export async function workingTree(cwd: string): Promise<WorkingTree> {
-  const out = await git(cwd, ['status', '--porcelain=v2', '-z', '--untracked-files=all'])
+  // Changes inside a submodule can't be staged from here (the submodule chip shows them), so git
+  // needn't look through every submodule's files; a moved submodule pointer still shows up.
+  const out = await git(cwd, ['status', '--porcelain=v2', '-z', '--untracked-files=all', '--ignore-submodules=dirty'])
   const tokens = out.split('\0')
   const staged: FileChange[] = []
   const unstaged: FileChange[] = []

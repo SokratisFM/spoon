@@ -653,6 +653,9 @@ button.branch-chip:hover:not(:disabled) {
   border-radius: var(--radius-sm);
   color: var(--text);
   white-space: nowrap;
+  /* Repos with hundreds of branches: rows scrolled out of view skip layout and paint. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto calc(var(--row-h) * 0.9);
 }
 .side-item .icon {
   color: var(--text-muted);

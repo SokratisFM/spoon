@@ -3,6 +3,7 @@ import type { MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
 import { resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
 import { RepoView } from './components/RepoView'
+import { warmTabs } from './repoCache'
 import { SettingsPopover } from './components/SettingsPopover'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { Welcome } from './components/Welcome'
@@ -87,6 +88,11 @@ export function App() {
     if (!current) return setCurrentMissing(false)
     window.spoon.pathsExist([current]).then(([ok]) => setCurrentMissing(!ok))
   }, [current])
+
+  // Once the visible tab has had its turn, load the others in the background so switching is instant.
+  useEffect(() => {
+    warmTabs(tabs, current)
+  }, [tabs, current])
 
   // Tab opens the project palette, unless you're typing or a dialog is open.
   useEffect(() => {

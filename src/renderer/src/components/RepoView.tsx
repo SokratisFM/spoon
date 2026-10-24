@@ -12,8 +12,8 @@ import type {
 } from '../../../shared/types'
 import { useGitHubAccount } from '../github'
 import { PullRequestView } from './PullRequestView'
-import { buildGraph, type ColorRules } from '../graph'
-import { reservedPrefixes, useSettings } from '../settings'
+import { useSettings } from '../settings'
+import { cachedGraph, graphKeyOf, LOG_LIMIT, markLoaded, prStateOf, refsSignatureOf, snapshots } from '../repoCache'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { cleanError, usePersistentState } from '../hooks'
 import { setKnownAuthors } from '../authors'
@@ -34,8 +34,6 @@ import { FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, 
 import { keys } from '../platform'
 
 const PullRequestIconLarge = () => <PullRequestIcon className="icon big-icon" />
-
-const LOG_LIMIT = 5000
 
 export type View = 'history' | 'changes' | 'prs'
 
@@ -60,16 +58,6 @@ interface Props {
   onOpenRepo: (path: string) => void
   onOpenSettings: (tab: 'accounts') => void
 }
-
-/** Last loaded state per repo, so switching back to a tab shows it at once while it refreshes. */
-interface Snapshot {
-  repo: RepoState
-  tree: WorkingTree
-  commits: Commit[]
-  refsSignature: string
-  selected: string | null
-}
-const snapshots = new Map<string, Snapshot>()
 
 /** Keeps the previous object when nothing changed, so memos and rows keyed on it don't recompute. */
 function same<T>(prev: T | null, next: T): T {
@@ -106,11 +94,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   // Commits that just arrived (fetch/pull); the list slides them in and flashes them once.
   const [fresh, setFresh] = useState<{ hashes: Set<string>; n: number } | null>(null)
   const account = useGitHubAccount()
-  const [ghSlug, setGhSlug] = useState<string | null | undefined>(undefined)
-  const [prs, setPrs] = useState<PullSummary[] | null>(null)
-  const [prError, setPrError] = useState<string | null>(null)
+  // Kept per repo outside the component, so switching tabs doesn't refetch them.
+  const prState = prStateOf(path)
+  const [ghSlug, setGhSlug] = useState<string | null | undefined>(prState.slug)
+  const [prs, setPrs] = useState<PullSummary[] | null>(prState.prs)
+  const [prError, setPrError] = useState<string | null>(prState.error)
   const [selectedPr, setSelectedPr] = usePersistentState<number | null>(`spoon.pr.selected.${path}`, null)
-  const prsLoadedAt = useRef(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
   const wasCancelled = useRef(false)
 
@@ -122,7 +111,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       setTree((prev) => same(prev, t))
       setError(null)
       // Only re-read history when a ref moved; status refreshes are cheap and frequent.
-      const sig = `${r.headHash}|${r.refs.map((x) => x.fullName + x.target).join(',')}`
+      const sig = refsSignatureOf(r)
       if (sig !== refsSignature.current) {
         const log = await window.spoon.log(path, LOG_LIMIT)
         // Only now: if reading the log failed, the next refresh tries again.
@@ -132,14 +121,19 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         setKnownAuthors(log.map((c) => c.authorName))
         setSelected((s) => (s && log.some((c) => c.hash === s) ? s : r.headHash))
       }
+      const prev = snapshots.get(path)
+      const sameLog = prev?.commits === lastLog.current
       snapshots.set(path, {
         repo: nextRepo,
         tree: t,
         commits: lastLog.current,
         refsSignature: refsSignature.current,
-        selected: snapshots.get(path)?.selected ?? null
+        selected: prev?.selected ?? null,
+        graph: sameLog ? prev?.graph : undefined,
+        graphKey: sameLog ? prev?.graphKey : undefined
       })
       setRefreshN((n) => n + 1)
+      markLoaded(path)
     } catch (err) {
       setError(cleanError(err))
     }
@@ -189,26 +183,33 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   }, [path, selected])
 
   useEffect(() => {
-    window.spoon.ghRepo(path).then(setGhSlug)
+    if (prStateOf(path).slug !== undefined) return
+    window.spoon.ghRepo(path).then((slug) => {
+      prStateOf(path).slug = slug
+      setGhSlug(slug)
+    })
   }, [path])
 
   // Pull requests: loaded when the account and a GitHub remote are there, refreshed at most once a minute.
   const loadPrs = useCallback(
     async (force = false) => {
       if (!account || !ghSlug) return
-      if (!force && Date.now() - prsLoadedAt.current < 60_000) return
-      prsLoadedAt.current = Date.now()
+      const st = prStateOf(path)
+      if (!force && st.prs && Date.now() - st.loadedAt < 60_000) return
+      st.loadedAt = Date.now()
       try {
-        setPrs(await window.spoon.ghPulls(path))
-        setPrError(null)
+        st.prs = await window.spoon.ghPulls(path)
+        st.error = null
       } catch (err) {
-        setPrError(cleanError(err))
+        st.error = cleanError(err)
       }
+      setPrs(st.prs)
+      setPrError(st.error)
     },
     [account, ghSlug, path]
   )
   useEffect(() => {
-    loadPrs(true)
+    loadPrs()
   }, [loadPrs])
   useEffect(() => {
     const onFocus = (): void => void loadPrs()
@@ -349,31 +350,14 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   }, [command])
 
   const settings = useSettings()
-  const refsKey = repo ? `${repo.remotes.join(',')}|${repo.refs.map((r) => r.fullName + r.target).join(',')}` : ''
-  const graph = useMemo(() => {
-    const prefixes = reservedPrefixes(settings)
-    if (!settings.reservedColorsGraph || !prefixes.length || !repo) return buildGraph(commits)
-    // Branch names per commit (remote ones without "origin/"), to match against reserved prefixes.
-    const names = new Map<string, string[]>()
-    for (const r of repo.refs) {
-      if (r.kind !== 'head' && r.kind !== 'remote') continue
-      const remote = r.kind === 'remote' ? repo.remotes.find((x) => r.name.startsWith(`${x}/`)) : undefined
-      const name = remote ? r.name.slice(remote.length + 1) : r.name
-      names.set(r.target, [...(names.get(r.target) ?? []), name])
-    }
-    const reservedIdx = new Set(prefixes.map(([, i]) => i))
-    const free = [0, 1, 2, 3, 4, 5, 6, 7].filter((i) => !reservedIdx.has(i))
-    const rules: ColorRules = {
-      free: free.length ? free : [0, 1, 2, 3, 4, 5, 6, 7],
-      colorAt: (hash) => {
-        for (const n of names.get(hash) ?? []) for (const [p, i] of prefixes) if (n.startsWith(p)) return i
-        return null
-      }
-    }
-    return buildGraph(commits, rules)
-    // Keyed on the refs, not the repo object: status-only refreshes don't rebuild 5000 rows of graph.
+  // Keyed on what the graph depends on, not the repo object: status-only refreshes and tab
+  // switches reuse the built graph instead of laying out 5000 rows again.
+  const graphKey = graphKeyOf(repo, settings)
+  const graph = useMemo(
+    () => cachedGraph(path, commits, repoRef.current, settings),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commits, refsKey, settings])
+    [path, commits, graphKey]
+  )
 
   /** Commits on a remote branch that HEAD doesn't contain, newest first (from the loaded history). */
   const remoteOnly = (remoteBranch: string): Commit[] => {

@@ -5,6 +5,9 @@ import type { PullSummary, Ref, RepoState } from '../../../shared/types'
 import { submoduleStatus, type SubmoduleActions } from './Submodules'
 import { usePersistentState } from '../hooks'
 import type { Ops, View } from './RepoView'
+
+// One shared collator: localeCompare with options builds a new one for every comparison.
+const byName = new Intl.Collator(undefined, { numeric: true })
 import {
   BoxIcon,
   BroomIcon,
@@ -64,7 +67,7 @@ function buildTree(refs: Ref[], strip = 0): TreeNode[] {
   }
   const sort = (nodes: TreeNode[]): TreeNode[] =>
     nodes
-      .sort((a, b) => Number(!!a.ref) - Number(!!b.ref) || a.name.localeCompare(b.name, undefined, { numeric: true }))
+      .sort((a, b) => Number(!!a.ref) - Number(!!b.ref) || byName.compare(a.name, b.name))
       .map((n) => ({ ...n, children: sort(n.children) }))
   return sort(root.children)
 }
@@ -136,7 +139,7 @@ export function Sidebar(props: Props) {
     }
     const tagRefs = repo.refs
       .filter((r) => r.kind === 'tag' && match(r))
-      .sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }))
+      .sort((a, b) => byName.compare(b.name, a.name))
     return { branches: buildTree(heads), remotes: byRemote, tags: tagRefs }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo, q])
