@@ -9,7 +9,7 @@ import * as gh from './github'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -78,6 +78,7 @@ function buildMenu(): void {
         label: 'Repository',
         submenu: [
           { label: 'Commit', accelerator: 'CmdOrCtrl+Enter', click: () => send('commit') },
+          { label: 'Discard Selected Changes…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('discard') },
           { type: 'separator' },
           { label: 'Fetch', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('fetch') },
           { label: 'Pull…', accelerator: 'CmdOrCtrl+Shift+L', click: () => send('pull') },
@@ -209,6 +210,9 @@ function registerIpc(): void {
 
   ipcMain.handle('repo:stage', (_e, path: string, files: string[]) => git.stage(path, files))
   ipcMain.handle('repo:unstage', (_e, path: string, files: string[]) => git.unstage(path, files))
+  ipcMain.handle('repo:discard', (_e, path: string, files: DiscardEntry[]) =>
+    git.discard(path, files, (p) => shell.trashItem(p))
+  )
   ipcMain.handle('repo:stageAll', (_e, path: string) => git.stageAll(path))
   ipcMain.handle('repo:unstageAll', (_e, path: string) => git.unstageAll(path))
   ipcMain.handle('repo:applyHunk', (_e, path: string, target: DiffTarget, index: number, header: string) =>
@@ -259,6 +263,7 @@ function registerIpc(): void {
                 label: it.label,
                 enabled: it.enabled !== false,
                 ...(it.kind ? { type: it.kind, checked: !!it.checked } : {}),
+                ...(it.accelerator ? { accelerator: it.accelerator, registerAccelerator: false } : {}),
                 click: () => (chosen = it.id ?? null)
               }
         )

@@ -143,6 +143,14 @@ export interface DeleteResult {
 
 export type FileStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | '?'
 
+/** A file whose local changes get thrown away; staged ones go back to HEAD, unstaged ones to the index. */
+export interface DiscardEntry {
+  path: string
+  oldPath?: string
+  status: FileStatus
+  staged: boolean
+}
+
 export interface FileChange {
   path: string
   oldPath?: string
@@ -213,6 +221,8 @@ export interface MenuItem {
   /** Shown as a checkbox (or radio dot) in its current state. */
   kind?: 'checkbox' | 'radio'
   checked?: boolean
+  /** Shortcut shown beside the item (display only; the app menu owns the real shortcut). */
+  accelerator?: string
 }
 
 // ---------- GitHub ----------
@@ -364,6 +374,7 @@ export interface SpoonApi {
 
   stage(path: string, files: string[]): Promise<void>
   unstage(path: string, files: string[]): Promise<void>
+  discard(path: string, files: DiscardEntry[]): Promise<void>
   stageAll(path: string): Promise<void>
   unstageAll(path: string): Promise<void>
   applyHunk(path: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void>
@@ -440,3 +451,4 @@ export type MenuCommand =
   | 'close-tab'
   | 'find-project'
   | 'filter-commits'
+  | 'discard'

@@ -17,6 +17,7 @@ const api: SpoonApi = {
   diff: (path, target) => ipcRenderer.invoke('repo:diff', path, target),
   stage: (path, files) => ipcRenderer.invoke('repo:stage', path, files),
   unstage: (path, files) => ipcRenderer.invoke('repo:unstage', path, files),
+  discard: (path, files) => ipcRenderer.invoke('repo:discard', path, files),
   stageAll: (path) => ipcRenderer.invoke('repo:stageAll', path),
   unstageAll: (path) => ipcRenderer.invoke('repo:unstageAll', path),
   applyHunk: (path, target, index, header) => ipcRenderer.invoke('repo:applyHunk', path, target, index, header),

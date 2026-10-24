@@ -27,12 +27,25 @@ interface Props {
   /** Set by ⌘Enter from the menu; cleared with onCommitHandled once acted on. */
   commitRequest: number
   onCommitHandled: () => void
+  /** Set by ⇧⌘D from the menu; discards the selected files once confirmed. */
+  discardRequest: number
+  onDiscardHandled: () => void
 }
 
 /** Paths git needs for a set of entries: renames are staged/unstaged as old + new path. */
 const pathsOf = (files: FileChange[]): string[] => files.flatMap((f) => (f.oldPath ? [f.oldPath, f.path] : [f.path]))
 
-export function ChangesView({ path, tree, refreshN, pushedTo, ops, commitRequest, onCommitHandled }: Props) {
+export function ChangesView({
+  path,
+  tree,
+  refreshN,
+  pushedTo,
+  ops,
+  commitRequest,
+  onCommitHandled,
+  discardRequest,
+  onDiscardHandled
+}: Props) {
   const [sel, setSel] = useState<Selection | null>(null)
 
   // After a refresh, keep what still exists; if the focused file moved away, focus the
@@ -119,15 +132,60 @@ export function ChangesView({ path, tree, refreshN, pushedTo, ops, commitRequest
   const selectedIn = (area: Area): FileChange[] =>
     sel?.area === area ? tree[area].filter((f) => sel.paths.has(f.path)) : []
 
+  const discard = async (files: FileChange[], area: Area): Promise<void> => {
+    const usable = files.filter((f) => f.status !== 'U')
+    if (!usable.length) return
+    const deleted = usable.filter((f) => f.status === '?' || (area === 'staged' && (f.status === 'A' || f.status === 'R')))
+    const name = usable.length === 1 ? usable[0].path : `${usable.length} files`
+    const ok = await confirm({
+      message: `Discard changes to ${name}?`,
+      detail: [
+        area === 'staged'
+          ? 'Staged and unstaged changes go back to the last commit.'
+          : 'Unstaged changes are thrown away; anything already staged stays.',
+        deleted.length
+          ? `${deleted.length === 1 ? 'The new file is' : `${deleted.length} new files are`} moved to the Trash, so you can still get ${deleted.length === 1 ? 'it' : 'them'} back.`
+          : 'This can’t be undone.',
+        usable.length < files.length ? 'Files with conflicts are left alone.' : ''
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      confirmLabel: 'Discard',
+      risky: true
+    })
+    if (!ok) return
+    ops.run(
+      'Discarding…',
+      () => window.spoon.discard(path, usable.map((f) => ({ path: f.path, oldPath: f.oldPath, status: f.status, staged: area === 'staged' }))),
+      'Discard failed'
+    )
+  }
+
+  const discardRef = useRef(discard)
+  discardRef.current = discard
+  useEffect(() => {
+    if (!discardRequest) return
+    onDiscardHandled()
+    if (sel) discardRef.current(tree[sel.area].filter((f) => sel.paths.has(f.path)), sel.area)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discardRequest, onDiscardHandled])
+
   const contextMenu = (area: Area) => async (files: FileChange[]) => {
     const n = files.length === 1 ? '' : ` ${files.length} files`
     const choice = await window.spoon.contextMenu([
       { id: 'toggle', label: area === 'unstaged' ? `Stage${n}` : `Unstage${n}` },
+      {
+        id: 'discard',
+        label: `Discard Changes${n ? ` to${n}` : ''}…`,
+        accelerator: 'CmdOrCtrl+Shift+D',
+        enabled: files.some((f) => f.status !== 'U')
+      },
       { separator: true },
       { id: 'reveal', label: revealLabel, enabled: files.length === 1 },
       { id: 'copy', label: files.length === 1 ? 'Copy Path' : 'Copy Paths' }
     ])
     if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
+    else if (choice === 'discard') discard(files, area)
     else if (choice === 'reveal') window.spoon.revealInFinder(`${path}/${files[0].path}`)
     else if (choice === 'copy') navigator.clipboard.writeText(files.map((f) => f.path).join('\n'))
   }

@@ -19,6 +19,7 @@ import type {
   Submodule,
   SyncInfo,
   DeleteResult,
+  DiscardEntry,
   RebaseAction,
   RebaseCommit,
   RebasePlan,
@@ -505,6 +506,50 @@ function withPaths(cwd: string, args: string[], paths: string[]): Promise<string
 
 export async function stage(cwd: string, paths: string[]): Promise<void> {
   if (paths.length) await exclusive(cwd, () => withPaths(cwd, ['add', '-A'], paths))
+}
+
+/**
+ * Throws away local changes. Unstaged entries go back to what's staged (or are deleted when new);
+ * staged entries go back to HEAD, both in the index and on disk. Files that would be deleted are
+ * handed to `trash` (the system Trash), so a mistaken discard can still be recovered there.
+ * Conflicted files are left alone.
+ */
+export async function discard(
+  cwd: string,
+  files: DiscardEntry[],
+  trash: (absolutePath: string) => Promise<void>
+): Promise<void> {
+  if (!files.length) return
+  await exclusive(cwd, async () => {
+    const head = await hasHead(cwd)
+    const toTrash: string[] = []
+    const fromIndex: string[] = [] // restore the working tree from the index
+    const fromHead: string[] = [] // restore index and working tree from HEAD
+    const unindex: string[] = [] // new files: drop from the index, then trash
+    for (const f of files) {
+      if (f.status === 'U') continue
+      if (!f.staged) {
+        if (f.status === '?') toTrash.push(f.path)
+        else fromIndex.push(f.path)
+      } else if (f.status === 'A' || !head) {
+        unindex.push(f.path)
+        toTrash.push(f.path)
+      } else if (f.status === 'R' || f.status === 'C') {
+        if (f.oldPath && f.status === 'R') fromHead.push(f.oldPath)
+        unindex.push(f.path)
+        toTrash.push(f.path)
+      } else {
+        fromHead.push(f.path)
+      }
+    }
+    if (fromIndex.length) await withPaths(cwd, ['restore', '--worktree'], fromIndex)
+    if (fromHead.length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged', '--worktree'], fromHead)
+    if (unindex.length) await withPaths(cwd, ['rm', '--cached', '-r', '-q', '--ignore-unmatch'], unindex)
+    for (const p of toTrash) {
+      const abs = join(cwd, p)
+      if (existsSync(abs)) await trash(abs)
+    }
+  })
 }
 
 export async function unstage(cwd: string, paths: string[]): Promise<void> {

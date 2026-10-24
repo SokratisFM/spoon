@@ -84,6 +84,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
   const [commitRequest, setCommitRequest] = useState(0)
   const clearCommitRequest = useCallback(() => setCommitRequest(0), [])
+  const [discardRequest, setDiscardRequest] = useState(0)
+  const clearDiscardRequest = useCallback(() => setDiscardRequest(0), [])
   const refsSignature = useRef(snap?.refsSignature ?? '')
   // The most recently loaded history, readable right after an operation (before React re-renders).
   const lastLog = useRef<Commit[]>(snap?.commits ?? [])
@@ -354,7 +356,10 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     else if (command.name === 'fetch') fetchAll()
     else if (command.name === 'pull') setDialog('pull')
     else if (command.name === 'push') setDialog('push')
-    else if (command.name === 'commit') {
+    else if (command.name === 'discard') {
+      // Acts on the files selected in Local Changes, like Fork's ⇧⌘D.
+      if (view === 'changes') setDiscardRequest(Date.now())
+    } else if (command.name === 'commit') {
       setView('changes')
       setCommitRequest(Date.now())
     }
@@ -585,6 +590,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
             ops={ops}
             commitRequest={commitRequest}
             onCommitHandled={clearCommitRequest}
+            discardRequest={discardRequest}
+            onDiscardHandled={clearDiscardRequest}
           />
         ) : (
           <Split id="history" direction="column" mode="fraction" initial={0.55} min={0.15} max={0.85}>
