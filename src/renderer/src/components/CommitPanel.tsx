@@ -3,6 +3,7 @@ import type { FileChange } from '../../../shared/types'
 import { fullDate, hueFor, initials } from '../format'
 import { useAsync } from '../hooks'
 import { authorColorMap, useSettings } from '../settings'
+import { jiraConfig, jiraUrl, splitByTickets } from '../jira'
 import { Split } from './Split'
 import { FileList } from './FileList'
 import { DiffView } from './DiffView'
@@ -21,7 +22,20 @@ export function CommitPanel({ path, hash, onJump }: Props) {
   )
   const [file, setFile] = useState<FileChange | null>(null)
   const [copied, setCopied] = useState(false)
-  const authorColors = authorColorMap(useSettings())
+  const settings = useSettings()
+  const authorColors = authorColorMap(settings)
+  const jira = jiraConfig(settings)
+  // Ticket keys in the message become links to Jira.
+  const linkify = (text: string) =>
+    splitByTickets(text, jira).map((part, i) =>
+      part.key && jira ? (
+        <a key={i} href="#" className="jira-key" onClick={(e) => (e.preventDefault(), window.spoon.openExternal(jiraUrl(jira, part.key!)))}>
+          {part.text}
+        </a>
+      ) : (
+        <span key={i}>{part.text}</span>
+      )
+    )
 
   // Keep the same file selected when moving between commits that both touch it.
   useEffect(() => {
@@ -45,10 +59,10 @@ export function CommitPanel({ path, hash, onJump }: Props) {
   return (
     <Split id="commit-panel" direction="row" mode="fraction" initial={0.36} min={0.18} max={0.7}>
       {/* Details above, changed files below; drag the divider up to give the files the whole height. */}
-      <Split id="commit-info" direction="column" mode="fraction" initial={0.42} min={0} max={0.92}>
+      <Split id="commit-info" direction="column" mode="fraction" initial={0.42} min={0} max={0.92} collapsedLabel="Commit details">
         <div className="commit-head">
-          <h2 className="commit-subject">{subject}</h2>
-          {body.join('\n').trim() && <pre className="commit-body">{body.join('\n').trim()}</pre>}
+          <h2 className="commit-subject">{linkify(subject)}</h2>
+          {body.join('\n').trim() && <pre className="commit-body">{linkify(body.join('\n').trim())}</pre>}
           <div className="commit-meta">
             <span
               className={`avatar large ${authorColor ? 'authored' : ''}`}

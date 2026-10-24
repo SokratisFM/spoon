@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import * as storage from './storage'
 
 export function readStored<T>(key: string, fallback: T): T {
@@ -66,4 +66,26 @@ export function cleanError(err: unknown): string {
 /** Converts a pixel distance to rem at the current UI scale. */
 export function pxToRem(px: number): number {
   return px / parseFloat(getComputedStyle(document.documentElement).fontSize)
+}
+
+/**
+ * For a row of options (tabs, segmented controls): measures the child with class "on" and exposes
+ * its position as CSS variables, so a ::before/::after indicator can slide to it.
+ */
+export function useSlidingIndicator<T extends HTMLElement>(): React.RefObject<T | null> {
+  const ref = useRef<T>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const on = el.querySelector(':scope > .on') as HTMLElement | null
+    if (!on) {
+      el.style.setProperty('--ind-w', '0px')
+      return
+    }
+    el.style.setProperty('--ind-x', `${on.offsetLeft}px`)
+    el.style.setProperty('--ind-y', `${on.offsetTop}px`)
+    el.style.setProperty('--ind-w', `${on.offsetWidth}px`)
+    el.style.setProperty('--ind-h', `${on.offsetHeight}px`)
+  })
+  return ref
 }

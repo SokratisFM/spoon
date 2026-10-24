@@ -23,10 +23,22 @@ export interface Graph {
   maxWidth: number
 }
 
-export function buildGraph(commits: Commit[]): Graph {
+/**
+ * Reserved branch colors: a lane that starts at a commit whose branch matches a reserved prefix
+ * takes that color; every other lane cycles through the free colors only.
+ */
+export interface ColorRules {
+  colorAt: (hash: string) => number | null
+  free: number[]
+}
+
+export function buildGraph(commits: Commit[], rules?: ColorRules): Graph {
   const lanes: (string | null)[] = []
   const colors: number[] = []
   let nextColor = 0
+  let auto = 0
+  const pick = (hash: string): number =>
+    rules ? (rules.colorAt(hash) ?? rules.free[auto++ % rules.free.length]) : nextColor++
   let maxWidth = 1
   const rows: GraphRow[] = []
 
@@ -41,7 +53,7 @@ export function buildGraph(commits: Commit[]): Graph {
     if (isTip) {
       col = freeSlot()
       lanes[col] = c.hash
-      colors[col] = nextColor++
+      colors[col] = pick(c.hash)
     }
     const nodeColor = colors[col]
     const segments: Segment[] = []
@@ -68,7 +80,7 @@ export function buildGraph(commits: Commit[]): Graph {
           colors[j] = nodeColor
         } else {
           j = freeSlot()
-          colors[j] = nextColor++
+          colors[j] = pick(p)
         }
         lanes[j] = p
       }

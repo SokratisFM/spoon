@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { DiffTarget, FileChange, WorkingTree } from '../../../shared/types'
 import { usePersistentState } from '../hooks'
 import type { Ops } from './RepoView'
@@ -51,10 +51,44 @@ export function ChangesView({ path, tree, ops, commitRequest, onCommitHandled }:
     setSel({ area, paths, focused: f.path })
   }
 
+  // Staged/unstaged files glide from their old row to their new one in the other list.
+  const glide = useRef<{ to: Area; rects: Map<string, DOMRect> } | null>(null)
+  const remember = (files: FileChange[], from: Area): void => {
+    const rects = new Map<string, DOMRect>()
+    for (const f of files.slice(0, 30)) {
+      const el = document.querySelector(`.file-list[data-area="${from}"] [data-path="${CSS.escape(f.path)}"]`)
+      if (el) rects.set(f.path, el.getBoundingClientRect())
+    }
+    glide.current = { to: from === 'unstaged' ? 'staged' : 'unstaged', rects }
+  }
+  useLayoutEffect(() => {
+    const g = glide.current
+    if (!g || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    glide.current = null
+    // The target list is virtualized and may draw its rows a frame or two later, so keep looking briefly.
+    const pending = new Map(g.rects)
+    const attempt = (framesLeft: number): void => {
+      for (const [p, old] of pending) {
+        const el = document.querySelector(`.file-list[data-area="${g.to}"] [data-path="${CSS.escape(p)}"]`) as HTMLElement | null
+        if (!el) continue
+        pending.delete(p)
+        const now = el.getBoundingClientRect()
+        el.animate([{ translate: `${old.left - now.left}px ${old.top - now.top}px`, opacity: 0.6 }, { translate: '0 0', opacity: 1 }], {
+          duration: 360,
+          easing: 'cubic-bezier(.2,.9,.3,1.08)'
+        })
+      }
+      if (pending.size && framesLeft > 0) requestAnimationFrame(() => attempt(framesLeft - 1))
+    }
+    attempt(6)
+  }, [tree])
+
   const stage = (files: FileChange[]): void => {
+    remember(files, 'unstaged')
     ops.run('Staging…', () => window.spoon.stage(path, pathsOf(files)), 'Stage failed')
   }
   const unstage = (files: FileChange[]): void => {
+    remember(files, 'staged')
     ops.run('Unstaging…', () => window.spoon.unstage(path, pathsOf(files)), 'Unstage failed')
   }
   const selectedIn = (area: Area): FileChange[] =>
@@ -129,6 +163,7 @@ export function ChangesView({ path, tree, ops, commitRequest, onCommitHandled }:
       onActivate={area === 'unstaged' ? stage : unstage}
       onContextMenu={contextMenu(area)}
       emptyText={emptyText}
+      area={area}
     />
   )
 

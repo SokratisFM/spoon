@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CheckoutTarget, Commit, MenuCommand, PullSummary, RepoState, WorkingTree } from '../../../shared/types'
+import type { CheckoutTarget, Commit, MenuCommand, PullSummary, Ref, RepoState, WorkingTree } from '../../../shared/types'
 import { useGitHubAccount } from '../github'
 import { PullRequestView } from './PullRequestView'
-import { buildGraph } from '../graph'
+import { buildGraph, type ColorRules } from '../graph'
+import { reservedPrefixes, useSettings } from '../settings'
+import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { cleanError, usePersistentState } from '../hooks'
 import { setKnownAuthors } from '../authors'
 import { Split } from './Split'
@@ -13,7 +15,9 @@ import { ChangesView } from './ChangesView'
 import { ErrorModal } from './Modal'
 import { PullDialog, PushDialog } from './SyncDialogs'
 import { ParentChip, SubmoduleChip, submoduleActions } from './Submodules'
-import { FetchIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
+import { NetButton, type NetKind, type NetState } from './NetButton'
+import { DeleteBranchDialog } from './DeleteBranchDialog'
+import { FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
 import { keys } from '../platform'
 
 const PullRequestIconLarge = () => <PullRequestIcon className="icon big-icon" />
@@ -57,6 +61,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [commitRequest, setCommitRequest] = useState(0)
   const clearCommitRequest = useCallback(() => setCommitRequest(0), [])
   const refsSignature = useRef('')
+  // The most recently loaded history, readable right after an operation (before React re-renders).
+  const lastLog = useRef<Commit[]>([])
+  const [net, setNet] = useState<NetState | null>(null)
+  const [deleting, setDeleting] = useState<Ref | null>(null)
+  // Commits that just arrived (fetch/pull); the list slides them in and flashes them once.
+  const [fresh, setFresh] = useState<{ hashes: Set<string>; n: number } | null>(null)
   const account = useGitHubAccount()
   const [ghSlug, setGhSlug] = useState<string | null | undefined>(undefined)
   const [prs, setPrs] = useState<PullSummary[] | null>(null)
@@ -76,6 +86,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       if (sig !== refsSignature.current) {
         refsSignature.current = sig
         const log = await window.spoon.log(path, LOG_LIMIT)
+        lastLog.current = log
         setCommits(log)
         setKnownAuthors(log.map((c) => c.authorName))
         setSelected((s) => (s && log.some((c) => c.hash === s) ? s : r.headHash))
@@ -125,7 +136,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   useEffect(
     () =>
       window.spoon.onProgress((repoPath, line) => {
-        if (repoPath === path) setBusy((b) => (b ? { ...b, progress: line } : b))
+        if (repoPath !== path) return
+        setBusy((b) => (b ? { ...b, progress: line } : b))
+        // Follow the transfer itself; counting/compressing phases keep the ring indeterminate.
+        const pct = /(?:Receiving|Writing) objects:\s+(\d{1,3})%/.exec(line)?.[1]
+        if (pct) setNet((n) => (n?.phase === 'working' ? { ...n, pct: Number(pct) } : n))
       }),
     [path]
   )
@@ -171,9 +186,21 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const ops = useMemo<Ops>(() => ({ run, checkout }), [run, checkout])
   const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo), [path, ops, onOpenRepo])
 
+  // Fetch/pull/push with their button animation: working (ring follows git's %), then done
+  // (check, "+N" new commits, which also slide into the list) or failed (shake).
+  const netOp = async (kind: NetKind, label: string, fn: () => Promise<unknown>, failTitle: string): Promise<void> => {
+    const before = new Set(lastLog.current.map((c) => c.hash))
+    setNet({ kind, phase: 'working' })
+    const ok = await run(label, fn, failTitle)
+    const arrived = lastLog.current.filter((c) => !before.has(c.hash)).map((c) => c.hash)
+    setNet({ kind, phase: ok ? 'done' : 'failed', gained: kind === 'push' ? 0 : arrived.length })
+    if (ok && arrived.length && before.size) setFresh({ hashes: new Set(arrived), n: Date.now() })
+    setTimeout(() => setNet((n) => (n?.kind === kind && n.phase !== 'working' ? null : n)), ok ? 1800 : 1400)
+  }
+
   const fetchAll = (): void => {
     // Prune, so branches whose remote was deleted show up as stale.
-    run('Fetching…', () => window.spoon.fetch(path, true), 'Fetch failed')
+    netOp('fetch', 'Fetching…', () => window.spoon.fetch(path, true), 'Fetch failed')
   }
 
   useEffect(() => {
@@ -189,7 +216,29 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command])
 
-  const graph = useMemo(() => buildGraph(commits), [commits])
+  const settings = useSettings()
+  const graph = useMemo(() => {
+    const prefixes = reservedPrefixes(settings)
+    if (!settings.reservedColorsGraph || !prefixes.length || !repo) return buildGraph(commits)
+    // Branch names per commit (remote ones without "origin/"), to match against reserved prefixes.
+    const names = new Map<string, string[]>()
+    for (const r of repo.refs) {
+      if (r.kind !== 'head' && r.kind !== 'remote') continue
+      const remote = r.kind === 'remote' ? repo.remotes.find((x) => r.name.startsWith(`${x}/`)) : undefined
+      const name = remote ? r.name.slice(remote.length + 1) : r.name
+      names.set(r.target, [...(names.get(r.target) ?? []), name])
+    }
+    const reservedIdx = new Set(prefixes.map(([, i]) => i))
+    const free = [0, 1, 2, 3, 4, 5, 6, 7].filter((i) => !reservedIdx.has(i))
+    const rules: ColorRules = {
+      free: free.length ? free : [0, 1, 2, 3, 4, 5, 6, 7],
+      colorAt: (hash) => {
+        for (const n of names.get(hash) ?? []) for (const [p, i] of prefixes) if (n.startsWith(p)) return i
+        return null
+      }
+    }
+    return buildGraph(commits, rules)
+  }, [commits, repo, settings])
 
   const jumpTo = (hash: string): void => {
     setView('history')
@@ -227,29 +276,53 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           >
             {repo.headBranch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
           </button>
+          {(() => {
+            const jira = jiraConfig(settings)
+            const key = ticketKeys(repo.headBranch ?? '', jira)[0]
+            return key && jira ? (
+              <button className="jira-chip" title={`Open ${key} in Jira`} onClick={() => window.spoon.openExternal(jiraUrl(jira, key))}>
+                <JiraIcon /> {key}
+              </button>
+            ) : null
+          })()}
           {repo.operation && <span className="op-chip">{repo.operation}</span>}
           {repo.superproject && <ParentChip parent={repo.superproject} onOpen={onOpenRepo} />}
           <SubmoduleChip submodules={repo.submodules} actions={subActions} />
         </div>
 
         <div className="toolbar-actions">
-          <button className="tool-btn" disabled={networkBusy} onClick={fetchAll} title={`Fetch all remotes (${keys('⇧⌘F')})`}>
-            <FetchIcon />
-            <span>Fetch</span>
-            <kbd className="tool-key">{keys('⇧⌘F')}</kbd>
-          </button>
-          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('pull')} title={`Pull (${keys('⇧⌘L')})`}>
-            <PullIcon />
-            <span>Pull</span>
-            <kbd className="tool-key">{keys('⇧⌘L')}</kbd>
-            {!!head?.behind && <span className="tool-count">{head.behind}</span>}
-          </button>
-          <button className="tool-btn" disabled={networkBusy} onClick={() => setDialog('push')} title={`Push (${keys('⇧⌘P')})`}>
-            <PushIcon />
-            <span>Push</span>
-            <kbd className="tool-key">{keys('⇧⌘P')}</kbd>
-            {!!head?.ahead && <span className="tool-count">{head.ahead}</span>}
-          </button>
+          <NetButton
+            kind="fetch"
+            label="Fetch"
+            shortcut={keys('⇧⌘F')}
+            title={`Fetch all remotes (${keys('⇧⌘F')})`}
+            Icon={FetchIcon}
+            net={net}
+            disabled={networkBusy}
+            onClick={fetchAll}
+          />
+          <NetButton
+            kind="pull"
+            label="Pull"
+            shortcut={keys('⇧⌘L')}
+            title={`Pull (${keys('⇧⌘L')})`}
+            Icon={PullIcon}
+            net={net}
+            badge={head?.behind}
+            disabled={networkBusy}
+            onClick={() => setDialog('pull')}
+          />
+          <NetButton
+            kind="push"
+            label="Push"
+            shortcut={keys('⇧⌘P')}
+            title={`Push (${keys('⇧⌘P')})`}
+            Icon={PushIcon}
+            net={net}
+            badge={head?.ahead}
+            disabled={networkBusy}
+            onClick={() => setDialog('push')}
+          />
         </div>
 
         <div className="toolbar-right">
@@ -300,6 +373,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           prError={!account && ghSlug ? 'Connect GitHub in Settings → Accounts.' : prError}
           selectedPr={selectedPr}
           onSelectPr={setSelectedPr}
+          onDeleteBranch={setDeleting}
         />
         {view === 'prs' ? (
           !account ? (
@@ -334,6 +408,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               scrollTo={scrollTo}
               filter={filter}
               truncated={commits.length >= LOG_LIMIT}
+              fresh={fresh}
+              onDeleteBranch={setDeleting}
               ops={ops}
             />
             <CommitPanel path={path} hash={selected} onJump={jumpTo} />
@@ -345,14 +421,41 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         <PullDialog
           path={path}
           onClose={() => setDialog(null)}
-          onPull={(opts) => run('Pulling…', () => window.spoon.pull(path, opts), 'Pull failed')}
+          onPull={(opts) => netOp('pull', 'Pulling…', () => window.spoon.pull(path, opts), 'Pull failed')}
         />
       )}
       {dialog === 'push' && (
         <PushDialog
           path={path}
           onClose={() => setDialog(null)}
-          onPush={(opts) => run('Pushing…', () => window.spoon.push(path, opts), 'Push failed')}
+          onPush={(opts) => netOp('push', 'Pushing…', () => window.spoon.push(path, opts), 'Push failed')}
+        />
+      )}
+      {deleting && repo && (
+        <DeleteBranchDialog
+          branch={deleting}
+          repo={repo}
+          onClose={() => setDeleting(null)}
+          onDelete={(remote) => {
+            const name = deleting.name
+            run(
+              `Deleting ${name}…`,
+              async () => {
+                const res = await window.spoon.deleteBranches(path, [name], false)
+                if (res.unmerged.length) {
+                  const force = await window.spoon.confirm({
+                    message: `${name} has commits that aren’t on any other branch`,
+                    detail: 'Deleting it drops those commits (git keeps them in the reflog for a while).',
+                    confirmLabel: 'Delete anyway'
+                  })
+                  if (!force) return
+                  await window.spoon.deleteBranches(path, [name], true)
+                }
+                if (remote) await window.spoon.deleteRemoteBranch(path, remote.remote, remote.branch)
+              },
+              'Delete failed'
+            )
+          }}
         />
       )}
       {opError && <ErrorModal title={opError.title} message={opError.message} onClose={() => setOpError(null)} />}

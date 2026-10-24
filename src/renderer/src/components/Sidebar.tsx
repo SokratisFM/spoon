@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { SIDEBAR_SECTIONS, updateSettings, useSettings, type SidebarSection } from '../settings'
+import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import type { PullSummary, Ref, RepoState } from '../../../shared/types'
 import { submoduleStatus, type SubmoduleActions } from './Submodules'
 import { usePersistentState } from '../hooks'
@@ -33,6 +34,8 @@ interface Props {
   prError: string | null
   selectedPr: number | null
   onSelectPr: (n: number) => void
+  /** Asks to delete a local branch (Backspace on a selected branch, or its menu). */
+  onDeleteBranch: (ref: Ref) => void
 }
 
 interface TreeNode {
@@ -67,7 +70,9 @@ function buildTree(refs: Ref[], strip = 0): TreeNode[] {
 }
 
 export function Sidebar(props: Props) {
-  const { repo, changeCount, view, onView, onJump, ops, subActions, prs, prError, selectedPr, onSelectPr } = props
+  const { repo, changeCount, view, onView, onJump, ops, subActions, prs, prError, selectedPr, onSelectPr, onDeleteBranch } = props
+  // The ref picked in the sidebar (click), so Backspace/Delete know what to act on.
+  const [picked, setPicked] = useState<string | null>(null)
   const settings = useSettings()
   const checkoutRef = (ref: Ref): void => {
     if (ref.kind === 'head') {
@@ -85,13 +90,19 @@ export function Sidebar(props: Props) {
         : ref.kind === 'remote'
           ? `Checkout ${ref.name} as Local Branch`
           : `Checkout Tag ${ref.name}…`
+    setPicked(ref.fullName)
     const choice = await window.spoon.contextMenu([
       { id: 'checkout', label: checkoutLabel, enabled: !isCurrent },
       { separator: true },
       { id: 'show', label: 'Show in History' },
-      { id: 'copy', label: 'Copy Name' }
+      { id: 'copy', label: 'Copy Name' },
+      ...ticketKeys(ref.name, jiraConfig(settings)).map((k) => ({ id: `jira:${k}`, label: `Open ${k} in Jira` })),
+      ...(ref.kind === 'head' ? [{ separator: true }, { id: 'delete', label: `Delete ${ref.name}…`, enabled: !isCurrent }] : [])
     ])
-    if (choice === 'checkout') checkoutRef(ref)
+    const jira = jiraConfig(settings)
+    if (choice?.startsWith('jira:') && jira) window.spoon.openExternal(jiraUrl(jira, choice.slice(5)))
+    else if (choice === 'delete') onDeleteBranch(ref)
+    else if (choice === 'checkout') checkoutRef(ref)
     else if (choice === 'show') onJump(ref.target)
     else if (choice === 'copy') navigator.clipboard.writeText(ref.name)
   }
@@ -142,9 +153,12 @@ export function Sidebar(props: Props) {
         return (
           <div
             key={ref.fullName}
-            className={`side-item ${isHead ? 'current' : ''}`}
+            className={`side-item ${isHead ? 'current' : ''} ${picked === ref.fullName ? 'picked' : ''}`}
             style={{ paddingLeft: `${0.75 + depth * 1.1}rem` }}
-            onClick={() => onJump(ref.target)}
+            onClick={() => {
+              setPicked(ref.fullName)
+              onJump(ref.target)
+            }}
             onDoubleClick={() => checkoutRef(ref)}
             onContextMenu={(e) => refMenu(e, ref)}
             title={`${ref.upstream ? `${ref.name} → ${ref.upstream}` : ref.name}\nDouble-click to check out`}
@@ -319,7 +333,18 @@ export function Sidebar(props: Props) {
   }
 
   return (
-    <nav className="sidebar">
+    <nav
+      className="sidebar"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key !== 'Backspace' && e.key !== 'Delete') return
+        if ((e.target as HTMLElement).closest('input, textarea')) return
+        const ref = repo.refs.find((r) => r.fullName === picked && r.kind === 'head')
+        if (!ref) return
+        e.preventDefault()
+        onDeleteBranch(ref)
+      }}
+    >
       <div className="side-nav">
         <div className={`side-item nav ${view === 'changes' ? 'selected' : ''}`} onClick={() => onView('changes')}>
           <ChangesIcon />

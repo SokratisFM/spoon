@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
-import { cleanError } from '../hooks'
+import { cleanError, useSlidingIndicator } from '../hooks'
 import type { DeviceCode } from '../../../shared/types'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
 import { knownAuthors } from '../authors'
@@ -39,6 +39,7 @@ type Tab = SettingsTab
 
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab)
+  const tabsRef = useSlidingIndicator<HTMLDivElement>()
   return (
     <Modal
       title="Settings"
@@ -51,7 +52,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
         </button>
       }
     >
-      <div className="settings-tabs">
+      <div className="settings-tabs slider" ref={tabsRef}>
         {(
           [
             ['appearance', 'Appearance'],
@@ -167,6 +168,22 @@ function AppearanceTab() {
         />
         <span className="hint">Collapsed tags open in a list when you click the dot or chip.</span>
       </div>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={s.laneColoredBranches}
+          onChange={(e) => updateSettings({ laneColoredBranches: e.target.checked })}
+        />
+        Color branch labels like their graph line
+      </label>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={s.showRemoteName}
+          onChange={(e) => updateSettings({ showRemoteName: e.target.checked })}
+        />
+        Show the remote’s name next to the cloud on branch labels (☁ origin)
+      </label>
       <div className="field">
         <span className="field-label">Checked-out commit</span>
         <Segmented<HeadHighlight>
@@ -190,6 +207,7 @@ function AppearanceTab() {
           onChange={(submoduleTabs) => updateSettings({ submoduleTabs })}
         />
       </div>
+      <BranchColorsField />
       <SidebarSectionsField />
       <PullGroupsField />
       <div className="field">
@@ -239,6 +257,88 @@ function SidebarSectionsField() {
         ))}
       </div>
       <span className="hint">Untick to hide a section; arrows change the order.</span>
+    </div>
+  )
+}
+
+const COLOR_NAMES = ['Color 1', 'Color 2', 'Color 3', 'Color 4', 'Color 5', 'Color 6', 'Color 7', 'Color 8']
+
+/** Reserve any of the 8 branch colors for one or more branch-name prefixes. */
+function BranchColorsField() {
+  const s = useSettings()
+  const colors = activeTheme(s).colors
+  const [drafts, setDrafts] = useState<Record<number, string>>({})
+  const reserved = s.reservedColors
+
+  const add = (i: number): void => {
+    let v = (drafts[i] ?? '').trim()
+    if (!v) return
+    if (!v.endsWith('/')) v += '/'
+    // A prefix lives in one color: adding it here moves it from wherever it was.
+    const next: Record<number, string[]> = {}
+    for (const [k, list] of Object.entries(reserved)) next[Number(k)] = list.filter((p) => p !== v)
+    next[i] = [...(next[i] ?? []), v]
+    updateSettings({ reservedColors: next })
+    setDrafts((d) => ({ ...d, [i]: '' }))
+  }
+  const remove = (i: number, p: string): void =>
+    updateSettings({ reservedColors: { ...reserved, [i]: (reserved[i] ?? []).filter((x) => x !== p) } })
+
+  return (
+    <div className="field">
+      <span className="field-label">Branch colors</span>
+      <span className="hint">
+        Reserve a color for branch prefixes (type one and press Enter). Reserved colors are only used for those
+        branches; other branches share the rest.
+      </span>
+      <div className="color-slots">
+        {COLOR_NAMES.map((name, i) => {
+          const c = colors[`lane-${i}` as ColorKey]
+          const list = reserved[i] ?? []
+          return (
+            <div key={i} className={`color-slot ${list.length ? 'reserved' : ''}`} style={{ '--slot': c } as React.CSSProperties}>
+              <div className="slot-top">
+                <span className="slot-swatch" />
+                <span>{name}</span>
+                <span className="spacer" />
+                <span className="hint">{list.length ? 'reserved' : 'auto'}</span>
+              </div>
+              <div className="slot-chips">
+                {list.map((p) => (
+                  <span key={p} className="slot-chip mono">
+                    {p}
+                    <button aria-label={`Remove ${p}`} onClick={() => remove(i, p)}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <input
+                className="slot-input mono"
+                placeholder="+ prefix/"
+                value={drafts[i] ?? ''}
+                onChange={(e) => setDrafts((d) => ({ ...d, [i]: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    add(i)
+                  }
+                }}
+                spellCheck={false}
+              />
+            </div>
+          )
+        })}
+      </div>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={s.reservedColorsGraph}
+          onChange={(e) => updateSettings({ reservedColorsGraph: e.target.checked })}
+        />
+        Also color the branch’s graph line
+      </label>
     </div>
   )
 }
@@ -678,6 +778,34 @@ function AccountsTab() {
         </button>
       )}
       {error && <p className="error-text">{error}</p>}
+
+      <div className="field jira-field">
+        <span className="field-label">Jira</span>
+        <span className="hint">
+          Ticket keys in branch names and commit messages (like MAINLIB-2580) become links to your Jira site. No sign-in
+          needed; your browser handles that.
+        </span>
+        <div className="form-row">
+          <input
+            placeholder="https://your-company.atlassian.net"
+            value={s.jiraSite}
+            onChange={(e) => updateSettings({ jiraSite: e.target.value.trim() })}
+            spellCheck={false}
+            className="mono"
+          />
+        </div>
+        <div className="form-row">
+          <input
+            placeholder="Only these projects (optional): MAINLIB, CANFA"
+            value={s.jiraProjects}
+            onChange={(e) => updateSettings({ jiraProjects: e.target.value })}
+            spellCheck={false}
+          />
+        </div>
+        {s.jiraSite && !/^https:\/\//.test(s.jiraSite) && (
+          <span className="error-text">The address must start with https://</span>
+        )}
+      </div>
     </>
   )
 }
@@ -895,8 +1023,9 @@ export function Segmented<T extends string>({
   options: [T, string][]
   onChange: (v: T) => void
 }) {
+  const ref = useSlidingIndicator<HTMLDivElement>()
   return (
-    <div className="segmented">
+    <div className="segmented slider" ref={ref}>
       {options.map(([v, label]) => (
         <button key={v} className={v === value ? 'on' : ''} onClick={() => onChange(v)}>
           {label}

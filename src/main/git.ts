@@ -534,3 +534,8 @@ export async function remoteUrls(cwd: string): Promise<Record<string, string>> {
 export async function fetchRef(cwd: string, remote: string, refspec: string): Promise<void> {
   await run(cwd, ['fetch', remote, refspec])
 }
+
+/** Deletes a branch on a remote (git push <remote> --delete <branch>). */
+export async function deleteRemoteBranch(cwd: string, remote: string, branch: string): Promise<void> {
+  await run(cwd, ['push', remote, '--delete', branch])
+}

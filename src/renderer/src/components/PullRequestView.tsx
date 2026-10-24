@@ -9,7 +9,7 @@ import type {
   ReviewEvent,
   TimelineItem
 } from '../../../shared/types'
-import { cleanError, useAsync, usePersistentState } from '../hooks'
+import { cleanError, useAsync, usePersistentState, useSlidingIndicator } from '../hooks'
 import { splitPath } from '../format'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
@@ -38,6 +38,7 @@ export function PullRequestView({ path, number, ops, onJump }: Props) {
   const [viewed, setViewed] = useState<Record<string, boolean>>({})
   const [showReview, setShowReview] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const tabsRef = useSlidingIndicator<HTMLDivElement>()
 
   useEffect(() => {
     if (!pr) return
@@ -106,7 +107,7 @@ export function PullRequestView({ path, number, ops, onJump }: Props) {
         </div>
       </div>
 
-      <div className="pr-tabs">
+      <div className="pr-tabs" ref={tabsRef}>
         {(
           [
             ['conversation', 'Conversation', pr.timeline.length + 1],

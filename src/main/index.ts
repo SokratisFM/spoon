@@ -233,6 +233,9 @@ function registerIpc(): void {
   ipcMain.handle('repo:checkout', (_e, path: string, target: CheckoutTarget) => git.checkout(path, target))
   ipcMain.handle('repo:syncInfo', (_e, path: string) => git.syncInfo(path))
   ipcMain.handle('repo:updateSubmodule', (_e, path: string, sub: string) => git.updateSubmodule(path, sub))
+  ipcMain.handle('repo:deleteRemoteBranch', (_e, path: string, remote: string, branch: string) =>
+    git.deleteRemoteBranch(path, remote, branch)
+  )
   ipcMain.handle('repo:deleteBranches', (_e, path: string, names: string[], force: boolean) =>
     git.deleteBranches(path, names, force)
   )

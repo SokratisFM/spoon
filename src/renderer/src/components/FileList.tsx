@@ -26,9 +26,11 @@ interface Props {
   onActivate?: (files: FileChange[]) => void
   onContextMenu?: (files: FileChange[]) => void
   emptyText: string
+  /** Names the list for animations that move rows between lists. */
+  area?: string
 }
 
-export function FileList({ files, selected, focused, onSelect, onActivate, onContextMenu, emptyText }: Props) {
+export function FileList({ files, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area }: Props) {
   const settings = useSettings()
   const rowH = Math.round(rowHeight(settings) * 0.92)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -89,7 +91,7 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
   if (files.length === 0) return <div className="empty-state small muted">{emptyText}</div>
 
   return (
-    <div className="file-list" ref={parentRef} tabIndex={0} onKeyDown={onKeyDown}>
+    <div className="file-list" ref={parentRef} tabIndex={0} onKeyDown={onKeyDown} data-area={area}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map((v) => {
           const f = files[v.index]
@@ -98,6 +100,7 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
           return (
             <div
               key={`${f.status}:${f.path}`}
+              data-path={f.path}
               className={`file-row ${selected.has(f.path) ? 'selected' : ''} ${f.path === focused ? 'focused' : ''}`}
               style={{ transform: `translateY(${v.start}px)`, height: rowH }}
               onMouseDown={(e) => click(v.index, e)}

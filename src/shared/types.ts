@@ -305,6 +305,7 @@ export interface SpoonApi {
   fetch(path: string, prune: boolean): Promise<void>
   updateSubmodule(path: string, submodulePath: string): Promise<void>
   deleteBranches(path: string, names: string[], force: boolean): Promise<DeleteResult>
+  deleteRemoteBranch(path: string, remote: string, branch: string): Promise<void>
   pull(path: string, opts: PullOptions): Promise<void>
   push(path: string, opts: PushOptions): Promise<void>
   /** Progress lines from the running fetch/pull/push of a repo. */

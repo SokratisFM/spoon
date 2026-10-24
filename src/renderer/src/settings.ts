@@ -53,6 +53,18 @@ export interface Settings {
   submoduleTabs: SubmoduleTabs
   tagDisplay: TagDisplay
   headHighlight: HeadHighlight
+  /** Branch labels show a cloud when the branch is also on a remote; this adds the remote's name. */
+  showRemoteName: boolean
+  /** Branch labels in their graph line's color (like Fork) instead of the accent color. */
+  laneColoredBranches: boolean
+  /** Branch colors (0–7, the theme's lane colors) reserved for branch-name prefixes. */
+  reservedColors: Record<number, string[]>
+  /** Reserved colors also apply to the branch's line in the graph. */
+  reservedColorsGraph: boolean
+  /** Jira site, e.g. https://acme.atlassian.net — ticket keys in branches and commits link to it. */
+  jiraSite: string
+  /** Optional project keys (e.g. "MAINLIB, CANFA") to limit which keys become links. */
+  jiraProjects: string
 }
 
 const BASE_FONT_PX = 13
@@ -75,7 +87,13 @@ const DEFAULTS: Settings = {
   diffLayout: 'unified',
   submoduleTabs: 'grouped',
   tagDisplay: 'diamond',
-  headHighlight: 'band'
+  headHighlight: 'band',
+  showRemoteName: false,
+  laneColoredBranches: true,
+  reservedColors: {},
+  reservedColorsGraph: true,
+  jiraSite: 'https://fm-games.atlassian.net',
+  jiraProjects: ''
 }
 
 export const SCALE_MIN = 0.8
@@ -182,4 +200,11 @@ function clamp(v: number, lo: number, hi: number): number {
 export function authorColorMap(s: Settings): Map<string, string> | null {
   if (!s.authorColorsEnabled || s.authorColors.length === 0) return null
   return new Map(s.authorColors.filter((a) => a.name.trim()).map((a) => [a.name.trim().toLowerCase(), a.color]))
+}
+
+/** Prefix → reserved color index, longest prefix first so "feature/ui/" beats "feature/". */
+export function reservedPrefixes(s: Settings): [string, number][] {
+  return Object.entries(s.reservedColors)
+    .flatMap(([i, prefixes]) => prefixes.map((p) => [p, Number(i)] as [string, number]))
+    .sort((a, b) => b[0].length - a[0].length)
 }

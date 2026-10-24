@@ -163,3 +163,14 @@ export const PinIcon = (p: P) => (
     <circle cx="12" cy="10.5" r="2.2" />
   </Icon>
 )
+export const AlertIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 4l9 16H3z" />
+    <path d="M12 10v4M12 17.5v.01" />
+  </Icon>
+)
+export const JiraIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+  </Icon>
+)
