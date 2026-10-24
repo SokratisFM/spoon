@@ -244,6 +244,7 @@ function registerIpc(): void {
   ipcMain.handle('repo:rebaseInteractive', (_e, path: string, onto: string, steps: RebaseStep[]) =>
     git.rebaseInteractive(path, onto, steps)
   )
+  ipcMain.handle('repo:cancel', (_e, path: string) => git.cancel(path))
   ipcMain.handle('repo:rebaseContinue', (_e, path: string, action: 'continue' | 'skip' | 'abort') =>
     git.rebaseContinue(path, action)
   )
@@ -290,6 +291,18 @@ function registerIpc(): void {
     return res.response === 0
   })
 }
+
+// Spoon's windows only ever show the app itself. A link (middle-click, ⌘-click, drag and drop,
+// window.open) must never load another page into a window that has the preload API, so https
+// links go to the browser and every other navigation is refused.
+app.on('web-contents-created', (_e, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  contents.on('will-navigate', (e) => e.preventDefault())
+  contents.on('will-attach-webview', (e) => e.preventDefault())
+})
 
 app.whenReady().then(() => {
   initStore()

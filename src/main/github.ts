@@ -23,6 +23,9 @@ const API = 'https://api.github.com'
 const KEYCHAIN_SERVICE = 'Spoon GitHub'
 const SCOPES = 'repo read:org'
 const env = { ...process.env, PATH: git.toolPath }
+// A request that hangs (captive portal, dead proxy) fails instead of spinning forever.
+const TIMEOUT_MS = 30_000
+const timeout = (): AbortSignal => AbortSignal.timeout(TIMEOUT_MS)
 
 function exec(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) =>
@@ -83,7 +86,7 @@ async function deleteSecret(login: string): Promise<void> {
 
 /** Checks the token against /user and saves the account (and the token in the Keychain, unless it's gh's). */
 async function connect(tok: string, source: GitHubSource): Promise<GitHubAccount> {
-  const res = await fetch(`${API}/user`, { headers: headers(tok) })
+  const res = await fetch(`${API}/user`, { headers: headers(tok), signal: timeout() })
   if (res.status === 401) throw new Error('GitHub rejected this token. Check that it is correct and not expired.')
   if (!res.ok) throw new Error(`GitHub returned ${res.status}: ${await res.text()}`)
   const user = (await res.json()) as { login: string; name: string | null; avatar_url: string }
@@ -138,7 +141,8 @@ export async function deviceStart(clientId: string): Promise<DeviceCode> {
   const res = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: clientId.trim(), scope: SCOPES })
+    body: JSON.stringify({ client_id: clientId.trim(), scope: SCOPES }),
+    signal: timeout()
   })
   const data = (await res.json()) as Record<string, string | number>
   if (!res.ok || data.error)
@@ -169,7 +173,8 @@ export async function deviceWait(clientId: string, code: DeviceCode): Promise<Gi
         client_id: clientId.trim(),
         device_code: code.deviceCode,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-      })
+      }),
+      signal: timeout()
     })
     const data = (await res.json()) as Record<string, string | number>
     if (data.access_token) return connect(String(data.access_token), 'browser')
@@ -203,7 +208,8 @@ async function api<T>(path: string, init: { method?: string; body?: unknown } = 
   const res = await fetch(path.startsWith('http') ? path : `${API}${path}`, {
     method: init.method ?? 'GET',
     headers: { ...headers(await token()), ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
-    body: init.body ? JSON.stringify(init.body) : undefined
+    body: init.body ? JSON.stringify(init.body) : undefined,
+    signal: timeout()
   })
   if (res.status === 401) {
     tokenCache = null
@@ -228,7 +234,8 @@ async function apiAll<T>(path: string, maxPages = 10): Promise<T[]> {
   const out: T[] = []
   let url: string | null = `${API}${path}${path.includes('?') ? '&' : '?'}per_page=100`
   for (let page = 0; url && page < maxPages; page++) {
-    const res: Response = await fetch(url, { headers: headers(await token()) })
+    const res: Response = await fetch(url, { headers: headers(await token()), signal: timeout() })
+    if (res.status === 401) tokenCache = null
     if (!res.ok) throw new Error(`GitHub returned ${res.status} for ${path}`)
     out.push(...((await res.json()) as T[]))
     url = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('link') ?? '')?.[1] ?? null
@@ -476,17 +483,19 @@ export async function submitReview(path: string, number: number, review: ReviewS
   })
 }
 
-/** Same-repo PRs check out as a tracking branch; PRs from forks as a local pr-<number> branch. */
+/**
+ * Same-repo PRs check out as a tracking branch; PRs from forks as a local pr-<number> branch. An
+ * existing branch is fast-forwarded to the PR, or left as it is if it has commits of its own.
+ */
 export async function checkoutPull(path: string, number: number): Promise<void> {
-  const p = await pull(path, number)
+  const p = await api<RawPull>(`/repos/${await slugOrThrow(path)}/pulls/${number}`)
+  const baseRepo = p.base.repo.full_name
   const remotes = await git.remoteUrls(path)
   const remote =
-    Object.entries(remotes).find(([, url]) => url.includes(`${p.baseRepo}.git`) || url.endsWith(p.baseRepo))?.[0] ?? 'origin'
-  if (p.headRepo === p.baseRepo) {
-    await git.fetchRef(path, remote, p.headRef)
-    await git.checkout(path, { kind: 'remote', name: `${remote}/${p.headRef}` })
+    Object.entries(remotes).find(([, url]) => url.includes(`${baseRepo}.git`) || url.endsWith(baseRepo))?.[0] ?? 'origin'
+  if (p.head.repo?.full_name === baseRepo) {
+    await git.fetchAndCheckout(path, remote, `refs/heads/${p.head.ref}`, p.head.ref, `${remote}/${p.head.ref}`)
   } else {
-    await git.fetchRef(path, remote, `+pull/${number}/head:refs/heads/pr-${number}`)
-    await git.checkout(path, { kind: 'branch', name: `pr-${number}` })
+    await git.fetchAndCheckout(path, remote, `refs/pull/${number}/head`, `pr-${number}`)
   }
 }

@@ -17,6 +17,8 @@ import { UPDATE_PUBLIC_KEY } from './update-key'
 import type { UpdateState } from '../shared/types'
 
 const CHECK_EVERY_MS = 4 * 60 * 60 * 1000
+// A check or download that stops making progress fails, so `busy` never sticks for the session.
+const STALL_MS = 60_000
 
 interface Asset {
   file: string
@@ -83,7 +85,7 @@ export async function checkForUpdates(): Promise<UpdateState> {
   busy = true
   set({ status: 'checking', error: undefined })
   try {
-    const res = await net.fetch(feed, { cache: 'no-store' })
+    const res = await net.fetch(feed, { cache: 'no-store', signal: AbortSignal.timeout(STALL_MS) })
     if (res.status === 404) return set({ status: 'current', lastCheck: Date.now() }), state // no release yet
     if (!res.ok) throw new Error(`Update check failed (${res.status}).`)
     const release = verifyManifest(await res.text())
@@ -110,8 +112,13 @@ async function download(url: string, asset: Asset): Promise<string> {
   const part = `${dest}.part`
   // Electron's network stack (Chromium's): follows GitHub's redirects, honors system proxies, and
   // avoids an undici bug that crashed the main process when a server closed a paused download.
-  const res = await net.fetch(url)
-  if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}).`)
+  const abort = new AbortController()
+  let stall = setTimeout(() => abort.abort(), STALL_MS)
+  const res = await net.fetch(url, { signal: abort.signal })
+  if (!res.ok || !res.body) {
+    clearTimeout(stall)
+    throw new Error(`Download failed (${res.status}).`)
+  }
   const hash = createHash('sha256')
   let received = 0
   let lastReport = 0
@@ -120,7 +127,9 @@ async function download(url: string, asset: Asset): Promise<string> {
     const reader = res.body.getReader()
     for (;;) {
       const { done, value } = await reader.read()
+      clearTimeout(stall)
       if (done) break
+      stall = setTimeout(() => abort.abort(), STALL_MS)
       hash.update(value)
       await out.write(value)
       received += value.length
@@ -129,7 +138,11 @@ async function download(url: string, asset: Asset): Promise<string> {
         set({ progress: asset.size ? received / asset.size : 0 })
       }
     }
+  } catch (err) {
+    rmSync(part, { force: true })
+    throw abort.signal.aborted ? new Error('The update download stalled. It will be tried again later.') : err
   } finally {
+    clearTimeout(stall)
     await out.close()
   }
   if (hash.digest('hex') !== asset.sha256) {
@@ -147,7 +160,9 @@ async function stage(file: string, version: string): Promise<string> {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   await new Promise<void>((ok, fail) =>
-    spawn('ditto', ['-x', '-k', file, dir]).on('exit', (code) => (code === 0 ? ok() : fail(new Error('Could not unpack the update.'))))
+    spawn('ditto', ['-x', '-k', file, dir])
+      .on('error', () => fail(new Error('Could not unpack the update.')))
+      .on('exit', (code) => (code === 0 ? ok() : fail(new Error('Could not unpack the update.'))))
   )
   rmSync(file, { force: true })
   const appDir = readdirSync(dir).find((n) => n.endsWith('.app'))

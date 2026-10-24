@@ -61,15 +61,33 @@ interface Props {
   onOpenSettings: (tab: 'accounts') => void
 }
 
+/** Last loaded state per repo, so switching back to a tab shows it at once while it refreshes. */
+interface Snapshot {
+  repo: RepoState
+  tree: WorkingTree
+  commits: Commit[]
+  refsSignature: string
+  selected: string | null
+}
+const snapshots = new Map<string, Snapshot>()
+
+/** Keeps the previous object when nothing changed, so memos and rows keyed on it don't recompute. */
+function same<T>(prev: T | null, next: T): T {
+  return prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next
+}
+
 export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
-  const [repo, setRepo] = useState<RepoState | null>(null)
+  const snap = snapshots.get(path)
+  const [repo, setRepo] = useState<RepoState | null>(snap?.repo ?? null)
   const repoRef = useRef<RepoState | null>(null)
   repoRef.current = repo
-  const [commits, setCommits] = useState<Commit[]>([])
-  const [tree, setTree] = useState<WorkingTree>({ staged: [], unstaged: [] })
+  const [commits, setCommits] = useState<Commit[]>(snap?.commits ?? [])
+  const [tree, setTree] = useState<WorkingTree>(snap?.tree ?? { staged: [], unstaged: [] })
+  // Counts completed refreshes: the open diff reloads on each, since a file can change without its status changing.
+  const [refreshN, setRefreshN] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = usePersistentState<View>(`spoon.view.${path}`, 'history')
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(snap?.selected ?? null)
   const [scrollTo, setScrollTo] = useState<{ hash: string; n: number } | null>(null)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState<Busy | null>(null)
@@ -77,9 +95,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
   const [commitRequest, setCommitRequest] = useState(0)
   const clearCommitRequest = useCallback(() => setCommitRequest(0), [])
-  const refsSignature = useRef('')
+  const refsSignature = useRef(snap?.refsSignature ?? '')
   // The most recently loaded history, readable right after an operation (before React re-renders).
-  const lastLog = useRef<Commit[]>([])
+  const lastLog = useRef<Commit[]>(snap?.commits ?? [])
   const [net, setNet] = useState<NetState | null>(null)
   const [deleting, setDeleting] = useState<Ref | null>(null)
   const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
@@ -94,36 +112,81 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [selectedPr, setSelectedPr] = usePersistentState<number | null>(`spoon.pr.selected.${path}`, null)
   const prsLoadedAt = useRef(0)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const wasCancelled = useRef(false)
 
-  const load = useCallback(async () => {
+  const loadOnce = useCallback(async () => {
     try {
       const [r, t] = await Promise.all([window.spoon.openRepo(path), window.spoon.workingTree(path)])
-      setRepo(r)
-      setTree(t)
+      const nextRepo = same(repoRef.current, r)
+      setRepo(nextRepo)
+      setTree((prev) => same(prev, t))
       setError(null)
       // Only re-read history when a ref moved; status refreshes are cheap and frequent.
       const sig = `${r.headHash}|${r.refs.map((x) => x.fullName + x.target).join(',')}`
       if (sig !== refsSignature.current) {
-        refsSignature.current = sig
         const log = await window.spoon.log(path, LOG_LIMIT)
+        // Only now: if reading the log failed, the next refresh tries again.
+        refsSignature.current = sig
         lastLog.current = log
         setCommits(log)
         setKnownAuthors(log.map((c) => c.authorName))
         setSelected((s) => (s && log.some((c) => c.hash === s) ? s : r.headHash))
       }
+      snapshots.set(path, {
+        repo: nextRepo,
+        tree: t,
+        commits: lastLog.current,
+        refsSignature: refsSignature.current,
+        selected: snapshots.get(path)?.selected ?? null
+      })
+      setRefreshN((n) => n + 1)
     } catch (err) {
       setError(cleanError(err))
     }
   }, [path])
+
+  // One refresh at a time: a request made while one runs queues a single follow-up, so a slow
+  // earlier read can never overwrite a newer one, and bursts of focus events collapse into one.
+  const inFlight = useRef<Promise<void> | null>(null)
+  const again = useRef(false)
+  const lastLoadAt = useRef(0)
+  const load = useCallback((): Promise<void> => {
+    if (inFlight.current) {
+      again.current = true
+      return inFlight.current
+    }
+    const p = (async () => {
+      try {
+        do {
+          again.current = false
+          await loadOnce()
+        } while (again.current)
+      } finally {
+        inFlight.current = null
+        lastLoadAt.current = Date.now()
+      }
+    })()
+    inFlight.current = p
+    return p
+  }, [loadOnce])
 
   useEffect(() => {
     load()
   }, [load])
 
   useEffect(() => {
-    window.addEventListener('focus', load)
-    return () => window.removeEventListener('focus', load)
+    // Refocusing right after a refresh (e.g. closing a dialog) doesn't need another one.
+    const onFocus = (): void => {
+      if (Date.now() - lastLoadAt.current > 1500) load()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [load])
+
+  useEffect(() => {
+    const s = snapshots.get(path)
+    if (s) s.selected = selected
+  }, [path, selected])
 
   useEffect(() => {
     window.spoon.ghRepo(path).then(setGhSlug)
@@ -175,7 +238,10 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           await fn()
           return true
         } catch (err) {
-          setOpError({ title: failTitle, message: cleanError(err) })
+          const message = cleanError(err)
+          // Stopped with the Cancel button: that's not a failure to report.
+          wasCancelled.current = message === 'Cancelled.'
+          if (!wasCancelled.current) setOpError({ title: failTitle, message })
           return false
         } finally {
           setBusy(null)
@@ -257,6 +323,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     const before = new Set(lastLog.current.map((c) => c.hash))
     setNet({ kind, phase: 'working' })
     const ok = await run(label, fn, failTitle)
+    if (!ok && wasCancelled.current) return setNet(null)
     const arrived = lastLog.current.filter((c) => !before.has(c.hash)).map((c) => c.hash)
     setNet({ kind, phase: ok ? 'done' : 'failed', gained: kind === 'push' ? 0 : arrived.length })
     if (ok && arrived.length && before.size) setFresh({ hashes: new Set(arrived), n: Date.now() })
@@ -282,6 +349,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   }, [command])
 
   const settings = useSettings()
+  const refsKey = repo ? `${repo.remotes.join(',')}|${repo.refs.map((r) => r.fullName + r.target).join(',')}` : ''
   const graph = useMemo(() => {
     const prefixes = reservedPrefixes(settings)
     if (!settings.reservedColorsGraph || !prefixes.length || !repo) return buildGraph(commits)
@@ -303,7 +371,30 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       }
     }
     return buildGraph(commits, rules)
-  }, [commits, repo, settings])
+    // Keyed on the refs, not the repo object: status-only refreshes don't rebuild 5000 rows of graph.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commits, refsKey, settings])
+
+  /** Commits on a remote branch that HEAD doesn't contain, newest first (from the loaded history). */
+  const remoteOnly = (remoteBranch: string): Commit[] => {
+    const target = repo?.refs.find((r) => r.kind === 'remote' && r.name === remoteBranch)?.target
+    if (!target) return []
+    const byHash = new Map(commits.map((c) => [c.hash, c]))
+    const reach = (start: string | null | undefined, stop: Set<string>): Set<string> => {
+      const seen = new Set<string>()
+      const todo = start ? [start] : []
+      while (todo.length) {
+        const h = todo.pop()!
+        if (seen.has(h) || stop.has(h)) continue
+        seen.add(h)
+        for (const p of byHash.get(h)?.parents ?? []) todo.push(p)
+      }
+      return seen
+    }
+    const mine = reach(repo?.headHash, new Set())
+    const theirs = reach(target, mine)
+    return commits.filter((c) => theirs.has(c.hash))
+  }
 
   const jumpTo = (hash: string): void => {
     setView('history')
@@ -402,6 +493,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
                 {busy.label}
                 {busy.progress && <span className="muted"> {busy.progress}</span>}
               </span>
+              {(busy.network || /^(Updating|Initializing|Deleting) /.test(busy.label)) && (
+                <button className="mini-btn" onClick={() => window.spoon.cancel(path)} title="Stop this git command">
+                  Cancel
+                </button>
+              )}
             </div>
           )}
           <div className="search">
@@ -477,6 +573,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           <ChangesView
             path={path}
             tree={tree}
+            refreshN={refreshN}
+            pushedTo={head?.upstream && !head.gone && (head.ahead ?? 0) === 0 ? head.upstream : null}
             ops={ops}
             commitRequest={commitRequest}
             onCommitHandled={clearCommitRequest}
@@ -531,7 +629,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       {dialog === 'push' && (
         <PushDialog
           path={path}
-          diverged={!!head?.ahead && !!head?.behind}
+          remoteOnly={remoteOnly}
           onClose={() => setDialog(null)}
           onPush={(opts) => netOp('push', 'Pushing…', () => window.spoon.push(path, opts), 'Push failed')}
         />

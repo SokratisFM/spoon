@@ -18,6 +18,10 @@ interface Selection {
 interface Props {
   path: string
   tree: WorkingTree
+  /** Bumped by every refresh; the open diff reloads, since a file can change without its status changing. */
+  refreshN: number
+  /** The remote branch the last commit is already on, if any (amending it then needs a force push). */
+  pushedTo: string | null
   ops: Ops
   /** Set by ⌘Enter from the menu; cleared with onCommitHandled once acted on. */
   commitRequest: number
@@ -27,7 +31,7 @@ interface Props {
 /** Paths git needs for a set of entries: renames are staged/unstaged as old + new path. */
 const pathsOf = (files: FileChange[]): string[] => files.flatMap((f) => (f.oldPath ? [f.oldPath, f.path] : [f.path]))
 
-export function ChangesView({ path, tree, ops, commitRequest, onCommitHandled }: Props) {
+export function ChangesView({ path, tree, refreshN, pushedTo, ops, commitRequest, onCommitHandled }: Props) {
   const [sel, setSel] = useState<Selection | null>(null)
 
   // After a refresh, keep what still exists; if the focused file moved away, focus the
@@ -83,7 +87,27 @@ export function ChangesView({ path, tree, ops, commitRequest, onCommitHandled }:
     attempt(6)
   }, [tree])
 
-  const stage = (files: FileChange[]): void => {
+  const stage = async (files: FileChange[]): Promise<void> => {
+    // Staging a conflicted file marks it resolved; check it doesn't still hold conflict markers.
+    const conflicted = files.filter((f) => f.status === 'U')
+    const marked: string[] = []
+    for (const f of conflicted.slice(0, 20)) {
+      const d = await window.spoon.diff(path, { kind: 'unstaged', file: f }).catch(() => null)
+      if (d && /^[ +-]{0,2}(<{7}|>{7})( |$)/m.test(d.text)) marked.push(f.path)
+    }
+    if (marked.length) {
+      const ok = await window.spoon.confirm({
+        message:
+          marked.length === 1
+            ? `${marked[0]} still has conflict markers`
+            : `${marked.length} files still have conflict markers`,
+        detail:
+          'Staging marks a conflict as resolved, and the <<<<<<< and >>>>>>> lines would be committed as they are.' +
+          (marked.length > 1 ? `\n\n${marked.join('\n')}` : ''),
+        confirmLabel: 'Stage Anyway'
+      })
+      if (!ok) return
+    }
     remember(files, 'unstaged')
     ops.run('Staging…', () => window.spoon.stage(path, pathsOf(files)), 'Stage failed')
   }
@@ -183,12 +207,13 @@ export function ChangesView({ path, tree, ops, commitRequest, onCommitHandled }:
         <CommitBox
           path={path}
           stagedCount={tree.staged.length}
+          pushedTo={pushedTo}
           ops={ops}
           commitRequest={commitRequest}
           onCommitHandled={onCommitHandled}
         />
       </div>
-      <DiffView path={path} target={target} nonce={tree} hunkAction={hunkAction} />
+      <DiffView path={path} target={target} nonce={refreshN} hunkAction={hunkAction} />
     </Split>
   )
 }
@@ -196,12 +221,13 @@ export function ChangesView({ path, tree, ops, commitRequest, onCommitHandled }:
 interface CommitBoxProps {
   path: string
   stagedCount: number
+  pushedTo: string | null
   ops: Ops
   commitRequest: number
   onCommitHandled: () => void
 }
 
-function CommitBox({ path, stagedCount, ops, commitRequest, onCommitHandled }: CommitBoxProps) {
+function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHandled }: CommitBoxProps) {
   // The draft survives restarts and tab switches, like Fork.
   const [draft, setDraft] = usePersistentState(`spoon.draft.${path}`, { subject: '', body: '' })
   const [amend, setAmend] = useState(false)
@@ -264,6 +290,11 @@ function CommitBox({ path, stagedCount, ops, commitRequest, onCommitHandled }: C
         value={draft.body}
         onChange={(e) => setDraft({ ...draft, body: e.target.value })}
       />
+      {amend && pushedTo && (
+        <span className="amend-warning">
+          This commit is already on {pushedTo}. After amending, pushing needs a force push.
+        </span>
+      )}
       <div className="commit-actions">
         <label className="check">
           <input type="checkbox" checked={amend} onChange={(e) => toggleAmend(e.target.checked)} />

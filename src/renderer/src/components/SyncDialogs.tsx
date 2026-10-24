@@ -1,6 +1,7 @@
 // Pull and Push dialogs, modelled on Fork's: show where the branch syncs to and the few options that matter.
 import { useState } from 'react'
-import type { PullOptions, PushOptions } from '../../../shared/types'
+import type { Commit, PullOptions, PushOptions } from '../../../shared/types'
+import { shortDate } from '../format'
 import { useAsync, usePersistentState } from '../hooks'
 import { Modal } from './Modal'
 
@@ -68,18 +69,19 @@ export function PullDialog({ path, onClose, onPull }: PullProps) {
 
 interface PushProps {
   path: string
-  /** The branch and its remote have each moved (e.g. after a rebase): offer a force push. */
-  diverged?: boolean
+  /** Commits on a remote branch ("origin/x") that the checked-out branch doesn't have. */
+  remoteOnly: (remoteBranch: string) => Commit[]
   onClose: () => void
   onPush: (opts: PushOptions) => void
 }
 
-export function PushDialog({ path, diverged, onClose, onPush }: PushProps) {
+export function PushDialog({ path, remoteOnly, onClose, onPush }: PushProps) {
   const { data: info, error } = useAsync(() => window.spoon.syncInfo(path), [path])
   const [remote, setRemote] = useState<string | null>(null)
   const [remoteBranch, setRemoteBranch] = useState<string | null>(null)
   const [tags, setTags] = useState(false)
-  const [force, setForce] = useState(!!diverged)
+  // Never on by default: the remote also gets ahead when a teammate pushes, not only after a rebase.
+  const [force, setForce] = useState(false)
 
   // Defaults: the branch's upstream if it has one, otherwise origin (or the first remote) with the same name.
   const effRemote = remote ?? info?.upstreamRemote ?? (info?.remotes.includes('origin') ? 'origin' : info?.remotes[0]) ?? ''
@@ -141,12 +143,37 @@ export function PushDialog({ path, diverged, onClose, onPush }: PushProps) {
             <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
             Force push (with lease)
           </label>
-          {diverged && (
-            <span className="hint">
-              The remote branch has commits this one doesn’t, as after a rebase. A force push replaces them; the
-              lease refuses if someone else pushed in the meantime.
-            </span>
-          )}
+          {(() => {
+            const target = `${effRemote}/${effBranch.trim()}`
+            const lost = remoteOnly(target)
+            if (!lost.length) return force ? <span className="hint">Nothing on {target} would be lost.</span> : null
+            if (!force)
+              return (
+                <span className="hint">
+                  {target} has {lost.length} commit{lost.length === 1 ? '' : 's'} this branch doesn’t. Pull first; force
+                  push only if you rewrote this branch on purpose (a rebase or amend).
+                </span>
+              )
+            return (
+              <div className="force-loss">
+                <span>
+                  Force pushing removes {lost.length === 1 ? 'this commit' : `these ${lost.length} commits`} from{' '}
+                  {target}:
+                </span>
+                <ul>
+                  {lost.slice(0, 6).map((c) => (
+                    <li key={c.hash}>
+                      <span className="mono muted">{c.hash.slice(0, 7)}</span> {c.subject}{' '}
+                      <span className="muted">
+                        · {c.authorName}, {shortDate(c.authorTime)}
+                      </span>
+                    </li>
+                  ))}
+                  {lost.length > 6 && <li className="muted">and {lost.length - 6} more</li>}
+                </ul>
+              </div>
+            )
+          })()}
         </>
       )}
     </Modal>

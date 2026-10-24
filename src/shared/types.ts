@@ -391,6 +391,8 @@ export interface SpoonApi {
   /** Steps are oldest first, like git's todo list. */
   rebaseInteractive(path: string, onto: string, steps: RebaseStep[]): Promise<RebaseResult>
   rebaseContinue(path: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult>
+  /** Ends the running fetch/pull/push/submodule update in this repo; it then fails with "Cancelled.". */
+  cancel(path: string): Promise<void>
   /** Progress lines from the running fetch/pull/push of a repo. */
   onProgress(handler: (repo: string, line: string) => void): () => void
 

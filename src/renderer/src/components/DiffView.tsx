@@ -148,7 +148,16 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
     () => (target ? window.spoon.diff(path, target) : Promise.resolve(null)),
     [path, key, nonce]
   )
-  const parsed = useMemo(() => (data && !data.binary ? parseDiff(data.text) : null), [data])
+  // Refreshes refetch the diff (the file may have changed on disk), but an unchanged diff keeps its
+  // parsed lines, so nothing below re-renders.
+  const lastParsed = useRef<{ text: string; parsed: ReturnType<typeof parseDiff> } | null>(null)
+  const parsed = useMemo(() => {
+    if (!data || data.binary) return null
+    if (lastParsed.current?.text === data.text) return lastParsed.current.parsed
+    const next = parseDiff(data.text)
+    lastParsed.current = { text: data.text, parsed: next }
+    return next
+  }, [data])
   // Split view wraps long lines so both sides stay visible; wrapped rows have varying heights, so it
   // isn't virtualized and very large diffs fall back to the unified view.
   const rows = useMemo(() => (parsed && settings.diffLayout === 'split' ? pairLines(parsed.lines) : null), [parsed, settings.diffLayout])

@@ -1,8 +1,8 @@
 // Thin wrapper over the git CLI. Every call shells out to `git` with machine-readable
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { basename, delimiter, join } from 'node:path'
+import { basename, delimiter, join, resolve } from 'node:path'
 import type {
   Commit,
   CommitDetails,
@@ -46,6 +46,7 @@ const env = {
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0', // read-only commands must not take index.lock
   GIT_EDITOR: 'true', // never block on an editor; merges/rebases keep their default messages
+  GIT_LITERAL_PATHSPECS: '1', // file names like "foo[1].txt" mean that file, not a glob
   LC_ALL: 'C'
 }
 
@@ -65,15 +66,51 @@ interface RunOptions {
   /** Receives git's progress lines ("Receiving objects:  42% ...") as they arrive. */
   onProgress?: (line: string) => void
   env?: Record<string, string>
+  /** Stop reading (and end git) once stdout passes this many bytes; the output is then truncated. */
+  maxBytes?: number
+  /** Network commands: cancel(cwd) ends them. */
+  cancellable?: boolean
 }
 
-function run(cwd: string, args: string[], opts: RunOptions = {}): Promise<string> {
+const CANCELLED = 'Cancelled.'
+const cancellable = new Map<string, Set<ChildProcess>>()
+const repoKey = (cwd: string): string => resolve(cwd)
+
+function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out: string; truncated: boolean }> {
   const okCodes = opts.okCodes ?? [0]
-  return new Promise((resolve, reject) => {
-    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args], { cwd, env: opts.env ? { ...env, ...opts.env } : env })
+  return new Promise((done, reject) => {
+    // Cancellable commands get their own process group: `fetch --all`, `pull` and `submodule update`
+    // run further git processes, and cancel() has to end those too.
+    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args], {
+      cwd,
+      env: opts.env ? { ...env, ...opts.env } : env,
+      detached: !!opts.cancellable && process.platform !== 'win32'
+    })
     const out: Buffer[] = []
+    let size = 0
+    let truncated = false
+    let cancelled = false
     let err = ''
-    child.stdout.on('data', (b: Buffer) => out.push(b))
+    const key = repoKey(cwd)
+    if (opts.cancellable) {
+      if (!cancellable.has(key)) cancellable.set(key, new Set())
+      cancellable.get(key)!.add(child)
+      child.once('cancel', () => {
+        cancelled = true
+        // A grandchild that survives can keep the pipes open, and with them 'close' from firing.
+        child.once('exit', (code) => setTimeout(() => settle(code), 500))
+      })
+    }
+    const forget = (): void => void cancellable.get(key)?.delete(child)
+    child.stdout.on('data', (b: Buffer) => {
+      if (truncated) return
+      out.push(b)
+      size += b.length
+      if (opts.maxBytes !== undefined && size > opts.maxBytes) {
+        truncated = true
+        child.kill()
+      }
+    })
     child.stderr.on('data', (b: Buffer) => {
       const s = b.toString('utf8')
       err += s
@@ -82,9 +119,20 @@ function run(cwd: string, args: string[], opts: RunOptions = {}): Promise<string
         if (lines.length) opts.onProgress(lines[lines.length - 1].trim())
       }
     })
-    child.on('error', (e) => reject(new GitError(`git ${args[0]}: ${e.message}`, null, '')))
-    child.on('close', (code) => {
-      if (code !== null && okCodes.includes(code)) return resolve(Buffer.concat(out).toString('utf8'))
+    child.on('error', (e) => {
+      forget()
+      reject(new GitError(`git ${args[0]}: ${e.message}`, null, ''))
+    })
+    let settled = false
+    const settle = (code: number | null): void => {
+      if (settled) return
+      settled = true
+      forget()
+      if (cancelled) return reject(new GitError(CANCELLED, code, err))
+      if (truncated || (code !== null && okCodes.includes(code))) {
+        const buf = Buffer.concat(out)
+        return done({ out: (truncated ? buf.subarray(0, opts.maxBytes) : buf).toString('utf8'), truncated })
+      }
       // Keep only the final state of each \r-updated progress line.
       const msg = err
         .split('\n')
@@ -92,18 +140,73 @@ function run(cwd: string, args: string[], opts: RunOptions = {}): Promise<string
         .filter((l) => l.trim())
         .join('\n')
       reject(new GitError(msg || `git ${args[0]} failed (exit ${code})`, code, err))
-    })
+    }
+    child.on('close', settle)
+    // git may exit before reading its input (an error); that's reported through 'close'.
+    child.stdin.on('error', () => undefined)
     if (opts.input !== undefined) child.stdin.end(opts.input)
     else child.stdin.end()
   })
+}
+
+async function run(cwd: string, args: string[], opts: RunOptions = {}): Promise<string> {
+  return (await exec(cwd, args, opts)).out
 }
 
 function git(cwd: string, args: string[], okCodes: number[] = [0]): Promise<string> {
   return run(cwd, args, { okCodes })
 }
 
+/** Ends the network commands (fetch, pull, push, submodule update) running in a repository. */
+export function cancel(cwd: string): void {
+  for (const child of cancellable.get(repoKey(cwd)) ?? []) {
+    if (child.pid === undefined || child.exitCode !== null) continue
+    child.emit('cancel')
+    try {
+      if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+      else process.kill(-child.pid, 'SIGTERM') // the whole group: git and every git it started
+    } catch {
+      child.kill()
+    }
+  }
+}
+
+// One write at a time per repository, whichever tab or window asked: two writers would collide on
+// index.lock (or worse, interleave a checkout with a commit).
+const locks = new Map<string, Promise<unknown>>()
+
+function exclusive<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  const key = repoKey(cwd)
+  const task = (locks.get(key) ?? Promise.resolve()).catch(() => undefined).then(fn)
+  const tail = task.catch(() => undefined)
+  locks.set(key, tail)
+  tail.then(() => locks.get(key) === tail && locks.delete(key))
+  return task
+}
+
 function assertHash(hash: string): void {
   if (!/^[0-9a-f]{4,64}$/i.test(hash)) throw new Error(`Invalid commit hash: ${hash}`)
+}
+
+/** Names that end up as git arguments must never be read as options ("--upload-pack=…"). */
+function assertArg(value: string, what: string): void {
+  if (typeof value !== 'string' || !value || value.startsWith('-') || /[\0\n\r]/.test(value))
+    throw new Error(`Invalid ${what}: ${value}`)
+}
+
+async function assertBranchName(cwd: string, name: string, what = 'branch name'): Promise<void> {
+  assertArg(name, what)
+  try {
+    await git(cwd, ['check-ref-format', `refs/heads/${name}`])
+  } catch {
+    throw new Error(`“${name}” isn’t a valid ${what}.`)
+  }
+}
+
+async function assertRemote(cwd: string, remote: string): Promise<void> {
+  assertArg(remote, 'remote')
+  const remotes = (await git(cwd, ['remote'])).split('\n').filter(Boolean)
+  if (!remotes.includes(remote)) throw new Error(`Unknown remote: ${remote}`)
 }
 
 export async function openRepo(path: string): Promise<RepoState> {
@@ -151,33 +254,59 @@ async function readSubmodules(root: string): Promise<Submodule[]> {
     })
     .filter((s): s is Submodule => s !== null)
 
+  const live = subs.filter((s) => s.state !== 'uninitialized')
+  if (!live.length) return subs
+  // One status in the parent covers every submodule ("S.M." = tracked changes inside it), and one
+  // ls-files gives every recorded commit, instead of a few git processes per submodule.
+  const [statusOut, indexOut] = await Promise.all([
+    git(root, ['status', '--porcelain=v2', '-z', '--untracked-files=no', '--ignore-submodules=none', '--', ...live.map((s) => s.path)]).catch(() => ''),
+    git(root, ['ls-files', '-s', '-z', '--', ...live.map((s) => s.path)]).catch(() => '')
+  ])
+  const dirty = new Set<string>()
+  const tokens = statusOut.split('\0')
+  for (let i = 0; i < tokens.length; ) {
+    const rec = tokens[i++]
+    if (!rec) continue
+    const parts = rec.split(' ')
+    if (rec[0] === '2') i++ // rename: the old path follows
+    const skip = rec[0] === '1' ? 8 : rec[0] === '2' ? 9 : rec[0] === 'u' ? 10 : -1
+    if (skip !== -1 && parts[2]?.[0] === 'S' && parts[2][2] === 'M') dirty.add(parts.slice(skip).join(' '))
+  }
+  const recorded = new Map<string, string>()
+  for (const entry of indexOut.split('\0')) {
+    const m = /^160000 ([0-9a-f]+) \d\t(.+)$/.exec(entry)
+    if (m) recorded.set(m[2], m[1])
+  }
+
   await Promise.all(
-    subs
-      .filter((s) => s.state !== 'uninitialized')
-      .map(async (s) => {
-        const dir = join(root, s.path)
-        const [branch, status] = await Promise.all([
-          git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).catch(() => ''),
-          git(dir, ['status', '--porcelain', '--untracked-files=no']).catch(() => '')
-        ])
-        s.branch = branch.trim() || null
-        s.dirty = status.trim().length > 0
-        if (s.state === 'outdated') {
-          // Ahead is the normal state while you're developing inside the submodule; behind means
-          // someone moved the parent's pointer and Update would catch you up.
-          s.recorded = (await git(root, ['rev-parse', `HEAD:${s.path}`]).catch(() => s.hash)).trim()
-          const counts = await git(dir, ['rev-list', '--left-right', '--count', `${s.recorded}...${s.hash}`]).catch(() => '')
-          const [behind, ahead] = counts.trim().split(/\s+/).map(Number)
-          if (!Number.isNaN(ahead)) {
-            s.ahead = ahead
-            s.behind = behind
-            s.relation = behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged'
-          }
-        }
-      })
+    live.map(async (s) => {
+      const dir = join(root, s.path)
+      s.branch = (await git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).catch(() => '')).trim() || null
+      s.dirty = dirty.has(s.path)
+      if (s.state !== 'outdated') return
+      // Ahead is the normal state while you're developing inside the submodule; behind means
+      // someone moved the parent's pointer and Update would catch you up.
+      s.recorded = recorded.get(s.path) ?? s.hash
+      const key = `${dir}|${s.recorded}|${s.hash}`
+      let counts = aheadBehindCache.get(key)
+      if (counts === undefined) {
+        counts = await git(dir, ['rev-list', '--left-right', '--count', `${s.recorded}...${s.hash}`]).catch(() => '')
+        if (aheadBehindCache.size > 500) aheadBehindCache.clear()
+        if (counts) aheadBehindCache.set(key, counts)
+      }
+      const [behind, ahead] = counts.trim().split(/\s+/).map(Number)
+      if (!Number.isNaN(ahead)) {
+        s.ahead = ahead
+        s.behind = behind
+        s.relation = behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged'
+      }
+    })
   )
   return subs
 }
+
+/** rev-list counts per (submodule, recorded, checked out): commits never change, so neither do these. */
+const aheadBehindCache = new Map<string, string>()
 
 function detectOperation(gitDir: string): string | null {
   const has = (p: string): boolean => existsSync(join(gitDir, p))
@@ -227,10 +356,7 @@ async function readStashes(cwd: string): Promise<Stash[]> {
 }
 
 export async function log(cwd: string, limit: number): Promise<Commit[]> {
-  const head = await git(cwd, ['rev-parse', '-q', '--verify', 'HEAD'], [0, 1])
-  const anyRefs = await git(cwd, ['for-each-ref', '--count=1', 'refs/heads', 'refs/remotes', 'refs/tags'])
-  if (!head.trim() && !anyRefs.trim()) return [] // brand-new repo, nothing to show
-
+  // A brand-new repo (no refs at all) just prints nothing.
   const format = ['%H', '%P', '%an', '%ae', '%at', '%cn', '%ct', '%s'].join('%x1f') + '%x1e'
   const out = await git(cwd, [
     'log',
@@ -334,25 +460,26 @@ export async function workingTree(cwd: string): Promise<WorkingTree> {
   return { staged, unstaged }
 }
 
-async function rawDiff(cwd: string, target: DiffTarget): Promise<string> {
+/** With maxBytes, git is stopped once that much is read, so a huge diff never sits in memory whole. */
+async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number): Promise<{ out: string; truncated: boolean }> {
   const { file } = target
   const paths = file.oldPath ? [file.oldPath, file.path] : [file.path]
   const common = ['--no-color', '--no-ext-diff', '-M']
+  const diffOf = (args: string[], okCodes = [0]): Promise<{ out: string; truncated: boolean }> =>
+    exec(cwd, ['diff', ...common, ...args], { okCodes, maxBytes })
 
   if (target.kind === 'commit') {
     assertHash(target.hash)
     const parents = (await git(cwd, ['rev-list', '--parents', '-n1', target.hash])).trim().split(' ').slice(1)
-    return git(cwd, ['diff', ...common, parents[0] ?? EMPTY_TREE, target.hash, '--', ...paths])
+    return diffOf([parents[0] ?? EMPTY_TREE, target.hash, '--', ...paths])
   }
-  if (target.kind === 'staged') return git(cwd, ['diff', ...common, '--cached', '--', ...paths])
-  if (file.status === '?') return git(cwd, ['diff', ...common, '--no-index', '--', '/dev/null', file.path], [0, 1])
-  return git(cwd, ['diff', ...common, '--', ...paths])
+  if (target.kind === 'staged') return diffOf(['--cached', '--', ...paths])
+  if (file.status === '?') return diffOf(['--no-index', '--', '/dev/null', file.path], [0, 1])
+  return diffOf(['--', ...paths])
 }
 
 export async function diff(cwd: string, target: DiffTarget): Promise<DiffResult> {
-  const out = await rawDiff(cwd, target)
-  const truncated = out.length > MAX_DIFF_BYTES
-  const text = truncated ? out.slice(0, MAX_DIFF_BYTES) : out
+  const { out: text, truncated } = await rawDiff(cwd, target, MAX_DIFF_BYTES)
   const binary = /^Binary files .* differ$/m.test(text.slice(0, 4096)) && !/^@@/m.test(text)
   return { text, binary, truncated }
 }
@@ -369,22 +496,26 @@ function withPaths(cwd: string, args: string[], paths: string[]): Promise<string
 }
 
 export async function stage(cwd: string, paths: string[]): Promise<void> {
-  if (paths.length) await withPaths(cwd, ['add', '-A'], paths)
+  if (paths.length) await exclusive(cwd, () => withPaths(cwd, ['add', '-A'], paths))
 }
 
 export async function unstage(cwd: string, paths: string[]): Promise<void> {
   if (!paths.length) return
-  if (await hasHead(cwd)) await withPaths(cwd, ['restore', '--staged'], paths)
-  else await withPaths(cwd, ['rm', '--cached', '-r', '-q'], paths)
+  await exclusive(cwd, async () => {
+    if (await hasHead(cwd)) await withPaths(cwd, ['restore', '--staged'], paths)
+    else await withPaths(cwd, ['rm', '--cached', '-r', '-q'], paths)
+  })
 }
 
 export async function stageAll(cwd: string): Promise<void> {
-  await git(cwd, ['add', '-A'])
+  await exclusive(cwd, () => git(cwd, ['add', '-A']))
 }
 
 export async function unstageAll(cwd: string): Promise<void> {
-  if (await hasHead(cwd)) await git(cwd, ['reset', '-q'])
-  else await git(cwd, ['rm', '--cached', '-r', '-q', '.'])
+  await exclusive(cwd, async () => {
+    if (await hasHead(cwd)) await git(cwd, ['reset', '-q'])
+    else await git(cwd, ['rm', '--cached', '-r', '-q', '.'])
+  })
 }
 
 /**
@@ -393,7 +524,11 @@ export async function unstageAll(cwd: string): Promise<void> {
  */
 export async function applyHunk(cwd: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void> {
   if (target.kind === 'commit') throw new Error('Cannot stage a hunk from a commit')
-  const lines = (await rawDiff(cwd, target)).split('\n')
+  return exclusive(cwd, () => applyHunkNow(cwd, target, hunkIndex, hunkHeader))
+}
+
+async function applyHunkNow(cwd: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void> {
+  const lines = (await rawDiff(cwd, target)).out.split('\n')
   const starts = lines.flatMap((l, i) => (l.startsWith('@@ ') ? [i] : []))
   const start = starts[hunkIndex]
   if (start === undefined || lines[start] !== hunkHeader)
@@ -414,14 +549,21 @@ export async function headMessage(cwd: string): Promise<string> {
 
 export async function commit(cwd: string, message: string, amend: boolean): Promise<string> {
   if (!message.trim()) throw new Error('Commit message is empty.')
-  await run(cwd, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message })
-  return (await git(cwd, ['rev-parse', 'HEAD'])).trim()
+  return exclusive(cwd, async () => {
+    await run(cwd, ['commit', '-F', '-', ...(amend ? ['--amend'] : [])], { input: message })
+    return (await git(cwd, ['rev-parse', 'HEAD'])).trim()
+  })
 }
 
 // ---------- writing: branches ----------
 
-export async function checkout(cwd: string, target: CheckoutTarget): Promise<void> {
+export function checkout(cwd: string, target: CheckoutTarget): Promise<void> {
+  return exclusive(cwd, () => checkoutNow(cwd, target))
+}
+
+async function checkoutNow(cwd: string, target: CheckoutTarget): Promise<void> {
   if (target.kind === 'branch') {
+    assertArg(target.name, 'branch')
     await git(cwd, ['switch', target.name])
   } else if (target.kind === 'commit') {
     assertHash(target.hash)
@@ -434,6 +576,7 @@ export async function checkout(cwd: string, target: CheckoutTarget): Promise<voi
       .sort((a, b) => b.length - a.length)[0]
     if (!remote) throw new Error(`Unknown remote for ${target.name}`)
     const local = target.name.slice(remote.length + 1)
+    assertArg(local, 'branch')
     const exists = !!(await git(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${local}`], [0, 1])).trim()
     if (exists) await git(cwd, ['switch', local])
     else await git(cwd, ['switch', '-c', local, '--track', target.name])
@@ -460,10 +603,16 @@ export async function syncInfo(cwd: string): Promise<SyncInfo> {
 }
 
 export async function fetch(cwd: string, prune: boolean, onProgress: (l: string) => void): Promise<void> {
-  await run(cwd, ['fetch', '--all', '--progress', ...(prune ? ['--prune'] : [])], { onProgress })
+  await exclusive(cwd, () =>
+    run(cwd, ['fetch', '--all', '--progress', ...(prune ? ['--prune'] : [])], { onProgress, cancellable: true })
+  )
 }
 
-export async function pull(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<void> {
+export function pull(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<void> {
+  return exclusive(cwd, () => pullNow(cwd, opts, onProgress))
+}
+
+async function pullNow(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<void> {
   const info = await syncInfo(cwd)
   if (!info.branch) throw new Error('HEAD is detached. Check out a branch to pull.')
   if (!info.upstreamRemote || !info.upstreamBranch)
@@ -471,17 +620,28 @@ export async function pull(cwd: string, opts: PullOptions, onProgress: (l: strin
   const args = ['pull', '--progress', opts.rebase ? '--rebase' : '--no-rebase']
   if (!opts.rebase) args.push('--no-edit')
   if (opts.autostash) args.push('--autostash')
-  await run(cwd, [...args, info.upstreamRemote, info.upstreamBranch], { onProgress })
+  await run(cwd, [...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true })
 }
 
-export async function push(cwd: string, opts: PushOptions, onProgress: (l: string) => void): Promise<void> {
+export function push(cwd: string, opts: PushOptions, onProgress: (l: string) => void): Promise<void> {
+  return exclusive(cwd, () => pushNow(cwd, opts, onProgress))
+}
+
+async function pushNow(cwd: string, opts: PushOptions, onProgress: (l: string) => void): Promise<void> {
   const info = await syncInfo(cwd)
   if (!info.branch) throw new Error('HEAD is detached. Check out a branch to push.')
+  await assertRemote(cwd, opts.remote)
+  await assertBranchName(cwd, opts.remoteBranch, 'remote branch name')
   const args = ['push', '--progress']
   if (opts.setUpstream) args.push('-u')
   if (opts.tags) args.push('--tags')
-  if (opts.force) args.push('--force-with-lease')
-  await run(cwd, [...args, opts.remote, `refs/heads/${info.branch}:refs/heads/${opts.remoteBranch}`], { onProgress })
+  // The lease alone passes once a fetch has updated the remote-tracking branch; --force-if-includes
+  // also refuses when the remote has commits that were never part of this branch.
+  if (opts.force) args.push('--force-with-lease', '--force-if-includes')
+  await run(cwd, [...args, opts.remote, `refs/heads/${info.branch}:refs/heads/${opts.remoteBranch}`], {
+    onProgress,
+    cancellable: true
+  })
 }
 
 async function hasCommit(cwd: string, hash: string): Promise<boolean> {
@@ -511,8 +671,8 @@ async function shortLog(cwd: string, args: string[], limit = 6): Promise<{ list:
 /** Where the parent records a submodule: the index if the pointer is staged, else HEAD. */
 async function recordedCommit(cwd: string, submodulePath: string): Promise<string> {
   const line = (await git(cwd, ['ls-files', '-s', '--', submodulePath])).trim()
-  const hash = line.split(/\s+/)[1]
-  if (!hash) throw new Error(`${submodulePath} isn’t a submodule of this repository.`)
+  const [mode, hash] = line.split(/\s+/)
+  if (mode !== '160000' || !hash || line.includes('\n')) throw new Error(`${submodulePath} isn’t a submodule of this repository.`)
   return hash
 }
 
@@ -560,17 +720,25 @@ export async function submoduleUpdatePreview(cwd: string, submodulePath: string)
  * fast-forwarded (so it stays checked out), and a local branch already at that commit is switched
  * to; only otherwise does it fall back to `git submodule update`, which checks the commit out directly.
  */
-export async function updateSubmodule(cwd: string, submodulePath: string, backupBranch?: string): Promise<void> {
+export function updateSubmodule(cwd: string, submodulePath: string, backupBranch?: string): Promise<void> {
+  return exclusive(cwd, () => updateSubmoduleNow(cwd, submodulePath, backupBranch))
+}
+
+async function updateSubmoduleNow(cwd: string, submodulePath: string, backupBranch?: string): Promise<void> {
+  // Also proves the path is a submodule of this repo before any git runs inside it.
+  const recorded = await recordedCommit(cwd, submodulePath)
   const dir = join(cwd, submodulePath)
   const nested = (): Promise<string> =>
-    run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', '--', submodulePath])
+    run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', '--', submodulePath], { cancellable: true })
   if (!existsSync(join(dir, '.git'))) {
     await nested()
     return
   }
-  if (backupBranch) await git(dir, ['branch', '--', backupBranch, 'HEAD'])
-  const recorded = await recordedCommit(cwd, submodulePath)
-  if (!(await hasCommit(dir, recorded))) await git(dir, ['fetch', '--all', '--quiet'])
+  if (backupBranch) {
+    await assertBranchName(dir, backupBranch)
+    await git(dir, ['branch', '--', backupBranch, 'HEAD'])
+  }
+  if (!(await hasCommit(dir, recorded))) await run(dir, ['fetch', '--all', '--quiet'], { cancellable: true })
   if (await hasCommit(dir, recorded)) {
     const preview = await submoduleUpdatePreview(cwd, submodulePath)
     if (preview.fastForward) await git(dir, ['merge', '--ff-only', '--quiet', recorded])
@@ -587,26 +755,35 @@ export async function updateSubmodule(cwd: string, submodulePath: string, backup
  * from another branch, remote branch or tag, so no commits are lost; the rest are reported back
  * so the UI can ask before forcing.
  */
-export async function deleteBranches(cwd: string, names: string[], force: boolean): Promise<DeleteResult> {
-  const deleted: string[] = []
-  const unmerged: string[] = []
-  for (const name of names) {
-    const ref = `refs/heads/${name}`
-    if (!force) {
-      const containing = (
-        await git(cwd, ['for-each-ref', '--format=%(refname)', `--contains=${ref}`, 'refs/heads', 'refs/remotes', 'refs/tags'])
-      )
-        .split('\n')
-        .filter((r) => r && r !== ref && !r.endsWith('/HEAD'))
-      if (containing.length === 0) {
-        unmerged.push(name)
-        continue
+export function deleteBranches(cwd: string, names: string[], force: boolean): Promise<DeleteResult> {
+  return exclusive(cwd, async () => {
+    const deleted: string[] = []
+    const unmerged: string[] = []
+    for (const name of names) {
+      try {
+        assertArg(name, 'branch')
+        const ref = `refs/heads/${name}`
+        if (!force) {
+          const containing = (
+            await git(cwd, ['for-each-ref', '--format=%(refname)', `--contains=${ref}`, 'refs/heads', 'refs/remotes', 'refs/tags'])
+          )
+            .split('\n')
+            .filter((r) => r && r !== ref && !r.endsWith('/HEAD'))
+          if (containing.length === 0) {
+            unmerged.push(name)
+            continue
+          }
+        }
+        await git(cwd, ['branch', '-D', '--', name])
+        deleted.push(name)
+      } catch (err) {
+        // Say which ones are already gone, so a failure halfway doesn't hide them.
+        const done = deleted.length ? `\n\nAlready deleted: ${deleted.join(', ')}` : ''
+        throw new Error(`${name}: ${(err as Error).message}${done}`)
       }
     }
-    await git(cwd, ['branch', '-D', '--', name])
-    deleted.push(name)
-  }
-  return { deleted, unmerged }
+    return { deleted, unmerged }
+  })
 }
 
 /** For each path: the parent repo when it's a submodule, else null. Used to label tabs. */
@@ -634,13 +811,50 @@ export async function remoteUrls(cwd: string): Promise<Record<string, string>> {
   return urls
 }
 
-export async function fetchRef(cwd: string, remote: string, refspec: string): Promise<void> {
-  await run(cwd, ['fetch', remote, refspec])
+async function isAncestor(cwd: string, a: string, b: string): Promise<boolean> {
+  try {
+    await git(cwd, ['merge-base', '--is-ancestor', a, b])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Fetches `source` from `remote` and checks it out as the local branch `local`: created there if
+ * it doesn't exist, fast-forwarded if it's only behind, and otherwise checked out as it is, so
+ * commits of your own on it are never thrown away. With `tracking` ("origin/feature"), the fetch
+ * updates that remote-tracking branch and a new local branch tracks it.
+ */
+export function fetchAndCheckout(cwd: string, remote: string, source: string, local: string, tracking?: string): Promise<void> {
+  return exclusive(cwd, async () => {
+    await assertRemote(cwd, remote)
+    assertArg(source, 'ref')
+    await assertBranchName(cwd, local)
+    if (tracking) await assertBranchName(cwd, tracking, 'remote branch')
+    await run(cwd, ['fetch', '--', remote, tracking ? `+${source}:refs/remotes/${tracking}` : source], { cancellable: true })
+    const start = tracking ? `refs/remotes/${tracking}` : 'FETCH_HEAD'
+    const target = (await git(cwd, ['rev-parse', '--verify', `${start}^{commit}`])).trim()
+    const tip = (await git(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${local}`], [0, 1])).trim()
+    if (!tip) {
+      await git(cwd, ['switch', '-c', local, ...(tracking ? ['--track', start] : [target])])
+      return
+    }
+    const current = (await git(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1])).trim()
+    const behind = tip !== target && (await isAncestor(cwd, tip, target))
+    if (behind && current === local) await git(cwd, ['merge', '--ff-only', '--quiet', target])
+    else if (behind) await git(cwd, ['branch', '-f', '--', local, target])
+    if (current !== local) await git(cwd, ['switch', local])
+  })
 }
 
 /** Deletes a branch on a remote (git push <remote> --delete <branch>). */
-export async function deleteRemoteBranch(cwd: string, remote: string, branch: string): Promise<void> {
-  await run(cwd, ['push', remote, '--delete', branch])
+export function deleteRemoteBranch(cwd: string, remote: string, branch: string): Promise<void> {
+  return exclusive(cwd, async () => {
+    await assertRemote(cwd, remote)
+    assertArg(branch, 'remote branch')
+    await run(cwd, ['push', remote, '--delete', branch], { cancellable: true })
+  })
 }
 
 // ---------- rebase ----------
@@ -692,6 +906,7 @@ async function rebaseOutcome(cwd: string, attempt: Promise<unknown>): Promise<Re
 
 /** The commits a rebase of HEAD onto `onto` would replay (the same ones git would put in its todo). */
 export async function rebasePlan(cwd: string, onto: string): Promise<RebasePlan> {
+  assertArg(onto, 'branch')
   const range = `${onto}...HEAD`
   const out = await git(cwd, [
     'log',
@@ -719,13 +934,19 @@ export async function rebasePlan(cwd: string, onto: string): Promise<RebasePlan>
 }
 
 export async function rebase(cwd: string, onto: string): Promise<RebaseResult> {
-  return rebaseOutcome(cwd, git(cwd, ['rebase', '--autostash', onto]))
+  assertArg(onto, 'branch')
+  return exclusive(cwd, () => rebaseOutcome(cwd, git(cwd, ['rebase', '--autostash', onto])))
 }
 
 const ACTIONS: RebaseAction[] = ['pick', 'reword', 'edit', 'squash', 'fixup', 'drop']
 
 /** Runs `git rebase -i` with our own todo list in place of the one git would open in an editor. */
 export async function rebaseInteractive(cwd: string, onto: string, steps: RebaseStep[]): Promise<RebaseResult> {
+  assertArg(onto, 'branch')
+  return exclusive(cwd, () => rebaseInteractiveNow(cwd, onto, steps))
+}
+
+async function rebaseInteractiveNow(cwd: string, onto: string, steps: RebaseStep[]): Promise<RebaseResult> {
   for (const s of steps) {
     assertHash(s.hash)
     if (!ACTIONS.includes(s.action)) throw new Error(`Unknown rebase action: ${s.action}`)
@@ -764,5 +985,6 @@ export async function rebaseInteractive(cwd: string, onto: string, steps: Rebase
 }
 
 export async function rebaseContinue(cwd: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult> {
-  return rebaseOutcome(cwd, git(cwd, ['rebase', `--${action}`]))
+  if (!['continue', 'skip', 'abort'].includes(action)) throw new Error(`Unknown rebase action: ${action}`)
+  return exclusive(cwd, () => rebaseOutcome(cwd, git(cwd, ['rebase', `--${action}`])))
 }

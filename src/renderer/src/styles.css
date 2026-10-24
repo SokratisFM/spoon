@@ -1964,6 +1964,32 @@ input[type='color']::-webkit-color-swatch {
   white-space: nowrap;
 }
 
+.amend-warning {
+  font-size: 0.88em;
+  color: var(--warn);
+}
+.force-loss {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  color: var(--warn);
+}
+.force-loss ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text);
+}
+.force-loss li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------- submodule update dialog ---------- */
 
 .smu {
