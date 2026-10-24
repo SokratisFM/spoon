@@ -102,8 +102,13 @@ export function SubmoduleChip({ submodules, actions }: { submodules: Submodule[]
             return (
               <div
                 key={s.path}
-                className="sub-row"
-                onDoubleClick={() => s.state !== 'uninitialized' && actions.open(s)}
+                className={`sub-row ${s.state === 'uninitialized' ? 'disabled' : ''}`}
+                title={s.state === 'uninitialized' ? 'Initialize it to open it' : `Open ${s.name} in a tab`}
+                onClick={() => {
+                  if (s.state === 'uninitialized') return
+                  setOpen(false)
+                  actions.open(s)
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   actions.menu(s)
@@ -122,19 +127,14 @@ export function SubmoduleChip({ submodules, actions }: { submodules: Submodule[]
                 </div>
                 {/* Catching up is "Update"; going back to the recorded commit is "Reset". */}
                 {(s.state === 'outdated' || s.state === 'uninitialized') && (
-                  <button className="mini-btn" onClick={() => actions.update(s)}>
-                    {s.state === 'uninitialized' ? 'Initialize' : s.relation === 'behind' ? 'Update' : 'Reset'}
-                  </button>
-                )}
-                {s.state !== 'uninitialized' && (
                   <button
                     className="mini-btn"
-                    onClick={() => {
-                      setOpen(false)
-                      actions.open(s)
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      actions.update(s)
                     }}
                   >
-                    Open
+                    {s.state === 'uninitialized' ? 'Initialize' : s.relation === 'behind' ? 'Update' : 'Reset'}
                   </button>
                 )}
               </div>

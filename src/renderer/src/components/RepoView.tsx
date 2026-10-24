@@ -219,9 +219,14 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     <div className="repo">
       <div className="toolbar">
         <div className="toolbar-repo">
-          <span className="branch-chip" title={repo.headHash ?? ''}>
+          <button
+            className="branch-chip"
+            title="Show the checked-out commit"
+            disabled={!repo.headHash}
+            onClick={() => repo.headHash && jumpTo(repo.headHash)}
+          >
             {repo.headBranch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
-          </span>
+          </button>
           {repo.operation && <span className="op-chip">{repo.operation}</span>}
           {repo.superproject && <ParentChip parent={repo.superproject} onOpen={onOpenRepo} />}
           <SubmoduleChip submodules={repo.submodules} actions={subActions} />

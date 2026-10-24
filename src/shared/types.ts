@@ -134,6 +134,9 @@ export interface MenuItem {
   label?: string
   enabled?: boolean
   separator?: boolean
+  /** Shown as a checkbox (or radio dot) in its current state. */
+  kind?: 'checkbox' | 'radio'
+  checked?: boolean
 }
 
 export interface ConfirmOptions {

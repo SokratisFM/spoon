@@ -390,6 +390,16 @@ body.resizing .split-handle {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+button.branch-chip {
+  border: 0;
+  font: inherit;
+  font-size: 0.88em;
+  font-weight: 550;
+  cursor: pointer;
+}
+button.branch-chip:hover:not(:disabled) {
+  background: var(--bg-selected-strong);
+}
 .op-chip {
   background: var(--warn-bg);
   color: var(--warn);
@@ -831,11 +841,15 @@ body.resizing .split-handle {
 .commit-info {
   overflow: hidden;
 }
+.commit-files {
+  overflow: hidden;
+}
 .commit-head {
   padding: 1rem 1.1rem 0.8rem;
-  border-bottom: 1px solid var(--border);
-  max-height: 55%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  background: var(--bg-panel);
   user-select: text;
 }
 .commit-subject {
@@ -1567,8 +1581,14 @@ input[type='range'] {
   padding: 0.5rem 0.6rem;
   border-radius: var(--radius-sm);
 }
+.sub-row {
+  cursor: pointer;
+}
 .sub-row:hover {
   background: var(--bg-hover);
+}
+.sub-row.disabled {
+  cursor: default;
 }
 .sub-text {
   flex: 1;

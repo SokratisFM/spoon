@@ -9,7 +9,7 @@ import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
 import { BoxIcon, ChildIcon, CloseIcon, FolderIcon, PlusIcon, SearchIcon, TextSizeIcon } from './components/Icons'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
-import { keys } from './platform'
+import { keys, revealLabel } from './platform'
 import { useUpdateState } from './appinfo'
 
 export function App() {
@@ -148,6 +148,7 @@ export function App() {
         className={`tab ${variant} ${path === current ? 'active' : ''}`}
         onClick={() => setActive(path)}
         onAuxClick={(e) => e.button === 1 && closeTab(path)}
+        onContextMenu={(e) => tabMenu(e, path)}
         title={parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path}
       >
         {variant === 'child' && <ChildIcon className="icon tab-sub-icon" />}
@@ -199,6 +200,57 @@ export function App() {
             }
           })
       : tabs.map((t) => ({ key: t, paths: [t], node: tab(t, parents[t] ? 'labelled' : 'plain') }))
+
+  const submoduleTabItems = () => [
+    { separator: true },
+    { label: 'Submodule tabs', enabled: false },
+    { id: 'grouped', label: 'Grouped with Parent', kind: 'radio' as const, checked: settings.submoduleTabs === 'grouped' },
+    { id: 'labelled', label: 'Labelled “in Parent”', kind: 'radio' as const, checked: settings.submoduleTabs === 'labelled' }
+  ]
+  const applyTabChoice = (choice: string | null): boolean => {
+    if (choice === 'grouped' || choice === 'labelled') {
+      updateSettings({ submoduleTabs: choice })
+      return true
+    }
+    return false
+  }
+  const tabMenu = async (e: React.MouseEvent, path: string): Promise<void> => {
+    e.preventDefault()
+    e.stopPropagation()
+    const order = tabOrder
+    const after = order.slice(order.indexOf(path) + 1)
+    const choice = await window.spoon.contextMenu([
+      { id: 'close', label: 'Close Tab' },
+      { id: 'others', label: 'Close Other Tabs', enabled: tabs.length > 1 },
+      { id: 'right', label: 'Close Tabs to the Right', enabled: after.length > 0 },
+      { separator: true },
+      { id: 'reveal', label: revealLabel },
+      { id: 'copy', label: 'Copy Path' },
+      ...submoduleTabItems()
+    ])
+    if (applyTabChoice(choice)) return
+    if (choice === 'close') closeTab(path)
+    else if (choice === 'others') {
+      setTabs([path])
+      setActive(path)
+    } else if (choice === 'right') {
+      setTabs((t) => t.filter((p) => !after.includes(p)))
+      if (current && after.includes(current)) setActive(path)
+    } else if (choice === 'reveal') window.spoon.revealInFinder(path)
+    else if (choice === 'copy') navigator.clipboard.writeText(path)
+  }
+  const tabBarMenu = async (e: React.MouseEvent): Promise<void> => {
+    if (e.defaultPrevented) return
+    e.preventDefault()
+    const choice = await window.spoon.contextMenu([
+      { id: 'find', label: 'Open Project…' },
+      { id: 'browse', label: 'Open Folder…' },
+      ...submoduleTabItems()
+    ])
+    if (applyTabChoice(choice)) return
+    if (choice === 'find') setPalette(true)
+    else if (choice === 'browse') pickRepo()
+  }
 
   // Ctrl+Tab / Ctrl+Shift+Tab cycle through tabs in the order the tab bar shows them (groups
   // included), wrapping around. Ctrl on every platform, like browsers.
@@ -277,9 +329,9 @@ export function App() {
   return (
     <div className="app">
       <header className="titlebar">
-        <div className="tabs">
+        <div className="tabs" onContextMenu={tabBarMenu}>
           {tabBar}
-          <button className="icon-btn tab-add" onClick={() => setActive(null)} title="Open repository">
+          <button className="icon-btn tab-add" onClick={() => setActive(null)} onContextMenu={tabBarMenu} title="Open repository">
             <PlusIcon />
           </button>
         </div>

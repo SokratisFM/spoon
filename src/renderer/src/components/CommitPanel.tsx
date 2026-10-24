@@ -44,7 +44,8 @@ export function CommitPanel({ path, hash, onJump }: Props) {
 
   return (
     <Split id="commit-panel" direction="row" mode="fraction" initial={0.36} min={0.18} max={0.7}>
-      <div className="panel commit-info">
+      {/* Details above, changed files below; drag the divider up to give the files the whole height. */}
+      <Split id="commit-info" direction="column" mode="fraction" initial={0.42} min={0} max={0.92}>
         <div className="commit-head">
           <h2 className="commit-subject">{subject}</h2>
           {body.join('\n').trim() && <pre className="commit-body">{body.join('\n').trim()}</pre>}
@@ -77,18 +78,20 @@ export function CommitPanel({ path, hash, onJump }: Props) {
             ))}
           </div>
         </div>
-        <div className="section-title">
-          {details.files.length} changed file{details.files.length === 1 ? '' : 's'}
-          {details.parents.length > 1 && <span className="muted"> · compared to first parent</span>}
+        <div className="panel commit-files">
+          <div className="section-title">
+            {details.files.length} changed file{details.files.length === 1 ? '' : 's'}
+            {details.parents.length > 1 && <span className="muted"> · compared to first parent</span>}
+          </div>
+          <FileList
+            files={details.files}
+            selected={new Set(file ? [file.path] : [])}
+            focused={file?.path ?? null}
+            onSelect={(_, f) => setFile(f)}
+            emptyText="No file changes."
+          />
         </div>
-        <FileList
-          files={details.files}
-          selected={new Set(file ? [file.path] : [])}
-          focused={file?.path ?? null}
-          onSelect={(_, f) => setFile(f)}
-          emptyText="No file changes."
-        />
-      </div>
+      </Split>
       <DiffView path={path} target={file ? { kind: 'commit', hash: details.hash, file } : null} />
     </Split>
   )

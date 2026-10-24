@@ -252,7 +252,12 @@ function registerIpc(): void {
         items.map((it) =>
           it.separator
             ? { type: 'separator' as const }
-            : { label: it.label, enabled: it.enabled !== false, click: () => (chosen = it.id ?? null) }
+            : {
+                label: it.label,
+                enabled: it.enabled !== false,
+                ...(it.kind ? { type: it.kind, checked: !!it.checked } : {}),
+                click: () => (chosen = it.id ?? null)
+              }
         )
       ).popup({ window: owner, callback: () => setTimeout(() => resolve(chosen)) })
     })

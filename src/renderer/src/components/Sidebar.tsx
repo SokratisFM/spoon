@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { useSettings, type SidebarSection } from '../settings'
+import { SIDEBAR_SECTIONS, updateSettings, useSettings, type SidebarSection } from '../settings'
 import type { PullSummary, Ref, RepoState } from '../../../shared/types'
 import { submoduleStatus, type SubmoduleActions } from './Submodules'
 import { usePersistentState } from '../hooks'
@@ -185,6 +185,38 @@ export function Sidebar(props: Props) {
     </div>
   )
 
+  // Right-click menus for the view options that live in Settings → Appearance.
+  const prGroupsMenu = async (e: React.MouseEvent): Promise<void> => {
+    e.preventDefault()
+    const g = settings.prGroups
+    const choice = await window.spoon.contextMenu([
+      { label: 'Show in Pull Requests', enabled: false },
+      { id: 'awaiting', label: 'Awaiting your review', kind: 'checkbox', checked: true, enabled: false },
+      { id: 'yours', label: 'Yours', kind: 'checkbox', checked: g.yours },
+      { id: 'others', label: 'Others', kind: 'checkbox', checked: g.others }
+    ])
+    if (choice === 'yours' || choice === 'others') updateSettings({ prGroups: { ...g, [choice]: !g[choice] } })
+  }
+  const sectionsMenu = async (e: React.MouseEvent): Promise<void> => {
+    if (e.defaultPrevented) return // an item showed its own menu
+    e.preventDefault()
+    const list = settings.sidebarSections
+    const choice = await window.spoon.contextMenu([
+      { label: 'Show in sidebar', enabled: false },
+      ...list.map((x) => ({
+        id: x.id,
+        label: SIDEBAR_SECTIONS.find((d) => d.id === x.id)?.label,
+        kind: 'checkbox' as const,
+        checked: x.visible
+      })),
+      { separator: true },
+      { id: 'reset', label: 'Reset Order and Visibility' }
+    ])
+    if (choice === 'reset') updateSettings({ sidebarSections: SIDEBAR_SECTIONS.map((d) => ({ id: d.id, visible: true })) })
+    else if (choice)
+      updateSettings({ sidebarSections: list.map((x) => (x.id === choice ? { ...x, visible: !x.visible } : x)) })
+  }
+
   const blocks: Record<SidebarSection, ReactNode> = {
     submodules:
       repo.submodules.length > 0 &&
@@ -299,7 +331,11 @@ export function Sidebar(props: Props) {
           <span className="side-label">All Commits</span>
         </div>
         {prs !== undefined && (
-          <div className={`side-item nav ${view === 'prs' ? 'selected' : ''}`} onClick={() => onView('prs')}>
+          <div
+            className={`side-item nav ${view === 'prs' ? 'selected' : ''}`}
+            onClick={() => onView('prs')}
+            onContextMenu={prGroupsMenu}
+          >
             <PullRequestIcon />
             <span className="side-label">Pull Requests</span>
             {!!prs?.filter((p) => p.reviewRequested).length && (
@@ -309,7 +345,11 @@ export function Sidebar(props: Props) {
             )}
           </div>
         )}
-        {view === 'prs' && <PullList prs={prs ?? null} error={prError} selected={selectedPr} onSelect={onSelectPr} />}
+        {view === 'prs' && (
+          <div onContextMenu={prGroupsMenu}>
+            <PullList prs={prs ?? null} error={prError} selected={selectedPr} onSelect={onSelectPr} />
+          </div>
+        )}
       </div>
 
       <div className="side-filter">
@@ -317,7 +357,7 @@ export function Sidebar(props: Props) {
         <input placeholder="Filter" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
 
-      <div className="side-scroll">
+      <div className="side-scroll" onContextMenu={sectionsMenu}>
         {settings.sidebarSections
           .filter((x) => x.visible)
           .map((x) => (
