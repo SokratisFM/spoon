@@ -200,6 +200,26 @@ export function App() {
           })
       : tabs.map((t) => ({ key: t, paths: [t], node: tab(t, parents[t] ? 'labelled' : 'plain') }))
 
+  // Ctrl+Tab / Ctrl+Shift+Tab cycle through tabs in the order the tab bar shows them (groups
+  // included), wrapping around. Ctrl on every platform, like browsers.
+  const tabOrder = units.flatMap((u) => u.paths)
+  const cycleRef = useRef<(dir: 1 | -1) => void>(() => undefined)
+  cycleRef.current = (dir) => {
+    if (tabOrder.length < 2) return
+    const at = current ? tabOrder.indexOf(current) : -1
+    setActive(tabOrder[(at + dir + tabOrder.length) % tabOrder.length])
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab' || !e.ctrlKey || e.metaKey || e.altKey) return
+      e.preventDefault()
+      e.stopPropagation()
+      cycleRef.current(e.shiftKey ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey, true) // capture: works even while typing in a field
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
   const tabBar = units.map((u) => (
     <div
       key={u.key}

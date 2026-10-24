@@ -77,6 +77,7 @@ Press **Tab** anywhere outside a text field (or click the search icon in the tit
 Spotlight-style switcher. It lists every project Spoon has opened, plus git repos in your scan folder
 that you haven't opened yet (Settings → Projects: folder, depth, and whether to include repos inside
 other repos). Type to fuzzy-search, ↵ to open, ⌘⌫ to forget a project.
+**Ctrl+Tab** / **Ctrl+Shift+Tab** cycle through open tabs; **⌘W** closes the current one.
 
 Spoon remembers every project it opens. If one has been moved or deleted, opening it offers
 **Remove from Spoon** or **Locate…**, like Fork; Settings → Projects can also remove all missing ones.
