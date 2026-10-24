@@ -587,9 +587,30 @@ function AuthorsTab() {
   const update = (i: number, patch: Partial<{ name: string; color: string }>): void =>
     updateSettings({ authorColors: s.authorColors.map((a, j) => (j === i ? { ...a, ...patch } : a)) })
 
+  // Previews: a few of this repository's authors, colored as now and as they'd be after the change.
+  const key = (n: string): string => n.trim().toLowerCase()
+  const colorNow = (n: string): string | null =>
+    s.authorColorsEnabled ? (s.authorColors.find((a) => a.name.trim() && key(a.name) === key(n))?.color ?? null) : null
+  const sample = (first?: string): string[] => {
+    const names = [first, ...s.authorColors.map((a) => a.name.trim()), ...missing].filter((n): n is string => !!n)
+    const unique = names.filter((n, i) => names.findIndex((m) => key(m) === key(n)) === i).slice(0, 3)
+    return unique.length ? unique : ['Alex Kim', 'Sam Lee', 'Jo Park']
+  }
+  const authorsPreview = (title: string, from: string, to: string, names: string[], after: (n: string) => string | null) =>
+    hoverPreview(() => {
+      const authors = names.map((name) => ({ name, from: colorNow(name), to: after(name) }))
+      return authors.some((a) => a.from !== a.to) ? { title, from, to, spec: { kind: 'authors', authors } } : null
+    })
+  const listedColor = (n: string): string | null => s.authorColors.find((a) => a.name.trim() && key(a.name) === key(n))?.color ?? null
+
   return (
     <>
-      <label className="check">
+      <label
+        className="check"
+        {...authorsPreview('Color commits by author', s.authorColorsEnabled ? 'On' : 'Off', s.authorColorsEnabled ? 'Off' : 'On', sample(), (n) =>
+          s.authorColorsEnabled ? null : listedColor(n)
+        )}
+      >
         <input
           type="checkbox"
           checked={s.authorColorsEnabled}
@@ -605,15 +626,31 @@ function AuthorsTab() {
       <div className={`author-list ${s.authorColorsEnabled ? '' : 'disabled'}`}>
         {s.authorColors.map((a, i) => (
           <div key={i} className="author-row">
-            <input type="color" value={a.color} onChange={(e) => update(i, { color: e.target.value })} />
+            <input
+              type="color"
+              value={a.color}
+              onChange={(e) => update(i, { color: e.target.value })}
+              {...authorsPreview(`${a.name.trim() || 'This author'}’s color`, 'Normal', 'Colored', sample(a.name.trim() || undefined), (n) =>
+                key(n) === key(a.name) ? a.color : colorNow(n)
+              )}
+            />
             <AuthorInput value={a.name} authors={authors} onChange={(name) => update(i, { name })} />
-            <span className="author-sample" style={{ '--author': a.color } as React.CSSProperties}>
+            <span
+              className="author-sample"
+              style={{ '--author': a.color } as React.CSSProperties}
+              {...authorsPreview(`${a.name.trim() || 'This author'}’s color`, 'Normal', 'Colored', sample(a.name.trim() || undefined), (n) =>
+                key(n) === key(a.name) ? a.color : colorNow(n)
+              )}
+            >
               {a.name || 'Preview'}
             </span>
             <button
               className="icon-btn"
               aria-label="Remove"
               onClick={() => updateSettings({ authorColors: s.authorColors.filter((_, j) => j !== i) })}
+              {...authorsPreview(`Remove ${a.name.trim() || 'this author'}`, 'Colored', 'Normal', sample(a.name.trim() || undefined), (n) =>
+                key(n) === key(a.name) ? null : colorNow(n)
+              )}
             >
               <CloseIcon />
             </button>
@@ -643,8 +680,11 @@ function AuthorsTab() {
                 authorColors: [...s.authorColors, ...missing.map((name, k) => ({ name, color: nextColor(k) }))]
               })
             }
+            {...authorsPreview(missing.length === 1 ? `Add ${missing[0]}` : `Add all ${missing.length} authors`, 'Now', 'All colored', sample(), (n) =>
+              listedColor(n) ?? nextColor(missing.findIndex((m) => key(m) === key(n)))
+            )}
           >
-            Add all {missing.length} authors from this repository
+            {missing.length === 1 ? `Add ${missing[0]} from this repository` : `Add all ${missing.length} authors from this repository`}
           </button>
         )}
       </div>

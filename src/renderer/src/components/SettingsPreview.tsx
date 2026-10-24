@@ -13,6 +13,7 @@ import {
   type SubmoduleTabs,
   type TagDisplay
 } from '../settings'
+import { hueFor, initials } from '../format'
 import { BoxIcon, BranchIcon, BroomIcon, ChildIcon, CloudIcon, PinIcon, StashIcon, TagIcon } from './Icons'
 
 export interface SectionState {
@@ -35,6 +36,8 @@ export type PreviewSpec =
   | { kind: 'branch'; prefix: string; from: { label: number; line: number }; to: { label: number; line: number } }
   | { kind: 'sidebar'; from: SectionState[]; to: SectionState[] }
   | { kind: 'color'; key: ColorKey }
+  /** Up to three authors and their row color before and after (null: the normal look). */
+  | { kind: 'authors'; authors: { name: string; from: string | null; to: string | null }[] }
 
 export interface Preview {
   title: string
@@ -429,6 +432,46 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
     }
     case 'color':
       return <MiniApp hit={spec.key} />
+    case 'authors':
+      return (
+        <div className="pv-rows">
+          {[0, 1, 0, 2, 1, 0, 2].map((a, i) => {
+            const who = spec.authors[a % spec.authors.length]
+            const c = phase ? who.to : who.from
+            return (
+              <div
+                key={i}
+                className="pv-row"
+                style={{
+                  height: rowHeight(s),
+                  background: c ? `color-mix(in srgb, ${c} 9%, transparent)` : 'transparent',
+                  boxShadow: `inset ${c ? '0.22rem' : '0'} 0 0 ${c ?? 'transparent'}`
+                }}
+              >
+                <span className="pv-node">
+                  <span className="pv-node-dot" style={{ background: c ?? laneColor(0) }} />
+                </span>
+                <span className="pv-bar" style={{ width: `${5 + ((i * 37) % 5)}rem` }} />
+                <span className="pv-spacer" />
+                <span
+                  className="avatar pv-avatar"
+                  style={
+                    {
+                      '--hue': hueFor(who.name),
+                      ...(c ? { background: c, color: `color-mix(in srgb, ${c} 25%, #000)` } : {})
+                    } as CSSProperties
+                  }
+                >
+                  {initials(who.name)}
+                </span>
+                <span className="pv-author" style={{ color: c ?? 'var(--text-muted)' }}>
+                  {who.name}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )
   }
 }
 

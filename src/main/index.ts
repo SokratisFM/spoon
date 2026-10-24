@@ -88,6 +88,7 @@ function buildMenu(): void {
         label: 'View',
         submenu: [
           { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: () => send('refresh') },
+          { label: 'Filter Commits', accelerator: 'CmdOrCtrl+F', click: () => send('filter-commits') },
           { type: 'separator' },
           // UI scaling is done by the renderer (CSS), not Electron's page zoom, so layout
           // and row heights stay crisp and consistent at every size.

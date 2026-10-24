@@ -159,7 +159,7 @@ const discord: ThemeDef = {
     warn: '#f0b232',
     danger: '#f23f43',
     rename: '#eb459e',
-    'lane-0': '#5865f2',
+    'lane-0': '#7983f5',
     'lane-1': '#23a55a',
     'lane-2': '#f0b232',
     'lane-3': '#eb459e',
@@ -172,7 +172,11 @@ const discord: ThemeDef = {
     '--bg-hover': 'rgba(78, 80, 88, 0.3)',
     '--bg-selected': 'rgba(78, 80, 88, 0.48)',
     '--bg-selected-strong': 'rgba(78, 80, 88, 0.6)',
-    '--shadow': 'rgba(0, 0, 0, 0.45)'
+    '--shadow': 'rgba(0, 0, 0, 0.45)',
+    // Blurple stays for fills (white text on it reads fine) but is too dark as text on these
+    // grays (under 3:1), so text-like accents and lane-colored labels use lighter versions.
+    '--accent-fg': '#a5acff',
+    '--label-lift': '40%'
   }
 }
 

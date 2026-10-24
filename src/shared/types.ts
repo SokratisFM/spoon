@@ -439,3 +439,4 @@ export type MenuCommand =
   | 'settings'
   | 'close-tab'
   | 'find-project'
+  | 'filter-commits'

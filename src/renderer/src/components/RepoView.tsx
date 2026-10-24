@@ -103,6 +103,13 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [selectedPr, setSelectedPr] = usePersistentState<number | null>(`spoon.pr.selected.${path}`, null)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
   const wasCancelled = useRef(false)
+  const filterInput = useRef<HTMLInputElement>(null)
+  // The refresh button spins for at least one turn, so a quick refresh still shows it happened.
+  const [refreshing, setRefreshing] = useState(false)
+  const manualRefresh = (): void => {
+    setRefreshing(true)
+    Promise.all([load(), new Promise((r) => setTimeout(r, 600))]).finally(() => setRefreshing(false))
+  }
 
   const loadOnce = useCallback(async () => {
     try {
@@ -339,7 +346,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
 
   useEffect(() => {
     if (!command) return
-    if (command.name === 'refresh') load()
+    if (command.name === 'filter-commits') {
+      setView('history')
+      filterInput.current?.focus()
+      filterInput.current?.select()
+    } else if (command.name === 'refresh') manualRefresh()
     else if (command.name === 'fetch') fetchAll()
     else if (command.name === 'pull') setDialog('pull')
     else if (command.name === 'push') setDialog('push')
@@ -488,21 +499,32 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           <div className="search">
             <SearchIcon />
             <input
+              ref={filterInput}
               placeholder="Filter commits"
               value={filter}
               onChange={(e) => {
                 setFilter(e.target.value)
                 setView('history')
               }}
-              onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape') return
+                if (filter) setFilter('')
+                else e.currentTarget.blur()
+              }}
             />
-            {filter && (
+            {filter ? (
               <button className="icon-btn" onClick={() => setFilter('')} aria-label="Clear filter">
                 <CloseIcon />
               </button>
+            ) : (
+              <kbd className="search-key">{keys('⌘F')}</kbd>
             )}
           </div>
-          <button className="icon-btn" onClick={load} title={`Refresh (${keys('⌘R')})`}>
+          <button
+            className={`icon-btn refresh-btn ${refreshing ? 'spinning' : ''}`}
+            onClick={manualRefresh}
+            title={`Re-read the repository from disk (${keys('⌘R')})`}
+          >
             <RefreshIcon />
           </button>
         </div>

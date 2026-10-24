@@ -5,7 +5,7 @@ import { LANE_COLORS, type Graph, type GraphRow } from '../graph'
 import { hueFor, initials, shortDate } from '../format'
 import { authorColorMap, reservedPrefixes, rowHeight, useSettings } from '../settings'
 import { jiraConfig, jiraUrl, splitByTickets, ticketKeys, type JiraConfig } from '../jira'
-import { CheckoutIcon, CloudIcon, CopyIcon, PinIcon, TagIcon } from './Icons'
+import { CheckoutIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, TagIcon } from './Icons'
 import type { Ops } from './RepoView'
 
 const MAX_GRAPH_LANES = 14
@@ -37,6 +37,8 @@ interface Badge {
   kind: 'head' | 'remote' | 'tag'
   remotes: string[] // remotes whose branch points at the same commit as this local branch
   current: boolean
+  /** A local branch whose upstream was deleted on the remote (seen after a fetch with prune). */
+  goneUpstream?: string
 }
 
 /** Groups refs per commit, folding "origin/main" into "main" when both point at the same commit. */
@@ -61,7 +63,8 @@ function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
         shown: r.name,
         kind: 'head',
         remotes,
-        current: r.name === repo.headBranch
+        current: r.name === repo.headBranch,
+        goneUpstream: r.gone ? r.upstream : undefined
       })
     }
     for (const r of refs) {
@@ -521,6 +524,11 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
                 {p.showRemoteName && r}
               </span>
             ))}
+            {b.goneUpstream && (
+              <span className="ref-remote gone" title={`Stale: ${b.goneUpstream} was deleted on the remote`}>
+                <CloudOffIcon />
+              </span>
+            )}
             {b.kind === 'tag' && <TagIcon />}
             {b.kind === 'remote' &&
               (b.remote ? (

@@ -19,6 +19,12 @@
   --text-faint: #5f626c;
   --accent: #7b93ff;
   --accent-text: #ffffff;
+  /* The accent where it's drawn as text or a thin line on the background, rather than as a fill.
+     Same as the accent unless a theme needs a lighter one to stay readable (Discord). */
+  --accent-fg: var(--accent);
+  /* How much branch labels drawn in their lane color are lightened toward white, for themes
+     whose lane colors are too dark to read as text. */
+  --label-lift: 0%;
   --add: #4fcf8a;
   --del: #ff7a85;
   --warn: #e7b85c;
@@ -375,6 +381,23 @@ body.resizing .split-handle {
   align-items: center;
   margin-left: 0.5rem;
 }
+.refresh-btn.spinning .icon {
+  animation: spin 0.6s linear infinite;
+}
+/* Shortcut hint inside the commit filter; hidden while you type in it. */
+.search-key {
+  flex: none;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: none;
+  color: var(--text-faint);
+  font-size: 0.75em;
+  font-family: inherit;
+}
+.search:focus-within .search-key {
+  display: none;
+}
 /* Title-bar icon buttons with their shortcut under them. */
 .keyed-btn {
   flex-direction: column;
@@ -442,7 +465,7 @@ body.resizing .split-handle {
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
   background: var(--bg-selected);
-  color: var(--accent);
+  color: var(--accent-fg);
   font-weight: 550;
   white-space: nowrap;
   overflow: hidden;
@@ -535,7 +558,7 @@ button.branch-chip:hover:not(:disabled) {
   height: 1rem;
   border-radius: 50%;
   border: 2px solid var(--border-strong);
-  border-top-color: var(--accent);
+  border-top-color: var(--accent-fg);
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin {
@@ -577,7 +600,7 @@ button.branch-chip:hover:not(:disabled) {
 }
 .search:focus-within,
 .side-filter:focus-within {
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   box-shadow: 0 0 0 3px var(--bg-selected);
 }
 .search input,
@@ -685,7 +708,7 @@ button.branch-chip:hover:not(:disabled) {
   background: var(--bg-selected-strong);
 }
 .side-item.selected .icon {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .side-item.picked {
   background: var(--bg-selected);
@@ -700,7 +723,7 @@ button.branch-chip:hover:not(:disabled) {
   font-weight: 650;
 }
 .side-item .current-mark {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .side-label {
   overflow: hidden;
@@ -879,7 +902,7 @@ button.branch-chip:hover:not(:disabled) {
 }
 .ref-badge.head {
   background: var(--bg-selected);
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .ref-badge.head.current {
   background: var(--accent);
@@ -892,14 +915,14 @@ button.branch-chip:hover:not(:disabled) {
 /* Branch labels in their graph line's color (Settings → Appearance, on by default). */
 .ref-badge.head.laned {
   background: color-mix(in srgb, var(--lane) 17%, transparent);
-  color: var(--lane);
+  color: color-mix(in srgb, var(--lane), #fff var(--label-lift));
 }
 .ref-badge.head.laned.current {
-  background: var(--lane);
+  background: color-mix(in srgb, var(--lane), #fff var(--label-lift));
   color: var(--bg-list);
 }
 .ref-badge.remote.laned {
-  color: var(--lane);
+  color: color-mix(in srgb, var(--lane), #fff var(--label-lift));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lane) 45%, transparent);
 }
 .ref-badge.tag {
@@ -915,6 +938,9 @@ button.branch-chip:hover:not(:disabled) {
   padding-right: 0.35rem;
   margin-right: 0.05rem;
   border-right: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+}
+.ref-remote.gone {
+  opacity: 0.65;
 }
 
 .list-footnote {
@@ -987,7 +1013,7 @@ button.branch-chip:hover:not(:disabled) {
   border-color: var(--border-strong);
 }
 .hash-chip.link {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 
 .section-title {
@@ -1055,7 +1081,7 @@ button.branch-chip:hover:not(:disabled) {
 .status-M,
 .status-T {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .status-D {
   background: var(--del-bg-strong);
@@ -1099,7 +1125,7 @@ button.branch-chip:hover:not(:disabled) {
 .commit-box textarea:focus,
 .modal input:not([type]):focus,
 .modal select:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   box-shadow: 0 0 0 3px var(--bg-selected);
 }
 .commit-subject-input {
@@ -1134,7 +1160,7 @@ button.branch-chip:hover:not(:disabled) {
   color: var(--text);
 }
 .check input {
-  accent-color: var(--accent);
+  accent-color: var(--accent-fg);
   width: 1.05em;
   height: 1.05em;
   margin: 0;
@@ -1158,8 +1184,8 @@ button.branch-chip:hover:not(:disabled) {
   letter-spacing: 0;
 }
 .mini-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-fg);
+  color: var(--accent-fg);
 }
 .mini-btn:disabled {
   opacity: 0.4;
@@ -1259,8 +1285,8 @@ button.branch-chip:hover:not(:disabled) {
   color: var(--text);
 }
 .hunk-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-fg);
+  color: var(--accent-fg);
 }
 .diff-line.add {
   background: var(--add-bg);
@@ -1284,7 +1310,7 @@ button.branch-chip:hover:not(:disabled) {
 }
 .diff-line.hunk {
   background: var(--hunk-bg);
-  color: var(--accent);
+  color: var(--accent-fg);
   padding-left: 1em;
   font-size: 0.92em;
 }
@@ -1372,7 +1398,7 @@ button.branch-chip:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 .recents li > .icon {
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: 1.2em;
 }
 .recent-text {
@@ -1486,7 +1512,7 @@ button.branch-chip:hover:not(:disabled) {
   flex: 1;
 }
 input[type='range'] {
-  accent-color: var(--accent);
+  accent-color: var(--accent-fg);
   width: 100%;
 }
 .segmented {
@@ -1704,7 +1730,7 @@ input[type='range'] {
   font-size: 0.9em;
 }
 label.side-item input[type='checkbox'] {
-  accent-color: var(--accent);
+  accent-color: var(--accent-fg);
   margin: 0;
   flex: none;
 }
@@ -1800,7 +1826,7 @@ label.side-item input[type='checkbox'] {
   border-color: var(--border-strong);
 }
 .theme-card.on {
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   box-shadow: 0 0 0 2px var(--bg-selected-strong);
 }
 .theme-preview {
@@ -2122,7 +2148,7 @@ input[type='color']::-webkit-color-swatch {
   padding: 0;
   border: none;
   background: none;
-  color: var(--accent);
+  color: var(--accent-fg);
   font: inherit;
   cursor: pointer;
 }
@@ -2247,8 +2273,8 @@ input[type='color']::-webkit-color-swatch {
   border-color: var(--text-muted);
 }
 .act-reword .rebase-action {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent-fg);
 }
 .act-edit .rebase-action {
   color: var(--rename);
@@ -2362,7 +2388,7 @@ input[type='color']::-webkit-color-swatch {
 }
 .commit-subject .jira-key,
 .commit-body .jira-key {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .jira-chip {
   display: inline-flex;
@@ -2380,8 +2406,8 @@ input[type='color']::-webkit-color-swatch {
   cursor: pointer;
 }
 .jira-chip:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent-fg);
 }
 .jira-field {
   margin-top: 1.4rem;
@@ -2534,7 +2560,7 @@ input[type='color']::-webkit-color-swatch {
   background: var(--bg-selected-strong);
 }
 .palette-item.active > .icon {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .palette-item.missing .palette-name {
   text-decoration: line-through;
@@ -2579,7 +2605,7 @@ kbd.soft {
 .palette-browse {
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: 1em;
   padding: 0;
 }
@@ -2587,7 +2613,7 @@ kbd.soft {
   text-decoration: underline;
 }
 .badge.accent-soft {
-  color: var(--accent);
+  color: var(--accent-fg);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 
@@ -2651,7 +2677,7 @@ kbd.soft {
   color: var(--text-faint);
 }
 .parent-chip {
-  color: var(--accent);
+  color: var(--accent-fg);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
@@ -2727,7 +2753,7 @@ kbd.soft {
 }
 .connect-row a,
 .md a {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .modal input.text-like {
   flex: 1;
@@ -2899,7 +2925,7 @@ kbd.soft {
   padding: 0.1rem 0.45rem;
   border-radius: var(--radius-sm);
   background: var(--bg-selected);
-  color: var(--accent);
+  color: var(--accent-fg);
   max-width: 22rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2946,7 +2972,7 @@ kbd.soft {
 }
 .pr-tabs > button.on {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--accent-fg);
 }
 .pr-tabs .count {
   font-size: 0.82em;
@@ -2995,7 +3021,7 @@ kbd.soft {
 }
 .review-panel textarea:focus,
 .composer textarea:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   box-shadow: 0 0 0 3px var(--bg-selected);
 }
 .review-option {
@@ -3009,7 +3035,7 @@ kbd.soft {
   flex-direction: column;
 }
 .review-option input {
-  accent-color: var(--accent);
+  accent-color: var(--accent-fg);
   margin-top: 0.25rem;
 }
 .review-option.disabled {
@@ -3068,7 +3094,7 @@ kbd.soft {
   color: var(--text-muted);
 }
 .pr-file input {
-  accent-color: var(--accent);
+  accent-color: var(--accent-fg);
   margin: 0;
   flex: none;
 }
@@ -3243,7 +3269,7 @@ kbd.soft {
   padding: 0.5rem 0.8rem;
   font-family: var(--font-code);
   font-size: 0.9em;
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .hunk-snippet {
   margin: 0;
@@ -3740,7 +3766,7 @@ select:hover {
   }
 }
 .tool-btn.net-working {
-  color: var(--accent);
+  color: var(--accent-fg);
   opacity: 1;
 }
 .net-down.net-working .net-glyph {
@@ -3902,7 +3928,7 @@ select:hover {
 }
 .pv-end.on {
   background: var(--bg-selected);
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .pv-stage {
   position: relative;
@@ -4034,7 +4060,7 @@ select:hover {
   white-space: pre;
 }
 .pv-code-line.hunk {
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .pv-code-line.add {
   color: var(--add);
@@ -4152,7 +4178,7 @@ select:hover {
 }
 .pv-app-nav.on {
   background: var(--bg-selected);
-  color: var(--accent);
+  color: var(--accent-fg);
 }
 .pv-app-nav.faint {
   color: var(--text-faint);
@@ -4249,7 +4275,7 @@ select:hover {
 }
 .pv-app-btn.primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   color: var(--accent-text);
 }
 /* Where the hovered custom color is used. */
@@ -4270,4 +4296,16 @@ select:hover {
     animation: none;
     transition: none;
   }
+}
+.pv-avatar {
+  width: 1.3rem;
+  height: 1.3rem;
+  font-size: 0.62em;
+}
+.pv-author {
+  width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9em;
 }
