@@ -9,8 +9,7 @@ import * as gh from './github'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import { basename } from 'node:path'
-import type { DeviceCode, ReviewSubmission, CheckoutTarget, ConfirmOptions, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -175,18 +174,6 @@ function registerIpc(): void {
     if (process.platform !== 'darwin')
       BrowserWindow.fromWebContents(e.sender)?.setTitleBarOverlay({ color, symbolColor, height: Math.round(height) })
   })
-  ipcMain.handle('ui:missingProject', async (e, path: string) => {
-    const owner = BrowserWindow.fromWebContents(e.sender)!
-    const res = await dialog.showMessageBox(owner, {
-      type: 'warning',
-      message: `“${basename(path)}” can’t be found`,
-      detail: `${path}\n\nIt may have been moved, renamed or deleted.`,
-      buttons: ['Remove from Spoon', 'Locate…', 'Cancel'],
-      defaultId: 0,
-      cancelId: 2
-    })
-    return (['remove', 'locate', 'cancel'] as const)[res.response]
-  })
   ipcMain.handle('repo:open', (_e, path: string) => git.openRepo(path))
   ipcMain.handle('repo:parents', (_e, paths: string[]) => git.superprojects(paths))
   ipcMain.handle('repo:log', (_e, path: string, limit: number) => git.log(path, limit))
@@ -278,18 +265,6 @@ function registerIpc(): void {
     })
   })
   ipcMain.on('ui:closeWindow', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
-  ipcMain.handle('ui:confirm', async (e, opts: ConfirmOptions) => {
-    const owner = BrowserWindow.fromWebContents(e.sender)!
-    const res = await dialog.showMessageBox(owner, {
-      type: 'question',
-      message: opts.message,
-      detail: opts.detail,
-      buttons: [opts.confirmLabel, 'Cancel'],
-      defaultId: 0,
-      cancelId: 1
-    })
-    return res.response === 0
-  })
 }
 
 // Spoon's windows only ever show the app itself. A link (middle-click, ⌘-click, drag and drop,

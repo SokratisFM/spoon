@@ -16,6 +16,7 @@ import { useSettings } from '../settings'
 import { cachedGraph, graphKeyOf, LOG_LIMIT, markLoaded, prStateOf, refsSignatureOf, snapshots } from '../repoCache'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { cleanError, usePersistentState } from '../hooks'
+import { confirm } from '../dialogs'
 import { setKnownAuthors } from '../authors'
 import { Split } from './Split'
 import { Sidebar } from './Sidebar'
@@ -258,7 +259,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const checkout = useCallback<Ops['checkout']>(
     async (target, description) => {
       if (target.kind === 'commit') {
-        const ok = await window.spoon.confirm({
+        const ok = await confirm({
           message: `Check out ${description}?`,
           detail:
             'This puts the repository in detached HEAD state. New commits won’t belong to any branch until you create one.',
@@ -296,7 +297,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         return
       }
       const n = plan.commits.length
-      const ok = await window.spoon.confirm({
+      const ok = await confirm({
         message: `Rebase ${branch} onto ${onto}?`,
         detail: [
           n
@@ -630,7 +631,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               async () => {
                 const res = await window.spoon.deleteBranches(path, [name], false)
                 if (res.unmerged.length) {
-                  const force = await window.spoon.confirm({
+                  const force = await confirm({
+                    risky: true,
                     message: `${name} has commits that aren’t on any other branch`,
                     detail: 'Deleting it drops those commits (git keeps them in the reflog for a while).',
                     confirmLabel: 'Delete anyway'

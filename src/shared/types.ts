@@ -215,12 +215,6 @@ export interface MenuItem {
   checked?: boolean
 }
 
-export interface ConfirmOptions {
-  message: string
-  detail?: string
-  confirmLabel: string
-}
-
 // ---------- GitHub ----------
 
 export type GitHubSource = 'gh' | 'token' | 'browser'
@@ -360,7 +354,6 @@ export interface SpoonApi {
   scanRepos(root: string, depth: number, nested: boolean): Promise<string[]>
   homeDir(): Promise<string>
   /** Asks what to do about a project folder that no longer exists. */
-  missingProject(path: string): Promise<'remove' | 'locate' | 'cancel'>
   openRepo(path: string): Promise<RepoState>
   /** Parent repo of each path when it's a submodule, else null. */
   repoParents(paths: string[]): Promise<(string | null)[]>
@@ -397,7 +390,6 @@ export interface SpoonApi {
   onProgress(handler: (repo: string, line: string) => void): () => void
 
   contextMenu(items: MenuItem[]): Promise<string | null>
-  confirm(opts: ConfirmOptions): Promise<boolean>
   /** Closes the window the way its close button would. */
   closeWindow(): void
   revealInFinder(path: string): Promise<void>

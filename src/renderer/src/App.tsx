@@ -4,11 +4,11 @@ import { cleanError, usePersistentState } from './hooks'
 import { resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
 import { RepoView } from './components/RepoView'
 import { warmTabs } from './repoCache'
-import { SettingsPopover } from './components/SettingsPopover'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
-import { BoxIcon, ChildIcon, CloseIcon, FolderIcon, PlusIcon, SearchIcon, TextSizeIcon } from './components/Icons'
+import { BoxIcon, ChildIcon, CloseIcon, CogIcon, FolderIcon, PlusIcon, SearchIcon } from './components/Icons'
+import { choose, DialogHost } from './dialogs'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
 import { useUpdateState } from './appinfo'
@@ -22,7 +22,6 @@ export function App() {
   const [palette, setPalette] = useState(false)
   const [currentMissing, setCurrentMissing] = useState(false)
   const [command, setCommand] = useState<{ name: MenuCommand; n: number } | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
   const [settingsWindow, setSettingsWindow] = useState<false | SettingsTab>(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -65,7 +64,16 @@ export function App() {
 
   /** Like Fork: a project that's gone can be removed from the list or pointed at its new location. */
   const resolveMissing = async (path: string): Promise<void> => {
-    const choice = await window.spoon.missingProject(path)
+    const choice = await choose({
+      title: `“${projectName(path)}” can’t be found`,
+      detail: `${path}\n\nIt may have been moved, renamed or deleted.`,
+      cancelId: 'cancel',
+      buttons: [
+        { id: 'cancel', label: 'Cancel' },
+        { id: 'locate', label: 'Locate…' },
+        { id: 'remove', label: 'Remove from Spoon', kind: 'primary' }
+      ]
+    })
     if (choice === 'remove') {
       forgetProject(path)
       dropTab(path)
@@ -347,27 +355,15 @@ export function App() {
               Restart to update to {update.version}
             </button>
           )}
-          <button className="icon-btn" onClick={() => setPalette(true)} title="Go to project (Tab)">
+          <button className="icon-btn keyed-btn" onClick={() => setPalette(true)} title="Go to project">
             <SearchIcon />
+            <kbd className="keyed-key">Tab</kbd>
           </button>
-          <button
-            className={`icon-btn ${showSettings ? 'on' : ''}`}
-            onClick={() => setShowSettings((s) => !s)}
-            title={`Appearance (${keys('⌘+ ⌘−')} to resize)`}
-          >
-            <TextSizeIcon />
-            <span className="scale-label">{Math.round(settings.uiScale * 100)}%</span>
+          <button className="icon-btn keyed-btn settings-btn" onClick={() => setSettingsWindow('appearance')} title="Settings">
+            <CogIcon />
+            <kbd className="keyed-key">{keys('⌘,')}</kbd>
           </button>
         </div>
-        {showSettings && (
-          <SettingsPopover
-            onClose={() => setShowSettings(false)}
-            onMore={() => {
-              setShowSettings(false)
-              setSettingsWindow('appearance')
-            }}
-          />
-        )}
       </header>
 
       {current && currentMissing ? (
@@ -409,6 +405,8 @@ export function App() {
       )}
 
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
+
+      <DialogHost />
 
       {toast && (
         <div className="toast" role="alert" onClick={() => setToast(null)}>

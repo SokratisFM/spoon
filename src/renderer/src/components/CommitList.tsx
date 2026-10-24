@@ -28,7 +28,12 @@ interface Props {
 
 interface Badge {
   key: string
+  /** Full ref name ("origin/feature/x" for a remote branch): what checkout, copy and the filter use. */
   label: string
+  /** The name as drawn: a remote branch without its remote ("feature/x"); the remote goes by the cloud. */
+  shown: string
+  /** For a remote-only branch, its remote. */
+  remote?: string
   kind: 'head' | 'remote' | 'tag'
   remotes: string[] // remotes whose branch points at the same commit as this local branch
   current: boolean
@@ -53,15 +58,27 @@ function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
       badges.push({
         key: r.fullName,
         label: r.name,
+        shown: r.name,
         kind: 'head',
         remotes,
         current: r.name === repo.headBranch
       })
     }
     for (const r of refs) {
-      if (r.kind === 'remote' && !folded.has(r.name))
-        badges.push({ key: r.fullName, label: r.name, kind: 'remote', remotes: [], current: false })
-      if (r.kind === 'tag') badges.push({ key: r.fullName, label: r.name, kind: 'tag', remotes: [], current: false })
+      if (r.kind === 'remote' && !folded.has(r.name)) {
+        // Longest match, since a remote's own name may contain a slash.
+        const remote = repo.remotes.filter((x) => r.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0]
+        badges.push({
+          key: r.fullName,
+          label: r.name,
+          shown: remote ? r.name.slice(remote.length + 1) : r.name,
+          remote,
+          kind: 'remote',
+          remotes: [],
+          current: false
+        })
+      }
+      if (r.kind === 'tag') badges.push({ key: r.fullName, label: r.name, shown: r.name, kind: 'tag', remotes: [], current: false })
     }
     badges.sort((a, b) => Number(b.current) - Number(a.current))
     map.set(hash, badges)
@@ -505,10 +522,18 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
               </span>
             ))}
             {b.kind === 'tag' && <TagIcon />}
-            {b.kind === 'remote' && <CloudIcon />}
+            {b.kind === 'remote' &&
+              (b.remote ? (
+                <span className="ref-remote" title={`On ${b.remote}`}>
+                  <CloudIcon />
+                  {p.showRemoteName && b.remote}
+                </span>
+              ) : (
+                <CloudIcon />
+              ))}
             {/* Ticket keys in branch names open Jira when clicked. */}
-            <span className="ref-label">
-              {splitByTickets(b.label, b.kind === 'tag' ? null : p.jira).map((part, i) =>
+            <span className="ref-label" title={b.kind === 'remote' ? b.label : undefined}>
+              {splitByTickets(b.shown, b.kind === 'tag' ? null : p.jira).map((part, i) =>
                 part.key && p.jira ? (
                   <span
                     key={i}

@@ -1,0 +1,507 @@
+// Hover previews for Settings: hovering an option shows a small card beside the Settings window
+// that animates the part of Spoon it affects, from the current value to the hovered one and back.
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import type { ColorKey } from '../themes'
+import {
+  rowHeight,
+  useSettings,
+  type Density,
+  type DiffLayout,
+  type HeadHighlight,
+  type Settings,
+  type SidebarSection,
+  type SubmoduleTabs,
+  type TagDisplay
+} from '../settings'
+import { BoxIcon, BranchIcon, BroomIcon, ChildIcon, CloudIcon, PinIcon, StashIcon, TagIcon } from './Icons'
+
+export interface SectionState {
+  id: SidebarSection
+  label: string
+  visible: boolean
+}
+
+export type PreviewSpec =
+  | { kind: 'size'; from: number; to: number }
+  | { kind: 'code'; from: number; to: number }
+  | { kind: 'density'; from: Density; to: Density }
+  | { kind: 'layout'; from: DiffLayout; to: DiffLayout }
+  | { kind: 'tags'; from: TagDisplay; to: TagDisplay }
+  | { kind: 'laneLabels'; from: boolean; to: boolean }
+  | { kind: 'remoteName'; from: boolean; to: boolean }
+  | { kind: 'head'; from: HeadHighlight; to: HeadHighlight }
+  | { kind: 'subtabs'; from: SubmoduleTabs; to: SubmoduleTabs }
+  /** Lane indexes for the branch's label and graph line, before and after. */
+  | { kind: 'branch'; prefix: string; from: { label: number; line: number }; to: { label: number; line: number } }
+  | { kind: 'sidebar'; from: SectionState[]; to: SectionState[] }
+  | { kind: 'color'; key: ColorKey }
+
+export interface Preview {
+  title: string
+  /** The two ends of the animation, named for the header; a color preview has neither. */
+  from?: string
+  to?: string
+  spec: PreviewSpec
+}
+
+// ---------- which preview is showing ----------
+
+let shown: { preview: Preview; anchor: HTMLElement } | null = null
+const listeners = new Set<() => void>()
+let showTimer: ReturnType<typeof setTimeout> | undefined
+let hideTimer: ReturnType<typeof setTimeout> | undefined
+let pending: { preview: Preview; anchor: HTMLElement } | null = null
+
+function set(next: typeof shown): void {
+  shown = next
+  listeners.forEach((l) => l())
+}
+
+export function hidePreview(): void {
+  clearTimeout(showTimer)
+  clearTimeout(hideTimer)
+  pending = null
+  if (shown) set(null)
+}
+
+function hideSoon(): void {
+  clearTimeout(showTimer)
+  pending = null
+  clearTimeout(hideTimer)
+  hideTimer = setTimeout(hidePreview, 140)
+}
+
+function offer(preview: Preview | null, anchor: HTMLElement): void {
+  clearTimeout(hideTimer)
+  if (!preview) return hideSoon()
+  // Moving between options of an open preview swaps it at once; a fresh hover waits a moment,
+  // so passing over the window doesn't flash cards.
+  if (shown) return set({ preview, anchor })
+  pending = { preview, anchor }
+  clearTimeout(showTimer)
+  showTimer = setTimeout(() => pending && set(pending), 220)
+}
+
+/** Handlers for an option: hovering it previews `make()`; clicking it applies it, so the card goes. */
+export function hoverPreview(make: () => Preview | null) {
+  return {
+    onMouseEnter: (e: MouseEvent<HTMLElement>) => offer(make(), e.currentTarget),
+    onMouseLeave: hideSoon,
+    onMouseDown: hidePreview
+  }
+}
+
+/** Handlers for a range input: previews the value under the pointer. */
+export function sliderPreview(min: number, max: number, step: number, make: (v: number) => Preview | null) {
+  const at = (e: MouseEvent<HTMLElement>): number => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const ratio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
+    return Math.round((min + ratio * (max - min)) / step) * step
+  }
+  return {
+    onMouseMove: (e: MouseEvent<HTMLElement>) => offer(make(at(e)), e.currentTarget),
+    onMouseLeave: hideSoon,
+    onMouseDown: hidePreview
+  }
+}
+
+// ---------- the card ----------
+
+const reducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Mounted once inside the Settings window. */
+export function PreviewCard() {
+  const current = useSyncExternalStore(
+    (l) => {
+      listeners.add(l)
+      return () => void listeners.delete(l)
+    },
+    () => shown
+  )
+  useEffect(() => hidePreview, [])
+  const card = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const [phase, setPhase] = useState(false)
+  const specKey = current ? JSON.stringify(current.preview.spec) : ''
+
+  // From, then to, then back, for as long as the option is hovered.
+  useEffect(() => {
+    if (!specKey) return
+    if (reducedMotion()) return setPhase(true)
+    setPhase(false)
+    let interval: ReturnType<typeof setInterval> | undefined
+    const start = setTimeout(() => {
+      setPhase(true)
+      interval = setInterval(() => setPhase((p) => !p), 1800)
+    }, 450)
+    return () => {
+      clearTimeout(start)
+      clearInterval(interval)
+    }
+  }, [specKey])
+
+  // Beside the Settings window when there's room (right, then left), else over its right edge.
+  useLayoutEffect(() => {
+    if (!current || !card.current) return setPos(null)
+    const a = current.anchor.getBoundingClientRect()
+    const m = (current.anchor.closest('.modal') ?? current.anchor).getBoundingClientRect()
+    const { width: w, height: h } = card.current.getBoundingClientRect()
+    const gap = 12
+    let left = m.right + gap
+    if (left + w > window.innerWidth - 8) left = m.left - gap - w
+    if (left < 8) left = Math.max(8, m.right - w - gap)
+    const top = Math.min(Math.max(8, a.top + a.height / 2 - h / 2), window.innerHeight - h - 8)
+    setPos({ left, top })
+  }, [current, specKey])
+
+  if (!current) return null
+  const { preview } = current
+  return (
+    <div
+      ref={card}
+      className="pv-card"
+      style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }}
+      aria-hidden="true"
+    >
+      <div className="pv-head">
+        <span className="pv-title">{preview.title}</span>
+        {preview.from !== undefined && preview.to !== undefined && (
+          <span className="pv-ends">
+            <span className={`pv-end ${phase ? '' : 'on'}`}>{preview.from}</span>
+            <span className="pv-arrow">→</span>
+            <span className={`pv-end ${phase ? 'on' : ''}`}>{preview.to}</span>
+          </span>
+        )}
+      </div>
+      <div className="pv-stage">
+        <Stage spec={preview.spec} phase={phase} />
+      </div>
+    </div>
+  )
+}
+
+// ---------- the scenes ----------
+
+const lane = (i: number): CSSProperties => ({ '--lane': `var(--lane-${i % 8})` }) as CSSProperties
+const laneColor = (i: number): string => `var(--lane-${i % 8})`
+
+function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
+  const s = useSettings()
+  switch (spec.kind) {
+    case 'size': {
+      const v = phase ? spec.to : spec.from
+      return (
+        <div className="pv-zoom" style={{ transform: `scale(${v / s.uiScale})` }}>
+          <MiniRows s={s} n={6} />
+        </div>
+      )
+    }
+    case 'code': {
+      const v = (phase ? spec.to : spec.from) * s.uiScale
+      const lines: [string, string][] = [
+        ['hunk', '@@ -12,4 +12,5 @@'],
+        ['ctx', '  const lane = lanes[i]'],
+        ['del', '- draw(lane, row)'],
+        ['add', '+ draw(lane, row, color)'],
+        ['add', '+ glow(row)']
+      ]
+      return (
+        <div className="pv-code mono">
+          {lines.map(([k, t], i) => (
+            <div key={i} className={`pv-code-line ${k}`} style={{ fontSize: v, lineHeight: `${v * 1.6}px` }}>
+              {t}
+            </div>
+          ))}
+        </div>
+      )
+    }
+    case 'density':
+      return <MiniRows s={{ ...s, density: phase ? spec.to : spec.from }} n={8} />
+    case 'layout': {
+      const split = (phase ? spec.to : spec.from) === 'split'
+      return (
+        <div className="pv-diff mono">
+          <div className="pv-block del" style={{ width: split ? 'calc(50% - 0.9rem)' : 'calc(100% - 1.2rem)' }}>
+            <div>- old line one</div>
+            <div>- old line two</div>
+          </div>
+          <div
+            className="pv-block add"
+            style={{
+              left: split ? 'calc(50% + 0.3rem)' : '0.6rem',
+              top: split ? '0.6rem' : '3.4rem',
+              width: split ? 'calc(50% - 0.9rem)' : 'calc(100% - 1.2rem)'
+            }}
+          >
+            <div>+ new line one</div>
+            <div>+ new line two</div>
+            <div>+ new line three</div>
+          </div>
+        </div>
+      )
+    }
+    case 'tags': {
+      const v = phase ? spec.to : spec.from
+      const onDot = v === 'diamond' || v === 'badge'
+      return (
+        <div className="pv-center">
+          <div className="pv-tagrow">
+            <span className="pv-node">
+              <span
+                className="pv-node-dot"
+                style={{
+                  background: v === 'diamond' ? 'var(--warn)' : laneColor(0),
+                  borderRadius: v === 'diamond' ? '0.15rem' : '50%',
+                  transform: v === 'diamond' ? 'rotate(45deg) scale(0.9)' : 'none'
+                }}
+              />
+              <span className="pv-node-count" style={{ opacity: v === 'badge' ? 1 : 0, transform: `scale(${v === 'badge' ? 1 : 0.3})` }}>
+                2
+              </span>
+            </span>
+            <span className="pv-reveal" style={{ maxWidth: v === 'chip' ? '4rem' : 0, opacity: v === 'chip' ? 1 : 0 }}>
+              <span className="ref-badge tag">
+                <TagIcon /> 2
+              </span>
+            </span>
+            <span className="pv-reveal" style={{ maxWidth: v === 'all' ? '12rem' : 0, opacity: v === 'all' ? 1 : 0 }}>
+              <span className="ref-badge tag">
+                <TagIcon /> v2.1.0
+              </span>{' '}
+              <span className="ref-badge tag">
+                <TagIcon /> release
+              </span>
+            </span>
+            <span className="pv-subject">Release 2.1.0</span>
+          </div>
+          <span className="pv-caption">{onDot ? 'on the graph dot' : 'next to the message'}</span>
+        </div>
+      )
+    }
+    case 'laneLabels': {
+      const on = phase ? spec.to : spec.from
+      return (
+        <div className="pv-list">
+          {['main', 'feature/replay', 'release/2.1'].map((b, i) => (
+            <div key={b} className="pv-line">
+              <span className="pv-dot" style={{ background: laneColor(i) }} />
+              <span className={`ref-badge head ${on ? 'laned' : ''}`} style={lane(i)}>
+                {b}
+              </span>
+              <span className="pv-bar" style={{ width: `${6 - i}rem` }} />
+            </div>
+          ))}
+        </div>
+      )
+    }
+    case 'remoteName': {
+      const on = phase ? spec.to : spec.from
+      const cloud = (
+        <span className="ref-remote">
+          <CloudIcon />
+          <span className="pv-reveal" style={{ maxWidth: on ? '4rem' : 0 }}>
+            origin
+          </span>
+        </span>
+      )
+      return (
+        <div className="pv-list">
+          <div className="pv-line">
+            <span className="ref-badge head">
+              {cloud}feature/replay
+            </span>
+            <span className="pv-caption">local and on origin</span>
+          </div>
+          <div className="pv-line">
+            <span className="ref-badge remote">
+              {cloud}hotfix/crash
+            </span>
+            <span className="pv-caption">only on origin</span>
+          </div>
+        </div>
+      )
+    }
+    case 'head': {
+      const v = phase ? spec.to : spec.from
+      return (
+        <div className="pv-rows">
+          {[0, 1, 2, 3, 4].map((i) => {
+            const isHead = i === 2
+            return (
+              <div
+                key={i}
+                className={`pv-row ${isHead && v === 'band' ? 'pv-band' : ''}`}
+                style={{ height: rowHeight(s) }}
+              >
+                <span className="pv-node">
+                  <span
+                    className="pv-node-dot"
+                    style={{
+                      background: isHead && v === 'ring' ? 'var(--add)' : isHead ? 'var(--bg-list)' : laneColor(0),
+                      boxShadow: isHead
+                        ? v === 'ring'
+                          ? '0 0 0 0.3rem color-mix(in srgb, var(--add) 35%, transparent)'
+                          : `inset 0 0 0 0.12rem ${laneColor(0)}`
+                        : 'none'
+                    }}
+                  />
+                </span>
+                <span className="pv-bar" style={{ width: `${8 - ((i * 3) % 4)}rem`, opacity: isHead ? 0.9 : 0.45 }} />
+                {isHead && (
+                  <span className="head-pill pv-pop" style={{ opacity: v === 'pill' ? 1 : 0, transform: v === 'pill' ? 'none' : 'translateY(-0.4rem)' }}>
+                    <PinIcon /> HEAD
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )
+    }
+    case 'subtabs': {
+      const grouped = (phase ? spec.to : spec.from) === 'grouped'
+      return (
+        <div className="pv-center">
+          <div className="pv-tabs">
+            <span className="pv-tabgroup" style={{ borderColor: grouped ? 'var(--border-strong)' : 'transparent', gap: grouped ? '0.15rem' : '0.5rem' }}>
+              <span className="pv-tab">maze-rush</span>
+              <span className="pv-tab">
+                {grouped ? <ChildIcon className="icon tab-sub-icon" /> : <BoxIcon className="icon tab-sub-icon" />}
+                <span className="tab-two">
+                  <span>MainLib</span>
+                  <small className="pv-reveal-y" style={{ maxHeight: grouped ? 0 : '1rem' }}>
+                    in maze-rush
+                  </small>
+                </span>
+              </span>
+            </span>
+            <span className="pv-tab">canasta</span>
+          </div>
+        </div>
+      )
+    }
+    case 'branch': {
+      const v = phase ? spec.to : spec.from
+      return (
+        <div className="pv-branch">
+          <span className="pv-lane-line" style={{ background: laneColor(v.line) }} />
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="pv-line pv-branch-row">
+              <span className="pv-dot" style={{ background: laneColor(v.line) }} />
+              {i === 0 ? (
+                <span className="ref-badge head laned" style={lane(v.label)}>
+                  {spec.prefix}2.1
+                </span>
+              ) : (
+                <span className="pv-bar" style={{ width: `${5 + i}rem` }} />
+              )}
+            </div>
+          ))}
+        </div>
+      )
+    }
+    case 'sidebar': {
+      const state = phase ? spec.to : spec.from
+      let shownBefore = 0
+      const top = new Map<string, number>()
+      for (const x of state) {
+        top.set(x.id, shownBefore)
+        if (x.visible) shownBefore++
+      }
+      return (
+        <div className="pv-sidebar">
+          {state.map((x) => (
+            <div
+              key={x.id}
+              className="pv-section"
+              style={{
+                top: `${0.5 + top.get(x.id)! * 1.75}rem`,
+                opacity: x.visible ? 1 : 0,
+                transform: x.visible ? 'none' : 'scaleY(0.3)'
+              }}
+            >
+              <SectionIcon id={x.id} />
+              {x.label}
+            </div>
+          ))}
+        </div>
+      )
+    }
+    case 'color':
+      return <MiniApp hit={spec.key} />
+  }
+}
+
+function SectionIcon({ id }: { id: SidebarSection }): ReactNode {
+  if (id === 'branches') return <BranchIcon />
+  if (id === 'remotes') return <CloudIcon />
+  if (id === 'tags') return <TagIcon />
+  if (id === 'stashes') return <StashIcon />
+  if (id === 'stale') return <BroomIcon />
+  return <BoxIcon />
+}
+
+function MiniRows({ s, n }: { s: Settings; n: number }) {
+  const h = rowHeight(s)
+  return (
+    <div className="pv-rows">
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="pv-row" style={{ height: h }}>
+          <span className="pv-node">
+            <span className="pv-node-dot" style={{ background: laneColor(i % 3) }} />
+          </span>
+          {i === 1 && (
+            <span className="ref-badge head laned" style={lane(1)}>
+              main
+            </span>
+          )}
+          <span className="pv-bar" style={{ width: `${5 + ((i * 37) % 6)}rem` }} />
+          <span className="pv-spacer" />
+          <span className="pv-bar faint" style={{ width: '2.2rem' }} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** A tiny Spoon window; parts drawn in the hovered color pulse. */
+function MiniApp({ hit }: { hit: ColorKey }) {
+  const k = (...keys: ColorKey[]): string => (keys.includes(hit) ? 'pv-hit' : '')
+  return (
+    <div className={`pv-app ${k('bg', 'border')}`}>
+      <div className={`pv-app-side ${k('bg-chrome')}`}>
+        <span className={`pv-app-nav on ${k('accent')}`}>History</span>
+        <span className={`pv-app-nav ${k('text-muted')}`}>Branches</span>
+        <span className={`pv-app-nav faint ${k('text-faint')}`}>Stashes</span>
+      </div>
+      <div className="pv-app-main">
+        <div className={`pv-app-list ${k('bg-list')}`}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className={`pv-app-row ${i === 1 ? `sel ${k('accent')}` : ''}`}>
+              <span className={`pv-dot ${k(`lane-${i}` as ColorKey)}`} style={{ background: laneColor(i) }} />
+              {i === 0 && <span className={`pv-app-tag ${k('warn')}`}>v2.1</span>}
+              <span className={`pv-app-text ${k('text')}`}>{['Release 2.1', 'Fix replay', 'HGT update'][i]}</span>
+              <span className={`pv-app-hash ${k('text-faint')}`}>a1c{i}</span>
+            </div>
+          ))}
+          <div className="pv-app-lanes">
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <span key={i} className={`pv-dot ${k(`lane-${i}` as ColorKey)}`} style={{ background: laneColor(i) }} />
+            ))}
+          </div>
+        </div>
+        <div className={`pv-app-panel ${k('bg-panel')}`}>
+          <span className={`pv-app-diff del ${k('del')}`}>- draw(row)</span>
+          <span className={`pv-app-diff add ${k('add')}`}>+ draw(row, color)</span>
+          <span className="pv-app-files">
+            <span className={`pv-app-status ${k('rename')}`}>R</span>
+            <span className={`pv-app-err ${k('danger')}`}>conflict</span>
+            <span className="pv-spacer" />
+            <span className={`pv-app-btn ${k('bg-elev')}`}>Stash</span>
+            <span className={`pv-app-btn primary ${k('accent', 'accent-text')}`}>Commit</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}

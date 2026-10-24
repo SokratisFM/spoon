@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { SIDEBAR_SECTIONS, updateSettings, useSettings, type SidebarSection } from '../settings'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
+import { confirm } from '../dialogs'
 import type { PullSummary, Ref, RepoState } from '../../../shared/types'
 import { submoduleStatus, type SubmoduleActions } from './Submodules'
 import { usePersistentState } from '../hooks'
@@ -421,10 +422,11 @@ function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: strin
 
   const remove = async (): Promise<void> => {
     const list = selected.length > 12 ? `${selected.slice(0, 12).join('\n')}\n…and ${selected.length - 12} more` : selected.join('\n')
-    const ok = await window.spoon.confirm({
+    const ok = await confirm({
       message: `Delete ${selected.length} local branch${selected.length === 1 ? '' : 'es'}?`,
       detail: `${list}\n\nOnly the local branches are deleted; nothing on the remote changes.`,
-      confirmLabel: 'Delete'
+      confirmLabel: 'Delete',
+      risky: true
     })
     if (!ok) return
     await ops.run(
@@ -432,7 +434,8 @@ function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: strin
       async () => {
         const res = await window.spoon.deleteBranches(path, selected, false)
         if (res.unmerged.length === 0) return
-        const force = await window.spoon.confirm({
+        const force = await confirm({
+          risky: true,
           message: `${res.unmerged.length} branch${res.unmerged.length === 1 ? ' has' : 'es have'} commits that aren’t on any other branch`,
           detail: `${res.unmerged.join('\n')}\n\nDeleting will drop those commits (git keeps them in the reflog for a while).`,
           confirmLabel: 'Delete anyway'

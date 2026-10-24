@@ -9,7 +9,6 @@ const api: SpoonApi = {
   pathsExist: (paths) => ipcRenderer.invoke('fs:exists', paths),
   scanRepos: (root, depth, nested) => ipcRenderer.invoke('fs:scanRepos', root, depth, nested),
   homeDir: () => ipcRenderer.invoke('fs:home'),
-  missingProject: (path) => ipcRenderer.invoke('ui:missingProject', path),
   openRepo: (path) => ipcRenderer.invoke('repo:open', path),
   repoParents: (paths) => ipcRenderer.invoke('repo:parents', paths),
   log: (path, limit) => ipcRenderer.invoke('repo:log', path, limit),
@@ -43,7 +42,6 @@ const api: SpoonApi = {
     return () => ipcRenderer.removeListener('progress', listener)
   },
   contextMenu: (items) => ipcRenderer.invoke('ui:contextMenu', items),
-  confirm: (opts) => ipcRenderer.invoke('ui:confirm', opts),
   closeWindow: () => ipcRenderer.send('ui:closeWindow'),
   revealInFinder: (path) => ipcRenderer.invoke('shell:reveal', path),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { DiffTarget, FileChange, WorkingTree } from '../../../shared/types'
 import { usePersistentState } from '../hooks'
+import { confirm } from '../dialogs'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FileList } from './FileList'
@@ -96,7 +97,7 @@ export function ChangesView({ path, tree, refreshN, pushedTo, ops, commitRequest
       if (d && /^[ +-]{0,2}(<{7}|>{7})( |$)/m.test(d.text)) marked.push(f.path)
     }
     if (marked.length) {
-      const ok = await window.spoon.confirm({
+      const ok = await confirm({
         message:
           marked.length === 1
             ? `${marked[0]} still has conflict markers`

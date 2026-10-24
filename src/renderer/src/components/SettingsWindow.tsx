@@ -3,6 +3,7 @@ import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../git
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
 import { cleanError, useSlidingIndicator } from '../hooks'
+import { hoverPreview, PreviewCard, sliderPreview, type Preview, type PreviewSpec, type SectionState } from './SettingsPreview'
 import type { DeviceCode } from '../../../shared/types'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
 import { knownAuthors } from '../authors'
@@ -18,8 +19,7 @@ import {
   type DiffLayout,
   type SubmoduleTabs,
   type TagDisplay,
-  type HeadHighlight,
-  type Settings
+  type HeadHighlight
 } from '../settings'
 import {
   AUTHOR_PALETTE,
@@ -34,7 +34,7 @@ import { Modal } from './Modal'
 import { CloseIcon, PlusIcon } from './Icons'
 import { keys } from '../platform'
 
-export type SettingsTab = 'appearance' | 'colors' | 'authors' | 'projects' | 'accounts' | 'about'
+export type SettingsTab = 'appearance' | 'authors' | 'projects' | 'accounts' | 'about'
 type Tab = SettingsTab
 
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
@@ -56,7 +56,6 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
         {(
           [
             ['appearance', 'Appearance'],
-            ['colors', 'Theme colors'],
             ['authors', 'Author colors'],
             ['projects', 'Projects'],
             ['accounts', 'Accounts'],
@@ -70,20 +69,28 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
       </div>
       <div className="settings-page">
         {tab === 'appearance' && <AppearanceTab />}
-        {tab === 'colors' && <ColorsTab />}
         {tab === 'authors' && <AuthorsTab />}
         {tab === 'projects' && <ProjectsTab />}
         {tab === 'accounts' && <AccountsTab />}
         {tab === 'about' && <AboutTab />}
       </div>
+      <PreviewCard />
     </Modal>
   )
 }
 
 // ---------- appearance ----------
 
+const pct = (v: number): string => `${Math.round(v * 100)}%`
+
 export function SizeControls() {
   const s = useSettings()
+  const sizePreview = (to: number): Preview | null => {
+    const v = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(to * 100) / 100))
+    return Math.abs(v - s.uiScale) < 0.001 ? null : { title: 'Interface size', from: pct(s.uiScale), to: pct(v), spec: { kind: 'size', from: s.uiScale, to: v } }
+  }
+  const codePreview = (v: number): Preview | null =>
+    v === s.codeSize ? null : { title: 'Diff font size', from: `${s.codeSize}px`, to: `${v}px`, spec: { kind: 'code', from: s.codeSize, to: v } }
   return (
     <>
       <label className="field">
@@ -91,7 +98,11 @@ export function SizeControls() {
           Interface size <b>{Math.round(s.uiScale * 100)}%</b>
         </span>
         <div className="stepper">
-          <button onClick={() => updateSettings({ uiScale: s.uiScale - SCALE_STEP })} aria-label="Smaller">
+          <button
+            onClick={() => updateSettings({ uiScale: s.uiScale - SCALE_STEP })}
+            aria-label="Smaller"
+            {...hoverPreview(() => sizePreview(s.uiScale - SCALE_STEP))}
+          >
             A
           </button>
           <input
@@ -101,8 +112,14 @@ export function SizeControls() {
             step={SCALE_STEP}
             value={s.uiScale}
             onChange={(e) => updateSettings({ uiScale: Number(e.target.value) })}
+            {...sliderPreview(SCALE_MIN, SCALE_MAX, SCALE_STEP, sizePreview)}
           />
-          <button className="big" onClick={() => updateSettings({ uiScale: s.uiScale + SCALE_STEP })} aria-label="Bigger">
+          <button
+            className="big"
+            onClick={() => updateSettings({ uiScale: s.uiScale + SCALE_STEP })}
+            aria-label="Bigger"
+            {...hoverPreview(() => sizePreview(s.uiScale + SCALE_STEP))}
+          >
             A
           </button>
         </div>
@@ -119,6 +136,7 @@ export function SizeControls() {
           step={0.5}
           value={s.codeSize}
           onChange={(e) => updateSettings({ codeSize: Number(e.target.value) })}
+          {...sliderPreview(9, 24, 0.5, codePreview)}
         />
       </label>
     </>
@@ -140,6 +158,7 @@ function AppearanceTab() {
             ['spacious', 'Spacious']
           ]}
           onChange={(density) => updateSettings({ density })}
+          preview={{ title: 'Row spacing', spec: (from, to) => ({ kind: 'density', from, to }) }}
         />
       </div>
       <div className="field">
@@ -151,6 +170,7 @@ function AppearanceTab() {
             ['split', 'Side by side']
           ]}
           onChange={(diffLayout) => updateSettings({ diffLayout })}
+          preview={{ title: 'Diff layout', spec: (from, to) => ({ kind: 'layout', from, to }) }}
         />
         <span className="hint">Also switchable from any diff’s header.</span>
       </div>
@@ -165,10 +185,11 @@ function AppearanceTab() {
             ['all', 'Show all']
           ]}
           onChange={(tagDisplay) => updateSettings({ tagDisplay })}
+          preview={{ title: 'Tags in the commit list', spec: (from, to) => ({ kind: 'tags', from, to }) }}
         />
         <span className="hint">Collapsed tags open in a list when you click the dot or chip.</span>
       </div>
-      <label className="check">
+      <label className="check" {...toggle('Branch labels in lane colors', s.laneColoredBranches, (from, to) => ({ kind: 'laneLabels', from, to }))}>
         <input
           type="checkbox"
           checked={s.laneColoredBranches}
@@ -176,13 +197,13 @@ function AppearanceTab() {
         />
         Color branch labels like their graph line
       </label>
-      <label className="check">
+      <label className="check" {...toggle('Remote name on branch labels', s.showRemoteName, (from, to) => ({ kind: 'remoteName', from, to }))}>
         <input
           type="checkbox"
           checked={s.showRemoteName}
           onChange={(e) => updateSettings({ showRemoteName: e.target.checked })}
         />
-        Show the remote’s name next to the cloud on branch labels (☁ origin)
+        Show the remote’s name next to the cloud on branch labels (☁ origin), including remote-only branches
       </label>
       <div className="field">
         <span className="field-label">Checked-out commit</span>
@@ -194,6 +215,7 @@ function AppearanceTab() {
             ['ring', 'Glowing dot']
           ]}
           onChange={(headHighlight) => updateSettings({ headHighlight })}
+          preview={{ title: 'Checked-out commit', spec: (from, to) => ({ kind: 'head', from, to }) }}
         />
       </div>
       <div className="field">
@@ -205,6 +227,7 @@ function AppearanceTab() {
             ['labelled', 'Labelled “in parent”']
           ]}
           onChange={(submoduleTabs) => updateSettings({ submoduleTabs })}
+          preview={{ title: 'Submodule tabs', spec: (from, to) => ({ kind: 'subtabs', from, to }) }}
         />
       </div>
       <BranchColorsField />
@@ -217,9 +240,15 @@ function AppearanceTab() {
             <ThemeCard key={t.id} id={t.id} name={t.name} hint={t.hint} />
           ))}
         </div>
+        {s.theme === 'custom' && <CustomColors />}
       </div>
     </>
   )
+}
+
+/** Hover handlers for an on/off setting: previews flipping it. */
+function toggle(title: string, on: boolean, spec: (from: boolean, to: boolean) => PreviewSpec) {
+  return hoverPreview(() => ({ title, from: on ? 'On' : 'Off', to: on ? 'Off' : 'On', spec: spec(on, !on) }))
 }
 
 function SidebarSectionsField() {
@@ -230,13 +259,28 @@ function SidebarSectionsField() {
     ;[next[i], next[i + d]] = [next[i + d], next[i]]
     updateSettings({ sidebarSections: next })
   }
+  const states = (l: typeof list): SectionState[] =>
+    l.map((x) => ({ id: x.id, visible: x.visible, label: SIDEBAR_SECTIONS.find((d) => d.id === x.id)?.label ?? x.id }))
+  const preview = (next: typeof list, change: string) =>
+    hoverPreview(() => ({ title: 'Sidebar sections', from: 'Now', to: change, spec: { kind: 'sidebar', from: states(list), to: states(next) } }))
+  const moved = (i: number, d: -1 | 1): typeof list => {
+    const next = [...list]
+    ;[next[i], next[i + d]] = [next[i + d], next[i]]
+    return next
+  }
   return (
     <div className="field">
       <span className="field-label">Sidebar sections</span>
       <div className="section-order">
         {list.map((x, i) => (
           <div key={x.id} className={`section-order-row ${x.visible ? '' : 'hidden'}`}>
-            <label className="check">
+            <label
+              className="check"
+              {...preview(
+                list.map((y) => (y.id === x.id ? { ...y, visible: !y.visible } : y)),
+                x.visible ? 'Hidden' : 'Shown'
+              )}
+            >
               <input
                 type="checkbox"
                 checked={x.visible}
@@ -247,10 +291,22 @@ function SidebarSectionsField() {
               {SIDEBAR_SECTIONS.find((d) => d.id === x.id)?.label}
             </label>
             <span className="spacer" />
-            <button className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">
+            <button
+              className="icon-btn"
+              disabled={i === 0}
+              onClick={() => move(i, -1)}
+              aria-label="Move up"
+              {...(i > 0 ? preview(moved(i, -1), 'Moved up') : {})}
+            >
               ↑
             </button>
-            <button className="icon-btn" disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label="Move down">
+            <button
+              className="icon-btn"
+              disabled={i === list.length - 1}
+              onClick={() => move(i, 1)}
+              aria-label="Move down"
+              {...(i < list.length - 1 ? preview(moved(i, 1), 'Moved down') : {})}
+            >
               ↓
             </button>
           </div>
@@ -284,6 +340,31 @@ function BranchColorsField() {
   const remove = (i: number, p: string): void =>
     updateSettings({ reservedColors: { ...reserved, [i]: (reserved[i] ?? []).filter((x) => x !== p) } })
 
+  // Previews: a branch with the slot's prefix goes from an automatic color to the reserved one.
+  const reservedSlots = Object.entries(reserved).filter(([, l]) => l.length).map(([k]) => Number(k))
+  const autoLane = (not: number): number => [0, 1, 2, 3, 4, 5, 6, 7].find((x) => x !== not && !reservedSlots.includes(x)) ?? (not + 1) % 8
+  const slotPreview = (i: number) =>
+    hoverPreview(() => {
+      const auto = autoLane(i)
+      return {
+        title: `${COLOR_NAMES[i]} for ${reserved[i]?.[0] ?? 'release/'} branches`,
+        from: 'Automatic',
+        to: COLOR_NAMES[i],
+        spec: { kind: 'branch', prefix: reserved[i]?.[0] ?? 'release/', from: { label: auto, line: auto }, to: { label: i, line: s.reservedColorsGraph ? i : auto } }
+      }
+    })
+  const graphPreview = hoverPreview(() => {
+    const slot = reservedSlots[0] ?? 2
+    const auto = autoLane(slot)
+    const on = s.reservedColorsGraph
+    return {
+      title: 'Reserved color on the graph line',
+      from: on ? 'On' : 'Off',
+      to: on ? 'Off' : 'On',
+      spec: { kind: 'branch', prefix: reserved[slot]?.[0] ?? 'release/', from: { label: slot, line: on ? slot : auto }, to: { label: slot, line: on ? auto : slot } }
+    }
+  })
+
   return (
     <div className="field">
       <span className="field-label">Branch colors</span>
@@ -296,7 +377,12 @@ function BranchColorsField() {
           const c = colors[`lane-${i}` as ColorKey]
           const list = reserved[i] ?? []
           return (
-            <div key={i} className={`color-slot ${list.length ? 'reserved' : ''}`} style={{ '--slot': c } as React.CSSProperties}>
+            <div
+              key={i}
+              className={`color-slot ${list.length ? 'reserved' : ''}`}
+              style={{ '--slot': c } as React.CSSProperties}
+              {...slotPreview(i)}
+            >
               <div className="slot-top">
                 <span className="slot-swatch" />
                 <span>{name}</span>
@@ -331,7 +417,7 @@ function BranchColorsField() {
           )
         })}
       </div>
-      <label className="check">
+      <label className="check" {...graphPreview}>
         <input
           type="checkbox"
           checked={s.reservedColorsGraph}
@@ -416,23 +502,17 @@ export function ThemeSelect() {
   )
 }
 
-// ---------- theme colors ----------
+// ---------- custom theme colors ----------
 
 const BASE_CHOICES = THEME_CHOICES.filter((t) => t.id !== 'custom') as { id: BaseThemeChoice; name: string }[]
 
-function ColorsTab() {
+/** The Custom theme's palette, shown under the theme cards while Custom is selected. */
+function CustomColors() {
   const s = useSettings()
-  const isCustom = s.theme === 'custom'
   const shown = activeTheme(s).colors
-  const base = resolveTheme(isCustom ? s.customBase : (s.theme as BaseThemeChoice)).colors
+  const base = resolveTheme(s.customBase).colors
 
-  // Editing any color switches to the Custom theme, starting from whatever theme was showing.
-  const setColor = (key: ColorKey, value: string): void => {
-    const patch: Partial<Settings> = isCustom
-      ? { customColors: { ...s.customColors, [key]: value } }
-      : { theme: 'custom', customBase: s.theme as BaseThemeChoice, customColors: { [key]: value } }
-    updateSettings(patch)
-  }
+  const setColor = (key: ColorKey, value: string): void => updateSettings({ customColors: { ...s.customColors, [key]: value } })
   const resetColor = (key: ColorKey): void => {
     const next = { ...s.customColors }
     delete next[key]
@@ -440,17 +520,10 @@ function ColorsTab() {
   }
 
   return (
-    <>
+    <div className="custom-colors">
       <div className="form-row">
         <span className="field-label">Start from</span>
-        <select
-          value={isCustom ? s.customBase : (s.theme as BaseThemeChoice)}
-          onChange={(e) =>
-            isCustom
-              ? updateSettings({ customBase: e.target.value as BaseThemeChoice })
-              : updateSettings({ theme: e.target.value as ThemeChoice })
-          }
-        >
+        <select value={s.customBase} onChange={(e) => updateSettings({ customBase: e.target.value as BaseThemeChoice })}>
           {BASE_CHOICES.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
@@ -458,23 +531,25 @@ function ColorsTab() {
           ))}
         </select>
         <span className="spacer" />
-        {isCustom && Object.keys(s.customColors).length > 0 && (
+        {Object.keys(s.customColors).length > 0 && (
           <button className="btn" onClick={() => updateSettings({ customColors: {} })}>
             Reset all
           </button>
         )}
       </div>
-      <p className="hint">
-        {isCustom ? 'Custom theme is active.' : 'Changing any color switches to the Custom theme.'}
-      </p>
+      <p className="hint">Colors you haven’t changed follow the theme you start from.</p>
       {COLOR_ELEMENTS.map((g) => (
         <div key={g.group} className="color-group">
           <h4>{g.group}</h4>
           <div className="color-grid">
             {g.items.map(({ key, label }) => {
-              const changed = isCustom && s.customColors[key] !== undefined && s.customColors[key] !== base[key]
+              const changed = s.customColors[key] !== undefined && s.customColors[key] !== base[key]
               return (
-                <label key={key} className={`color-item ${changed ? 'changed' : ''}`}>
+                <label
+                  key={key}
+                  className={`color-item ${changed ? 'changed' : ''}`}
+                  {...hoverPreview(() => ({ title: `Where “${label}” is used`, spec: { kind: 'color', key } }))}
+                >
                   <input type="color" value={shown[key]} onChange={(e) => setColor(key, e.target.value)} />
                   <span className="color-label">{label}</span>
                   <span className="color-hex mono">{shown[key]}</span>
@@ -496,7 +571,7 @@ function ColorsTab() {
           </div>
         </div>
       ))}
-    </>
+    </div>
   )
 }
 
@@ -1017,17 +1092,28 @@ function AuthorInput({ value, authors, onChange }: { value: string; authors: str
 export function Segmented<T extends string>({
   value,
   options,
-  onChange
+  onChange,
+  preview
 }: {
   value: T
   options: [T, string][]
   onChange: (v: T) => void
+  /** Hovering another option previews switching to it. */
+  preview?: { title: string; spec: (from: T, to: T) => PreviewSpec }
 }) {
   const ref = useSlidingIndicator<HTMLDivElement>()
+  const name = (v: T): string => options.find(([x]) => x === v)?.[1] ?? v
   return (
     <div className="segmented slider" ref={ref}>
       {options.map(([v, label]) => (
-        <button key={v} className={v === value ? 'on' : ''} onClick={() => onChange(v)}>
+        <button
+          key={v}
+          className={v === value ? 'on' : ''}
+          onClick={() => onChange(v)}
+          {...(preview && v !== value
+            ? hoverPreview(() => ({ title: preview.title, from: name(value), to: label, spec: preview.spec(value, v) }))
+            : {})}
+        >
           {label}
         </button>
       ))}
