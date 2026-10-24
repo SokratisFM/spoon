@@ -16,6 +16,8 @@ import {
   useSettings,
   type Density,
   type DiffLayout,
+  type SubmoduleTabs,
+  type TagDisplay,
   type Settings
 } from '../settings'
 import {
@@ -41,6 +43,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
       title="Settings"
       onClose={onClose}
       wide
+      top
       footer={
         <button className="btn primary" onClick={onClose}>
           Done
@@ -148,6 +151,31 @@ function AppearanceTab() {
           onChange={(diffLayout) => updateSettings({ diffLayout })}
         />
         <span className="hint">Also switchable from any diff’s header.</span>
+      </div>
+      <div className="field">
+        <span className="field-label">Tags in the commit list</span>
+        <Segmented<TagDisplay>
+          value={s.tagDisplay}
+          options={[
+            ['diamond', 'Diamond dot'],
+            ['badge', 'Count on dot'],
+            ['chip', 'Tag chip'],
+            ['all', 'Show all']
+          ]}
+          onChange={(tagDisplay) => updateSettings({ tagDisplay })}
+        />
+        <span className="hint">Collapsed tags open in a list when you click the dot or chip.</span>
+      </div>
+      <div className="field">
+        <span className="field-label">Submodule tabs</span>
+        <Segmented<SubmoduleTabs>
+          value={s.submoduleTabs}
+          options={[
+            ['grouped', 'Grouped with parent'],
+            ['labelled', 'Labelled “in parent”']
+          ]}
+          onChange={(submoduleTabs) => updateSettings({ submoduleTabs })}
+        />
       </div>
       <SidebarSectionsField />
       <PullGroupsField />
@@ -386,23 +414,11 @@ function AuthorsTab() {
         authors not listed keep the normal look.
       </p>
 
-      <datalist id="known-authors">
-        {authors.map((a) => (
-          <option key={a} value={a} />
-        ))}
-      </datalist>
-
       <div className={`author-list ${s.authorColorsEnabled ? '' : 'disabled'}`}>
         {s.authorColors.map((a, i) => (
           <div key={i} className="author-row">
             <input type="color" value={a.color} onChange={(e) => update(i, { color: e.target.value })} />
-            <input
-              list="known-authors"
-              placeholder="Author name"
-              value={a.name}
-              onChange={(e) => update(i, { name: e.target.value })}
-              spellCheck={false}
-            />
+            <AuthorInput value={a.name} authors={authors} onChange={(name) => update(i, { name })} />
             <span className="author-sample" style={{ '--author': a.color } as React.CSSProperties}>
               {a.name || 'Preview'}
             </span>
@@ -799,6 +815,61 @@ function ProjectsTab() {
         </div>
       </div>
     </>
+  )
+}
+
+/** Author name field with suggestions from this repository's history, sized like the rest of the UI. */
+function AuthorInput({ value, authors, onChange }: { value: string; authors: string[]; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [hi, setHi] = useState(0)
+  const q = value.trim().toLowerCase()
+  const matches = authors.filter((a) => a.toLowerCase().includes(q) && a.toLowerCase() !== q).slice(0, 8)
+  const pick = (a: string): void => {
+    onChange(a)
+    setOpen(false)
+  }
+  return (
+    <div className="autocomplete">
+      <input
+        placeholder="Author name"
+        value={value}
+        spellCheck={false}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setOpen(true)
+          setHi(0)
+        }}
+        onKeyDown={(e) => {
+          if (!open || !matches.length) return
+          if (e.key === 'ArrowDown') setHi((h) => Math.min(matches.length - 1, h + 1))
+          else if (e.key === 'ArrowUp') setHi((h) => Math.max(0, h - 1))
+          else if (e.key === 'Enter') pick(matches[hi])
+          else if (e.key === 'Escape') setOpen(false)
+          else return
+          e.preventDefault()
+          e.stopPropagation()
+        }}
+      />
+      {open && matches.length > 0 && (
+        <div className="autocomplete-list">
+          {matches.map((a, i) => (
+            <div
+              key={a}
+              className={`autocomplete-item ${i === hi ? 'on' : ''}`}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                pick(a)
+              }}
+              onMouseEnter={() => setHi(i)}
+            >
+              {a}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -9,9 +9,11 @@ interface Props {
   onSubmit?: () => void
   footer: ReactNode
   wide?: boolean
+  /** Pin to the top of the window instead of centering, so the dialog doesn't jump as its content grows. */
+  top?: boolean
 }
 
-export function Modal({ title, children, onClose, onSubmit, footer, wide }: Props) {
+export function Modal({ title, children, onClose, onSubmit, footer, wide, top }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose()
@@ -25,7 +27,7 @@ export function Modal({ title, children, onClose, onSubmit, footer, wide }: Prop
   }, [onClose, onSubmit])
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`modal-backdrop ${top ? 'top' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-label={title}>
         <h3>{title}</h3>
         <div className="modal-body">{children}</div>

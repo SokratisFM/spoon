@@ -506,6 +506,19 @@ export async function deleteBranches(cwd: string, names: string[], force: boolea
   return { deleted, unmerged }
 }
 
+/** For each path: the parent repo when it's a submodule, else null. Used to label tabs. */
+export async function superprojects(paths: string[]): Promise<(string | null)[]> {
+  return Promise.all(
+    paths.map(async (p) => {
+      try {
+        return (await git(p, ['rev-parse', '--show-superproject-working-tree'])).trim() || null
+      } catch {
+        return null // missing folder or not a repo
+      }
+    })
+  )
+}
+
 // ---------- remotes ----------
 
 export async function remoteUrls(cwd: string): Promise<Record<string, string>> {

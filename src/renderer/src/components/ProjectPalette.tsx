@@ -20,10 +20,12 @@ let scanCache: { key: string; paths: string[] } | null = null
 interface Props {
   openTabs: string[]
   onOpen: (path: string) => void
+  /** Pick any folder with the system dialog. */
+  onBrowse: () => void
   onClose: () => void
 }
 
-export function ProjectPalette({ openTabs, onOpen, onClose }: Props) {
+export function ProjectPalette({ openTabs, onOpen, onBrowse, onClose }: Props) {
   const settings = useSettings()
   const projects = useProjects()
   const [query, setQuery] = useState('')
@@ -156,7 +158,7 @@ export function ProjectPalette({ openTabs, onOpen, onClose }: Props) {
           ))}
           {items.length === 0 && (
             <div className="palette-empty">
-              {query.trim() ? `No projects match “${query}”.` : `No projects yet. Open one with ${keys('⌘O')}.`}
+              {query.trim() ? `No projects match “${query}”.` : 'No projects yet. Browse for a folder below.'}
             </div>
           )}
         </div>
@@ -175,6 +177,16 @@ export function ProjectPalette({ openTabs, onOpen, onClose }: Props) {
           <span>
             <kbd>esc</kbd> close
           </span>
+          <span className="spacer" />
+          <button
+            className="palette-browse"
+            onClick={() => {
+              onClose()
+              onBrowse()
+            }}
+          >
+            Browse for a folder… <kbd>{keys('⇧⌘O')}</kbd>
+          </button>
         </div>
       </div>
     </div>

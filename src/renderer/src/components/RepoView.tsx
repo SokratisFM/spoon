@@ -219,7 +219,6 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     <div className="repo">
       <div className="toolbar">
         <div className="toolbar-repo">
-          <span className="repo-name">{repo.name}</span>
           <span className="branch-chip" title={repo.headHash ?? ''}>
             {repo.headBranch ?? `detached at ${repo.headHash?.slice(0, 7) ?? '—'}`}
           </span>

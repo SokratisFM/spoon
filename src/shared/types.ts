@@ -283,6 +283,8 @@ export interface SpoonApi {
   /** Asks what to do about a project folder that no longer exists. */
   missingProject(path: string): Promise<'remove' | 'locate' | 'cancel'>
   openRepo(path: string): Promise<RepoState>
+  /** Parent repo of each path when it's a submodule, else null. */
+  repoParents(paths: string[]): Promise<(string | null)[]>
   log(path: string, limit: number): Promise<Commit[]>
   commitDetails(path: string, hash: string): Promise<CommitDetails>
   workingTree(path: string): Promise<WorkingTree>
@@ -307,6 +309,8 @@ export interface SpoonApi {
 
   contextMenu(items: MenuItem[]): Promise<string | null>
   confirm(opts: ConfirmOptions): Promise<boolean>
+  /** Closes the window the way its close button would. */
+  closeWindow(): void
   revealInFinder(path: string): Promise<void>
   openExternal(url: string): Promise<void>
   appInfo(): Promise<AppInfo>
@@ -352,3 +356,5 @@ export type MenuCommand =
   | 'push'
   | 'commit'
   | 'settings'
+  | 'close-tab'
+  | 'find-project'

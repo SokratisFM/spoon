@@ -7,6 +7,7 @@ import config from '../../spoon.config.json'
 import { initUpdater } from './updater'
 import * as gh from './github'
 import { initStore } from './store'
+import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
 import { basename } from 'node:path'
 import type { DeviceCode, ReviewSubmission, CheckoutTarget, ConfirmOptions, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions } from '../shared/types'
@@ -61,9 +62,16 @@ function buildMenu(): void {
       {
         label: 'File',
         submenu: [
-          { label: 'Open Repository…', accelerator: 'CmdOrCtrl+O', click: () => send('open-repo') },
+          // ⌘T and ⌘O both open the project switcher (Tab does too); ⇧⌘O browses for any folder.
+          { label: 'New Tab…', accelerator: 'CmdOrCtrl+T', click: () => send('find-project') },
+          { label: 'Open Repository…', accelerator: 'CmdOrCtrl+O', click: () => send('find-project') },
+          { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('open-repo') },
           { type: 'separator' },
-          isMac ? { role: 'close' } : { role: 'quit' }
+          // ⌘W / Ctrl+W closes the current repository tab; the renderer closes the window when
+          // there's no tab left to close (so the window's usual close behavior applies).
+          { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
+          { role: 'close', label: 'Close Window', accelerator: 'CmdOrCtrl+Shift+W' },
+          ...(isMac ? [] : [{ type: 'separator' as const }, { role: 'quit' as const }])
         ]
       },
       { role: 'editMenu' },
@@ -93,15 +101,24 @@ function buildMenu(): void {
           { role: 'togglefullscreen' }
         ]
       },
-      { role: 'windowMenu' }
+      {
+        role: 'window',
+        submenu: [
+          { role: 'minimize' },
+          { role: 'zoom' },
+          ...(isMac ? [{ type: 'separator' as const }, { role: 'front' as const }] : [])
+        ]
+      }
     ])
   )
 }
 
 function createWindow(): void {
+  const saved = loadWindowState()
   win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: saved?.bounds.width ?? 1440,
+    height: saved?.bounds.height ?? 900,
+    ...(saved?.bounds.x !== undefined ? { x: saved.bounds.x, y: saved.bounds.y } : {}),
     minWidth: 900,
     minHeight: 560,
     show: false,
@@ -119,7 +136,12 @@ function createWindow(): void {
     }
   })
   win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined)
-  win.once('ready-to-show', () => win?.show())
+  trackWindowState(win)
+  win.once('ready-to-show', () => {
+    if (saved?.maximized) win?.maximize()
+    win?.show()
+    if (saved?.fullScreen) win?.setFullScreen(true)
+  })
   win.on('closed', () => (win = null))
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -166,6 +188,7 @@ function registerIpc(): void {
     return (['remove', 'locate', 'cancel'] as const)[res.response]
   })
   ipcMain.handle('repo:open', (_e, path: string) => git.openRepo(path))
+  ipcMain.handle('repo:parents', (_e, paths: string[]) => git.superprojects(paths))
   ipcMain.handle('repo:log', (_e, path: string, limit: number) => git.log(path, limit))
   ipcMain.handle('repo:commit', (_e, path: string, hash: string) => git.commitDetails(path, hash))
   ipcMain.handle('repo:status', (_e, path: string) => git.workingTree(path))
@@ -234,6 +257,7 @@ function registerIpc(): void {
       ).popup({ window: owner, callback: () => setTimeout(() => resolve(chosen)) })
     })
   })
+  ipcMain.on('ui:closeWindow', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
   ipcMain.handle('ui:confirm', async (e, opts: ConfirmOptions) => {
     const owner = BrowserWindow.fromWebContents(e.sender)!
     const res = await dialog.showMessageBox(owner, {

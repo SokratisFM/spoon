@@ -147,3 +147,13 @@ export const BackIcon = (p: P) => (
     <path d="M15 6l-6 6 6 6" />
   </Icon>
 )
+export const ChildIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 5v8a3 3 0 0 0 3 3h9M15 13l3 3-3 3" />
+  </Icon>
+)
+export const CheckoutIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 12h11M11 7l5 5-5 5M20 4v16" />
+  </Icon>
+)

@@ -17,10 +17,10 @@ export function Welcome({ recents, onPick, onOpen, onForget, onSearch }: Props) 
         <p className="muted">Open a git repository to get started.</p>
         <div className="welcome-actions">
           <button className="btn primary large" onClick={onPick}>
-            <FolderIcon /> Open Repository… <kbd>{keys('⌘O')}</kbd>
+            <FolderIcon /> Open Folder… <kbd>{keys('⇧⌘O')}</kbd>
           </button>
           <button className="btn large" onClick={onSearch}>
-            <SearchIcon /> Find Project <kbd className="soft">Tab</kbd>
+            <SearchIcon /> Find Project <kbd className="soft">{keys('⌘T')}</kbd>
           </button>
         </div>
 

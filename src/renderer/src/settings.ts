@@ -6,6 +6,10 @@ import * as storage from './storage'
 
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type DiffLayout = 'unified' | 'split'
+/** grouped: submodule tabs sit next to their parent's tab; labelled: tabs stay put, with an "in parent" line. */
+export type SubmoduleTabs = 'grouped' | 'labelled'
+/** How tags show in the commit list: collapsed onto the graph dot (diamond or count badge), as one chip, or all. */
+export type TagDisplay = 'diamond' | 'badge' | 'chip' | 'all'
 
 export type SidebarSection = 'submodules' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'stale'
 export const SIDEBAR_SECTIONS: { id: SidebarSection; label: string }[] = [
@@ -44,6 +48,8 @@ export interface Settings {
   prGroups: { yours: boolean; others: boolean }
   /** unified: one column with − and + lines; split: old file left, new file right. */
   diffLayout: DiffLayout
+  submoduleTabs: SubmoduleTabs
+  tagDisplay: TagDisplay
 }
 
 const BASE_FONT_PX = 13
@@ -63,7 +69,9 @@ const DEFAULTS: Settings = {
   githubClientId: '',
   sidebarSections: SIDEBAR_SECTIONS.map((x) => ({ id: x.id, visible: true })),
   prGroups: { yours: false, others: false },
-  diffLayout: 'unified'
+  diffLayout: 'unified',
+  submoduleTabs: 'grouped',
+  tagDisplay: 'diamond'
 }
 
 export const SCALE_MIN = 0.8

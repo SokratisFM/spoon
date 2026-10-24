@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
 import { resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
@@ -7,7 +7,7 @@ import { SettingsPopover } from './components/SettingsPopover'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
-import { CloseIcon, FolderIcon, PlusIcon, SearchIcon, TextSizeIcon } from './components/Icons'
+import { BoxIcon, ChildIcon, CloseIcon, FolderIcon, PlusIcon, SearchIcon, TextSizeIcon } from './components/Icons'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys } from './platform'
 import { useUpdateState } from './appinfo'
@@ -50,7 +50,12 @@ export function App() {
         rememberProject(repo.path)
         setActive(repo.path)
       } catch (err) {
-        setToast(cleanError(err))
+        const msg = cleanError(err)
+        setToast(
+          /not permitted|permission denied/i.test(msg)
+            ? 'macOS hasn’t given Spoon access to this folder. Allow it in System Settings → Privacy & Security → Files and Folders, then try again.'
+            : msg
+        )
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,6 +104,135 @@ export function App() {
 
   const closeTab = (path: string): void => dropTab(path)
 
+  // ⌘W / Ctrl+W: dismiss an open dialog first, then close the current tab; with only one tab (or
+  // none) left, close the window instead, as its close button would. The last tab is kept so it
+  // reopens next time.
+  const closeTabOrWindow = (): void => {
+    const overlay = document.querySelector('.modal-backdrop, .palette-backdrop, .popover')
+    if (overlay) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      return
+    }
+    if (current && tabs.length > 1) closeTab(current)
+    else window.spoon.closeWindow()
+  }
+  const closeRef = useRef(closeTabOrWindow)
+  closeRef.current = closeTabOrWindow
+
+  // ---- drag to reorder: a submodule group moves as one unit ----
+  const [drag, setDrag] = useState<{ unit: string; over?: string; after?: boolean } | null>(null)
+  const moveUnit = (unitPaths: string[], targetPaths: string[], after: boolean): void => {
+    setTabs((t) => {
+      const rest = t.filter((p) => !unitPaths.includes(p))
+      const anchor = after ? targetPaths[targetPaths.length - 1] : targetPaths[0]
+      let at = rest.indexOf(anchor)
+      if (at === -1) return t
+      if (after) at += 1
+      return [...rest.slice(0, at), ...unitPaths, ...rest.slice(at)]
+    })
+  }
+
+  // Which open tabs are submodules, and of what. Re-checked when the tab list changes.
+  const [parents, setParents] = useState<Record<string, string | null>>({})
+  useEffect(() => {
+    window.spoon.repoParents(tabs).then((ps) => setParents(Object.fromEntries(tabs.map((t, i) => [t, ps[i]]))))
+  }, [tabs])
+
+  const tab = (path: string, variant: 'plain' | 'child' | 'labelled') => {
+    const name = projectName(path)
+    const parent = parents[path]
+    return (
+      <div
+        key={path}
+        className={`tab ${variant} ${path === current ? 'active' : ''}`}
+        onClick={() => setActive(path)}
+        onAuxClick={(e) => e.button === 1 && closeTab(path)}
+        title={parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path}
+      >
+        {variant === 'child' && <ChildIcon className="icon tab-sub-icon" />}
+        {variant === 'labelled' && <BoxIcon className="icon tab-sub-icon" />}
+        {variant === 'labelled' ? (
+          <span className="tab-two">
+            <span className="tab-name">{name}</span>
+            <small>in {projectName(parent!)}</small>
+          </span>
+        ) : (
+          <span className="tab-name">{name}</span>
+        )}
+        <button
+          className="tab-close"
+          onClick={(e) => {
+            e.stopPropagation()
+            closeTab(path)
+          }}
+          aria-label="Close tab"
+        >
+          <CloseIcon />
+        </button>
+      </div>
+    )
+  }
+
+  // Grouped: each open submodule tab follows its parent's tab inside one outline (nested
+  // submodules follow theirs). A submodule whose parent isn't open, or labelled mode, keeps its
+  // place and gets the "in parent" line instead.
+  const parentOpen = (p: string): boolean => !!parents[p] && tabs.includes(parents[p]!)
+  const descendants = (p: string): string[] =>
+    tabs.filter((c) => parents[c] === p).flatMap((c) => [c, ...descendants(c)])
+  const units: { key: string; paths: string[]; node: ReactNode }[] =
+    settings.submoduleTabs === 'grouped'
+      ? tabs
+          .filter((t) => !parentOpen(t))
+          .map((t) => {
+            const kids = descendants(t)
+            if (!kids.length) return { key: t, paths: [t], node: tab(t, parents[t] ? 'labelled' : 'plain') }
+            return {
+              key: t,
+              paths: [t, ...kids],
+              node: (
+                <div className="tab-group">
+                  {tab(t, parents[t] ? 'labelled' : 'plain')}
+                  {kids.map((k) => tab(k, 'child'))}
+                </div>
+              )
+            }
+          })
+      : tabs.map((t) => ({ key: t, paths: [t], node: tab(t, parents[t] ? 'labelled' : 'plain') }))
+
+  const tabBar = units.map((u) => (
+    <div
+      key={u.key}
+      className={[
+        'tab-unit',
+        drag?.unit === u.key ? 'dragging' : '',
+        drag?.over === u.key && drag.unit !== u.key ? (drag.after ? 'drop-after' : 'drop-before') : ''
+      ].join(' ')}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', u.key)
+        setDrag({ unit: u.key })
+      }}
+      onDragOver={(e) => {
+        if (!drag) return
+        e.preventDefault()
+        const r = e.currentTarget.getBoundingClientRect()
+        const after = e.clientX > r.left + r.width / 2
+        if (drag.over !== u.key || drag.after !== after) setDrag({ ...drag, over: u.key, after })
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        const from = units.find((x) => x.key === drag?.unit)
+        if (from && drag && from.key !== u.key) moveUnit(from.paths, u.paths, !!drag.after)
+        setDrag(null)
+      }}
+      onDragEnd={() => setDrag(null)}
+    >
+      {u.node}
+    </div>
+  ))
+
   useEffect(
     () =>
       window.spoon.onMenu((cmd) => {
@@ -106,7 +240,9 @@ export function App() {
         else if (cmd === 'zoom-out') updateSettings({ uiScale: settings.uiScale - SCALE_STEP })
         else if (cmd === 'zoom-reset') resetScale()
         else if (cmd === 'open-repo') pickRepo()
+        else if (cmd === 'find-project') setPalette(true)
         else if (cmd === 'settings') setSettingsWindow('appearance')
+        else if (cmd === 'close-tab') closeRef.current() // latest tabs, not the ones this effect saw
         else setCommand({ name: cmd, n: Date.now() }) // repo-level commands go to the active RepoView
       }),
     [settings.uiScale, pickRepo]
@@ -122,27 +258,7 @@ export function App() {
     <div className="app">
       <header className="titlebar">
         <div className="tabs">
-          {tabs.map((path) => (
-            <div
-              key={path}
-              className={`tab ${path === current ? 'active' : ''}`}
-              onClick={() => setActive(path)}
-              onAuxClick={(e) => e.button === 1 && closeTab(path)}
-              title={path}
-            >
-              <span className="tab-name">{path.split('/').pop()}</span>
-              <button
-                className="tab-close"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  closeTab(path)
-                }}
-                aria-label="Close tab"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-          ))}
+          {tabBar}
           <button className="icon-btn tab-add" onClick={() => setActive(null)} title="Open repository">
             <PlusIcon />
           </button>
@@ -210,7 +326,9 @@ export function App() {
         />
       )}
 
-      {palette && <ProjectPalette openTabs={tabs} onOpen={openRepo} onClose={() => setPalette(false)} />}
+      {palette && (
+        <ProjectPalette openTabs={tabs} onOpen={openRepo} onBrowse={pickRepo} onClose={() => setPalette(false)} />
+      )}
 
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
 
