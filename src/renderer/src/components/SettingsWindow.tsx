@@ -197,6 +197,10 @@ function AppearanceTab() {
         />
         Color branch labels like their graph line
       </label>
+      <label className="check" {...toggle('Playful toolbar animations', s.playfulNet, (from, to) => ({ kind: 'playful', from, to }))}>
+        <input type="checkbox" checked={s.playfulNet} onChange={(e) => updateSettings({ playfulNet: e.target.checked })} />
+        Playful toolbar animations: a dog fetches, a rope gets pulled, a big button gets pushed
+      </label>
       <label className="check" {...toggle('Remote name on branch labels', s.showRemoteName, (from, to) => ({ kind: 'remoteName', from, to }))}>
         <input
           type="checkbox"

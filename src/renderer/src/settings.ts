@@ -57,6 +57,8 @@ export interface Settings {
   showRemoteName: boolean
   /** Branch labels in their graph line's color (like Fork) instead of the accent color. */
   laneColoredBranches: boolean
+  /** Fetch/Pull/Push play a little scene (dog, rope, big button) while they run. */
+  playfulNet: boolean
   /** Branch colors (0–7, the theme's lane colors) reserved for branch-name prefixes. */
   reservedColors: Record<number, string[]>
   /** Reserved colors also apply to the branch's line in the graph. */
@@ -90,6 +92,7 @@ const DEFAULTS: Settings = {
   headHighlight: 'band',
   showRemoteName: false,
   laneColoredBranches: true,
+  playfulNet: false,
   reservedColors: {},
   reservedColorsGraph: true,
   jiraSite: 'https://fm-games.atlassian.net',

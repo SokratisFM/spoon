@@ -3747,33 +3747,28 @@ select:hover {
 .net-ring.indeterminate {
   animation: spin 0.9s linear infinite;
 }
-@keyframes bob-down {
-  0%,
-  100% {
-    translate: 0 -0.12em;
+/* Working: each arrow glides out through the edge while the next glides in, then a short rest.
+   The second arrow ends exactly where the first started, so the loop is seamless. */
+.net-pass {
+  animation: net-pass 1.9s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes net-pass {
+  0% {
+    transform: translateY(0);
   }
-  50% {
-    translate: 0 0.16em;
+  68%,
+  100% {
+    transform: translateY(var(--travel));
   }
 }
-@keyframes bob-up {
-  0%,
-  100% {
-    translate: 0 0.12em;
-  }
-  50% {
-    translate: 0 -0.16em;
+@media (prefers-reduced-motion: reduce) {
+  .net-pass {
+    animation: none;
   }
 }
 .tool-btn.net-working {
   color: var(--accent-fg);
   opacity: 1;
-}
-.net-down.net-working .net-glyph {
-  animation: bob-down 0.8s ease-in-out infinite;
-}
-.net-up.net-working .net-glyph {
-  animation: bob-up 0.8s ease-in-out infinite;
 }
 .tool-btn.net-done {
   color: var(--add);
@@ -4308,4 +4303,434 @@ select:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.9em;
+}
+
+/* ---------- playful toolbar scenes (opt-in) ---------- */
+
+/* Settings preview: the standard and playful toolbars, the one being shown lit up. */
+.pv-net-list {
+  gap: 0.3rem;
+}
+.pv-net-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  opacity: 0.3;
+}
+.pv-net-row.on {
+  opacity: 1;
+}
+.pv-net-row .pv-caption {
+  width: 100%;
+  padding-left: 0.4rem;
+}
+.tool-btn.pv-net {
+  font-size: 0.95em;
+  padding: 0.2rem 0.15rem;
+  pointer-events: none;
+}
+
+
+/* The working button widens into a pill that plays its scene, with git's progress as a thin bar. */
+.net-icon.scene {
+  width: 5.6em;
+  height: 2.24em;
+  margin: -0.45em 0 -0.3em;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  overflow: hidden;
+  animation: scene-open 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+@keyframes scene-open {
+  from {
+    width: 1.9em;
+  }
+}
+.pl-scene {
+  width: 5.6em;
+  height: 2.24em;
+  overflow: visible;
+}
+.net-scene-bar {
+  position: absolute;
+  left: 0.9em;
+  right: 0.9em;
+  bottom: 0.1em;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  overflow: hidden;
+}
+.net-scene-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease-out;
+}
+.net-scene-bar.indeterminate > span {
+  width: 35%;
+  animation: scene-bar 1.2s ease-in-out infinite;
+}
+@keyframes scene-bar {
+  from {
+    translate: -100%;
+  }
+  to {
+    translate: 290%;
+  }
+}
+.pl-solid {
+  fill: var(--bg-chrome);
+}
+
+/* Fetch: the ball flies in an arc, the dog runs after it and trots back with it, tail going. */
+.pl-ball {
+  fill: var(--lane-1);
+  stroke: none;
+  offset-path: path('M18 30 Q58 -8 98 40');
+  offset-rotate: 0deg;
+  animation: pl-ball 3.6s cubic-bezier(0.3, 0.6, 0.5, 1) infinite;
+}
+@keyframes pl-ball {
+  0% {
+    offset-distance: 0%;
+    opacity: 1;
+  }
+  22%,
+  55% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+  56%,
+  98% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+  100% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+}
+.pl-dog {
+  animation: pl-dog 3.6s ease-in-out infinite;
+}
+@keyframes pl-dog {
+  0%,
+  14% {
+    transform: translateX(14px);
+  }
+  52%,
+  58% {
+    transform: translateX(80px);
+  }
+  95%,
+  100% {
+    transform: translateX(14px);
+  }
+}
+.pl-dog-face {
+  animation: pl-face 3.6s steps(1) infinite;
+}
+@keyframes pl-face {
+  0% {
+    transform: scaleX(1);
+  }
+  56% {
+    transform: scaleX(-1);
+  }
+  97% {
+    transform: scaleX(1);
+  }
+}
+.pl-mouth-ball {
+  fill: var(--lane-1);
+  stroke: none;
+  animation: pl-mouth 3.6s steps(1) infinite;
+}
+@keyframes pl-mouth {
+  0% {
+    opacity: 0;
+  }
+  56% {
+    opacity: 1;
+  }
+  96% {
+    opacity: 0;
+  }
+}
+.pl-leg-a,
+.pl-leg-b {
+  transform-origin: 0px 35px;
+  animation: pl-legs 0.28s ease-in-out infinite alternate;
+}
+.pl-leg-b {
+  animation-direction: alternate-reverse;
+}
+@keyframes pl-legs {
+  from {
+    transform: rotate(-14deg);
+  }
+  to {
+    transform: rotate(14deg);
+  }
+}
+.pl-tail {
+  transform-origin: -10px 29px;
+  animation: pl-wag 0.22s ease-in-out infinite alternate;
+}
+@keyframes pl-wag {
+  from {
+    transform: rotate(-18deg);
+  }
+  to {
+    transform: rotate(16deg);
+  }
+}
+
+/* Pull: two people heave in rhythm and drag a commit in from the right. */
+.pl-puller {
+  animation: pl-heave 1.2s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+.pl-p1 {
+  transform-origin: 26px 42px;
+}
+.pl-p2 {
+  transform-origin: 46px 42px;
+  animation-delay: -0.08s;
+}
+@keyframes pl-heave {
+  0%,
+  100% {
+    transform: rotate(0deg) translateX(0);
+  }
+  45% {
+    transform: rotate(-16deg) translateX(-3px);
+  }
+  60% {
+    transform: rotate(-12deg) translateX(-3px);
+  }
+}
+.pl-rope {
+  animation: pl-rope 1.2s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+@keyframes pl-rope {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  45%,
+  60% {
+    transform: translateX(-5px);
+  }
+}
+.pl-cargo {
+  animation: pl-cargo 3.6s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+.pl-dot {
+  fill: currentColor;
+  stroke: none;
+}
+@keyframes pl-cargo {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  15%,
+  33% {
+    transform: translateX(-7px);
+  }
+  48%,
+  66% {
+    transform: translateX(-14px);
+  }
+  81%,
+  90% {
+    transform: translateX(-21px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+.pl-sweat {
+  stroke: var(--lane-5);
+  opacity: 0;
+  animation: pl-sweat 1.2s ease-out infinite;
+}
+@keyframes pl-sweat {
+  40% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  50% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0;
+    transform: translate(-4px, -3px);
+  }
+}
+
+/* Push: wind up, press the big button with a bent arm, an arrow launches, a little hop. */
+.pl-presser {
+  transform-origin: 73px 42px;
+  animation: pl-press 2.4s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+@keyframes pl-press {
+  0%,
+  10% {
+    transform: rotate(0);
+  }
+  30% {
+    transform: rotate(-8deg);
+  }
+  42% {
+    transform: rotate(5deg);
+  }
+  55% {
+    transform: rotate(0);
+  }
+  66% {
+    transform: translateY(-4px);
+  }
+  76%,
+  100% {
+    transform: translateY(0);
+  }
+}
+.pl-upper-arm {
+  transform-origin: 72.5px 21px;
+  animation: pl-upper 2.4s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+@keyframes pl-upper {
+  0%,
+  10% {
+    transform: rotate(-25deg);
+  }
+  30% {
+    transform: rotate(-100deg);
+  }
+  42%,
+  50% {
+    transform: rotate(0deg);
+  }
+  62% {
+    transform: rotate(-125deg);
+  }
+  76%,
+  100% {
+    transform: rotate(-25deg);
+  }
+}
+.pl-forearm {
+  transform-origin: 78.5px 25px;
+  animation: pl-fore 2.4s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+@keyframes pl-fore {
+  0%,
+  10% {
+    transform: rotate(20deg);
+  }
+  30% {
+    transform: rotate(-35deg);
+  }
+  42%,
+  50% {
+    transform: rotate(0deg);
+  }
+  62% {
+    transform: rotate(-15deg);
+  }
+  76%,
+  100% {
+    transform: rotate(20deg);
+  }
+}
+.pl-button path {
+  fill: var(--del);
+  stroke: var(--del);
+}
+.pl-button {
+  transform-origin: 87px 33px;
+  animation: pl-button 2.4s ease infinite;
+}
+@keyframes pl-button {
+  0%,
+  38% {
+    transform: scaleY(1);
+  }
+  44%,
+  50% {
+    transform: scaleY(0.45);
+  }
+  62%,
+  100% {
+    transform: scaleY(1);
+  }
+}
+.pl-rocket {
+  opacity: 0;
+  animation: pl-rocket 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes pl-rocket {
+  0%,
+  44% {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  48% {
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(-22px);
+    opacity: 1;
+  }
+  90%,
+  100% {
+    transform: translateY(-30px);
+    opacity: 0;
+  }
+}
+.pl-flame {
+  fill: var(--lane-1);
+  stroke: none;
+  transform-origin: 87px 21.5px;
+  animation: pl-flame 0.12s linear infinite alternate;
+}
+@keyframes pl-flame {
+  to {
+    transform: scaleY(1.6);
+  }
+}
+.pl-sparks {
+  stroke: var(--warn);
+  opacity: 0;
+  transform-origin: 87px 18px;
+  animation: pl-sparks 2.4s ease-out infinite;
+}
+@keyframes pl-sparks {
+  0%,
+  46% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  52% {
+    opacity: 1;
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .net-icon.scene,
+  .pl-scene *,
+  .net-scene-bar > span {
+    animation: none !important;
+  }
 }

@@ -1,7 +1,7 @@
 {
   "name": "spoon",
   "productName": "Spoon",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "A Fork-style git client with a scalable, modern UI",
   "main": "./out/main/index.js",
   "private": true,

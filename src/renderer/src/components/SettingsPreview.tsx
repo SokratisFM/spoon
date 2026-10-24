@@ -15,6 +15,8 @@ import {
 } from '../settings'
 import { hueFor, initials } from '../format'
 import { BoxIcon, BranchIcon, BroomIcon, ChildIcon, CloudIcon, PinIcon, StashIcon, TagIcon } from './Icons'
+import { MovingGlyph, type NetKind } from './NetButton'
+import { PlayfulScene } from './PlayfulNet'
 
 export interface SectionState {
   id: SidebarSection
@@ -30,6 +32,7 @@ export type PreviewSpec =
   | { kind: 'tags'; from: TagDisplay; to: TagDisplay }
   | { kind: 'laneLabels'; from: boolean; to: boolean }
   | { kind: 'remoteName'; from: boolean; to: boolean }
+  | { kind: 'playful'; from: boolean; to: boolean }
   | { kind: 'head'; from: HeadHighlight; to: HeadHighlight }
   | { kind: 'subtabs'; from: SubmoduleTabs; to: SubmoduleTabs }
   /** Lane indexes for the branch's label and graph line, before and after. */
@@ -427,6 +430,30 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
               {x.label}
             </div>
           ))}
+        </div>
+      )
+    }
+    case 'playful': {
+      // Both versions stay mounted (the scenes run longer than one swap), and the one the card is
+      // showing lights up.
+      const on = phase ? spec.to : spec.from
+      const row = (playful: boolean) => (
+        <div className={`pv-net-row ${on === playful ? 'on' : ''}`}>
+          <span className="pv-caption">{playful ? 'Playful' : 'Standard'}</span>
+          {(['fetch', 'pull', 'push'] as NetKind[]).map((k) => (
+            <span key={k} className="tool-btn net net-working pv-net">
+              <span className={`net-icon ${playful ? 'scene' : ''}`}>
+                {playful ? <PlayfulScene kind={k} /> : <MovingGlyph kind={k} />}
+              </span>
+              <span>{k[0].toUpperCase() + k.slice(1)}</span>
+            </span>
+          ))}
+        </div>
+      )
+      return (
+        <div className="pv-list pv-net-list">
+          {row(false)}
+          {row(true)}
         </div>
       )
     }
