@@ -1,5 +1,6 @@
 // Read-only access to Confluence for the MainLib changelog, with an Atlassian API token
-// (id.atlassian.com → Security → API tokens). The email and token live in the Keychain on macOS
+// (id.atlassian.com → Security → API tokens): a classic token, or one with scopes that includes
+// read:page:confluence. The email and token live in the Keychain on macOS
 // (safeStorage elsewhere); pages are fetched with the REST API and returned as HTML.
 import { execFile } from 'node:child_process'
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -55,16 +56,45 @@ function parsePageUrl(url: string): { origin: string; id: string } {
   return { origin: u.origin, id }
 }
 
+class AuthError extends Error {}
+
 async function get<T>(c: Creds, url: string): Promise<T> {
   const res = await fetch(url, {
     headers: { Authorization: auth(c), Accept: 'application/json' },
     signal: AbortSignal.timeout(20_000)
   })
   if (res.status === 401 || res.status === 403)
-    throw new Error('Atlassian didn’t accept the email and API token. Check them in Settings → Accounts.')
+    throw new AuthError(
+      'Atlassian didn’t accept the email and API token (or the token lacks the read:page:confluence scope). Check them in Settings → Accounts.'
+    )
   if (res.status === 404) throw new Error('That Confluence page wasn’t found (or this account can’t see it).')
   if (!res.ok) throw new Error(`Confluence returned ${res.status}`)
   return (await res.json()) as T
+}
+
+// A site's cloud id, needed to reach it through api.atlassian.com (public, no sign-in needed).
+const cloudIds = new Map<string, string>()
+async function cloudId(origin: string): Promise<string> {
+  const known = cloudIds.get(origin)
+  if (known) return known
+  const res = await fetch(`${origin}/_edge/tenant_info`, { signal: AbortSignal.timeout(10_000) })
+  const id = res.ok ? ((await res.json()) as { cloudId?: string }).cloudId : undefined
+  if (!id) throw new Error(`Couldn’t look up the Atlassian site ${origin}.`)
+  cloudIds.set(origin, id)
+  return id
+}
+
+/**
+ * A Confluence REST path, tried on the site itself (classic API tokens) and then through
+ * api.atlassian.com (tokens with scopes only work there).
+ */
+async function confluence<T>(c: Creds, origin: string, path: string): Promise<T> {
+  try {
+    return await get<T>(c, `${origin}/wiki${path}`)
+  } catch (err) {
+    if (!(err instanceof AuthError)) throw err
+    return get<T>(c, `https://api.atlassian.com/ex/confluence/${await cloudId(origin)}/wiki${path}`)
+  }
 }
 
 export async function account(): Promise<AtlassianAccount | null> {
@@ -72,11 +102,11 @@ export async function account(): Promise<AtlassianAccount | null> {
   return c ? { email: c.email } : null
 }
 
-/** Saves the credentials after checking them against the site of `pageUrl`. */
+/** Saves the credentials after checking that they can read `pageUrl` (the changelog). */
 export async function connect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount> {
   const c = { email: email.trim(), token: token.trim() }
-  const { origin } = parsePageUrl(pageUrl)
-  await get(c, `${origin}/wiki/rest/api/user/current`)
+  const { origin, id } = parsePageUrl(pageUrl)
+  await confluence(c, origin, `/api/v2/pages/${id}`)
   await writeCreds(c)
   return { email: c.email }
 }
@@ -91,9 +121,10 @@ export async function page(url: string): Promise<ConfluencePage> {
   const c = await readCreds()
   if (!c) throw new Error('Connect your Atlassian account in Settings → Accounts to read the MainLib changelog.')
   const { origin, id } = parsePageUrl(url)
-  const p = await get<{ title: string; body?: { storage?: { value?: string } } }>(
+  const p = await confluence<{ title: string; body?: { storage?: { value?: string } } }>(
     c,
-    `${origin}/wiki/api/v2/pages/${id}?body-format=storage`
+    origin,
+    `/api/v2/pages/${id}?body-format=storage`
   )
   return { title: p.title, html: p.body?.storage?.value ?? '' }
 }

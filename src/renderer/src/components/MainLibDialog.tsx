@@ -377,18 +377,25 @@ export function MainLibDialog({
                         Terminal (Claude Code)
                       </option>
                     </select>
-                    <select value={prefs.model} disabled={prefs.where === 'desktop'} onChange={(e) => setPrefs({ ...prefs, model: e.target.value })}>
-                      {MODELS.map(([id, label]) => (
-                        <option key={id} value={id}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                    <select value={prefs.effort} disabled={prefs.where === 'desktop'} onChange={(e) => setPrefs({ ...prefs, effort: e.target.value })}>
-                      {['medium', 'high', 'xhigh'].map((x) => (
-                        <option key={x}>{x}</option>
-                      ))}
-                    </select>
+                    {prefs.where === 'desktop' ? (
+                      // The Claude app's link takes the prompt and folder only; model and effort are picked there.
+                      <span className="hint ml-desktop-note">Model and effort are chosen in the Claude app.</span>
+                    ) : (
+                      <>
+                        <select value={prefs.model} onChange={(e) => setPrefs({ ...prefs, model: e.target.value })}>
+                          {MODELS.map(([id, label]) => (
+                            <option key={id} value={id}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        <select value={prefs.effort} onChange={(e) => setPrefs({ ...prefs, effort: e.target.value })}>
+                          {['medium', 'high', 'xhigh'].map((x) => (
+                            <option key={x}>{x}</option>
+                          ))}
+                        </select>
+                      </>
+                    )}
                   </span>
                   <textarea rows={7} value={prompt} onChange={(e) => setEdited(e.target.value)} spellCheck onKeyDown={(e) => e.stopPropagation()} />
                   <span className="hint">

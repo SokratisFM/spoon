@@ -5677,3 +5677,6 @@ input[type='checkbox']:focus-visible {
 .mainlib-field .form-row .field {
   flex: 1;
 }
+.ml-desktop-note {
+  align-self: center;
+}

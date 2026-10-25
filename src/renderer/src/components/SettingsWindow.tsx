@@ -1177,7 +1177,8 @@ function MainLibField() {
               >
                 API token
               </a>
-              ; it’s kept in your Keychain.
+              : a classic token, or one with scopes that includes <span className="mono">read:page:confluence</span>. It’s kept in
+              your Keychain.
             </span>
             <div className="form-row">
               <input placeholder="you@fm-games.com" value={email} spellCheck={false} onChange={(e) => setEmail(e.target.value)} />
