@@ -83,24 +83,16 @@ export function ReviewDialog({ path, repo, stagedCount, changeCount, commit, onC
   const [edited, setEdited] = useState<string | null>(null)
   const generated = useMemo(() => {
     const remote = draft?.remote ?? 'origin'
-    const hash = target?.hash ?? 'HEAD'
-    const what: Record<Scope, [string, string]> = {
-      staged: ['the staged changes', '`git diff --staged`'],
-      local: ['all uncommitted changes (staged, unstaged and new files)', '`git status` and `git diff HEAD`'],
-      commit: [
-        target ? `commit ${target.hash.slice(0, 7)} (“${target.subject}”)` : 'the last commit',
-        `\`git show ${hash}\``
-      ],
-      branch: [
-        `the changes on ${branch} since it left ${remote}/${base}`,
-        `\`git log ${remote}/${base}..HEAD\` and \`git diff ${remote}/${base}...HEAD\``
-      ]
+    const what: Record<Scope, string> = {
+      staged: 'the staged changes',
+      local: 'all uncommitted changes (staged, unstaged and new files)',
+      commit: target ? `commit ${target.hash.slice(0, 7)} (“${target.subject}”)` : 'the last commit',
+      branch: `the changes on ${branch} since it left ${remote}/${base}`
     }
-    const [scopeText, how] = what[scope]
+    const scopeText = what[scope]
     const focus = FOCUS.filter(([id]) => prefs.focus.includes(id)).map(([, , text]) => text)
     const lines = [
       `Review ${scopeText} in this repository and report what you find.`,
-      `See ${scope === 'commit' ? 'it' : 'them'} with ${how}.`,
       focus.length ? `Look for: ${focus.join('; ')}.` : '',
       extra.trim() ? `Also: ${extra.trim()}` : ''
     ].filter((l) => l !== '')
