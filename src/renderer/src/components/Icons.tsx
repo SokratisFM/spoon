@@ -203,3 +203,11 @@ export const ClaudeIcon = (p: P) => (
     <path d="M12 3.5v17M3.5 12h17M6 6l12 12M18 6L6 18" strokeWidth={2.1} />
   </Icon>
 )
+/** A terminal prompt with a clock: the git commands Spoon has run. */
+export const TerminalHistoryIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 6.5l4 3.5-4 3.5M10 15h3" />
+    <circle cx="17.5" cy="15.5" r="4" />
+    <path d="M17.5 13.5v2l1.3 1" />
+  </Icon>
+)

@@ -5099,3 +5099,122 @@ select:hover {
     animation: none;
   }
 }
+
+/* ---------- git command history ---------- */
+
+.history-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.6rem;
+}
+.history-tools input:not([type]) {
+  flex: 1;
+}
+.history-list {
+  display: flex;
+  flex-direction: column;
+  height: min(60vh, 34rem);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.history-empty {
+  padding: 1rem;
+  text-align: center;
+}
+.history-row {
+  display: grid;
+  grid-template-columns: 5.2rem 7rem minmax(0, 1fr) 4.2rem 1.6rem;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.7rem;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.history-row:hover {
+  background: var(--bg-hover);
+}
+.history-time,
+.history-ms {
+  color: var(--text-faint);
+  font-size: 0.85em;
+}
+.history-ms {
+  text-align: right;
+}
+.history-repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.history-cmd {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88em;
+}
+.history-error {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--danger);
+  font-family: var(--font-ui);
+  font-size: 0.92em;
+}
+.history-copied {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--add);
+  font-family: var(--font-ui);
+}
+.history-status {
+  display: grid;
+  place-items: center;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.history-status.ok {
+  color: var(--add);
+}
+.history-status.failed {
+  color: var(--danger);
+}
+.history-status .spinner {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+.history-stats {
+  margin-right: auto;
+  font-size: 0.9em;
+}
+
+/* Commit column: click to copy the hash. */
+.cell.hash.copyable {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.cell.hash.copyable:hover {
+  color: var(--text);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+.cell.hash.copied {
+  color: var(--add);
+  font-family: var(--font-ui);
+}
+/* Commands are long: the history window gets more width than other wide dialogs. */
+.modal.wide:has(.history-list) {
+  width: min(68rem, 94vw);
+  max-width: none;
+}

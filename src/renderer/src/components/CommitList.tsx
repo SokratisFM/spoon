@@ -208,7 +208,7 @@ export const CommitList = memo(function CommitList({
     virtualizer.scrollToIndex(next)
   }
 
-  const gridTemplate = 'minmax(0, 1fr) 11.5rem 8.5rem 5rem'
+  const gridTemplate = 'minmax(0, 1fr) 11.5rem 8.5rem 6.2rem'
 
   // Double-click checks out, like Fork: the commit's local branch (pick one if several), else its
   // remote branch as a local tracking branch, else the commit itself (detached, after confirming).
@@ -628,7 +628,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
         <span className="ellipsis">{c.authorName}</span>
       </span>
       <span className="cell date">{shortDate(c.authorTime)}</span>
-      <span className="cell hash mono">{c.hash.slice(0, 7)}</span>
+      <HashCell hash={c.hash} />
     </div>
   )
 })
@@ -757,5 +757,27 @@ function GraphCell({
         </circle>
       )}
     </svg>
+  )
+}
+
+/** The commit column: 9 characters of the hash; click copies the whole hash. */
+function HashCell({ hash }: { hash: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const t = setTimeout(() => setCopied(false), 1100)
+    return () => clearTimeout(t)
+  }, [copied])
+  return (
+    <span
+      className={`cell hash mono copyable ${copied ? 'copied' : ''}`}
+      title="Click to copy the full hash"
+      onClick={() => {
+        navigator.clipboard.writeText(hash)
+        setCopied(true)
+      }}
+    >
+      {copied ? 'Copied' : hash.slice(0, 9)}
+    </span>
   )
 }

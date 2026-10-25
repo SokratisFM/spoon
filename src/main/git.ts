@@ -32,6 +32,7 @@ import type {
   SubmoduleUpdatePreview,
   WorkingTree
 } from '../shared/types'
+import * as history from './history'
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const FS = '\x1f' // field separator
@@ -89,6 +90,7 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
       env: opts.env ? { ...env, ...opts.env } : env,
       detached: !!opts.cancellable && process.platform !== 'win32'
     })
+    const finish = history.recordStart(cwd, args)
     const out: Buffer[] = []
     let size = 0
     let truncated = false
@@ -124,6 +126,7 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
     })
     child.on('error', (e) => {
       forget()
+      finish(null, e.message)
       reject(new GitError(`git ${args[0]}: ${e.message}`, null, ''))
     })
     let settled = false
@@ -131,6 +134,8 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
       if (settled) return
       settled = true
       forget()
+      const ok = !cancelled && (truncated || (code !== null && okCodes.includes(code)))
+      finish(cancelled ? null : code, cancelled ? CANCELLED : ok ? undefined : err)
       if (cancelled) return reject(new GitError(CANCELLED, code, err))
       if (truncated || (code !== null && okCodes.includes(code))) {
         const buf = Buffer.concat(out)

@@ -3,11 +3,12 @@ import type { MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
 import { resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
 import { RepoView } from './components/RepoView'
+import { GitHistoryDialog } from './components/GitHistoryDialog'
 import { warmTabs } from './repoCache'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
-import { BoxIcon, ChildIcon, CloseIcon, CogIcon, FolderIcon, PlusIcon, SearchIcon } from './components/Icons'
+import { BoxIcon, ChildIcon, CloseIcon, CogIcon, FolderIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
 import { choose, DialogHost } from './dialogs'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
@@ -21,6 +22,7 @@ export function App() {
   const projects = useProjects()
   const update = useUpdateState()
   const [palette, setPalette] = useState(false)
+  const [gitHistory, setGitHistory] = useState(false)
   const [currentMissing, setCurrentMissing] = useState(false)
   const [command, setCommand] = useState<{ name: MenuCommand; n: number } | null>(null)
   const [settingsWindow, setSettingsWindow] = useState<false | SettingsTab>(false)
@@ -334,6 +336,7 @@ export function App() {
         else if (cmd === 'zoom-reset') resetScale()
         else if (cmd === 'open-repo') pickRepo()
         else if (cmd === 'find-project') setPalette(true)
+        else if (cmd === 'git-history') setGitHistory((open) => !open)
         else if (cmd === 'settings') setSettingsWindow('appearance')
         else if (cmd === 'close-tab') closeRef.current() // latest tabs, not the ones this effect saw
         else setCommand({ name: cmd, n: Date.now() }) // repo-level commands go to the active RepoView
@@ -365,6 +368,10 @@ export function App() {
           <button className="icon-btn keyed-btn" onClick={() => setPalette(true)} title="Go to project">
             <SearchIcon />
             <kbd className="keyed-key">Tab</kbd>
+          </button>
+          <button className="icon-btn keyed-btn" onClick={() => setGitHistory(true)} title="Git command history">
+            <TerminalHistoryIcon />
+            <kbd className="keyed-key">{keys('⇧⌘H')}</kbd>
           </button>
           <button className="icon-btn keyed-btn settings-btn" onClick={() => setSettingsWindow('appearance')} title="Settings">
             <CogIcon />
@@ -413,6 +420,7 @@ export function App() {
 
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
 
+      {gitHistory && <GitHistoryDialog current={current} onClose={() => setGitHistory(false)} />}
       <DialogHost />
       <MenuHost />
 

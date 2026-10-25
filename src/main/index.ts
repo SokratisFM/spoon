@@ -7,6 +7,7 @@ import config from '../../spoon.config.json'
 import { initUpdater } from './updater'
 import * as gh from './github'
 import * as claude from './claude'
+import * as history from './history'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
@@ -92,6 +93,7 @@ function buildMenu(): void {
         label: 'View',
         submenu: [
           { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: () => send('refresh') },
+          { label: 'Git Command History', accelerator: 'CmdOrCtrl+Shift+H', click: () => send('git-history') },
           { label: 'Filter Commits', accelerator: 'CmdOrCtrl+F', click: () => send('filter-commits') },
           { type: 'separator' },
           // UI scaling is done by the renderer (CSS), not Electron's page zoom, so layout
@@ -204,6 +206,11 @@ function registerIpc(): void {
   ipcMain.handle('gh:assignable', (_e, path: string) => gh.assignable(path))
   ipcMain.handle('gh:createPull', (_e, path: string, pull: NewPull) => gh.createPull(path, pull))
   ipcMain.handle('claude:availability', () => claude.availability())
+  ipcMain.handle('git:history', () => history.list())
+  ipcMain.handle('git:clearHistory', () => history.clear())
+  history.onCommand((entry) => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('git:command', entry)
+  })
   ipcMain.handle('claude:launch', (_e, launch: ClaudeLaunch) => claude.launch(launch))
   ipcMain.handle('gh:pull', (_e, path: string, n: number) => gh.pull(path, n))
   ipcMain.handle('gh:comment', (_e, path: string, n: number, body: string) => gh.comment(path, n, body))

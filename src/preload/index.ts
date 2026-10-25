@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { MenuCommand, SpoonApi, UpdateState } from '../shared/types'
+import type { GitCommandEntry, MenuCommand, SpoonApi, UpdateState } from '../shared/types'
 
 const api: SpoonApi = {
   storeSnapshot: ipcRenderer.sendSync('store:snapshot'),
@@ -69,6 +69,13 @@ const api: SpoonApi = {
   pullDraftInfo: (path, branch) => ipcRenderer.invoke('repo:pullDraftInfo', path, branch),
   ghAssignable: (path) => ipcRenderer.invoke('gh:assignable', path),
   ghCreatePull: (path, pull) => ipcRenderer.invoke('gh:createPull', path, pull),
+  gitHistory: () => ipcRenderer.invoke('git:history'),
+  clearGitHistory: () => ipcRenderer.invoke('git:clearHistory'),
+  onGitCommand: (handler) => {
+    const listener = (_e: unknown, entry: GitCommandEntry): void => handler(entry)
+    ipcRenderer.on('git:command', listener)
+    return () => ipcRenderer.removeListener('git:command', listener)
+  },
   claudeAvailability: () => ipcRenderer.invoke('claude:availability'),
   claudeLaunch: (launch) => ipcRenderer.invoke('claude:launch', launch),
   setMenuItemVisible: (id, visible) => ipcRenderer.send('ui:menuItemVisible', id, visible),

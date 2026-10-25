@@ -235,6 +235,20 @@ export interface PullDraftInfo {
   template: string | null
 }
 
+/** One git command Spoon ran, for the Git Command History window. */
+export interface GitCommandEntry {
+  id: number
+  cwd: string
+  args: string[]
+  startedAt: number
+  running: boolean
+  ms?: number
+  /** Exit code; null when it was cancelled or couldn't start. */
+  code?: number | null
+  /** First line of git's error output when it failed. */
+  error?: string
+}
+
 export interface ClaudeAvailability {
   /** Path of the `claude` command (Claude Code), or null when it isn't installed. */
   cli: string | null
@@ -487,6 +501,10 @@ export interface SpoonApi {
   /** People who can be assigned or asked to review in this repository. */
   ghAssignable(path: string): Promise<GhUser[]>
   ghCreatePull(path: string, pull: NewPull): Promise<CreatedPull>
+  gitHistory(): Promise<GitCommandEntry[]>
+  clearGitHistory(): Promise<void>
+  /** Called as each git command starts and again when it ends. */
+  onGitCommand(handler: (entry: GitCommandEntry) => void): () => void
   claudeAvailability(): Promise<ClaudeAvailability>
   claudeLaunch(launch: ClaudeLaunch): Promise<void>
   /** Shows or hides an item of the app's menu bar by id. */
@@ -518,3 +536,4 @@ export type MenuCommand =
   | 'discard'
   | 'commit-push'
   | 'review'
+  | 'git-history'
