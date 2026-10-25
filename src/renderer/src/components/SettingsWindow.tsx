@@ -84,14 +84,26 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
 
 const pct = (v: number): string => `${Math.round(v * 100)}%`
 
+/** A size setting's eye: a step smaller, the current size and a step bigger. */
+function sizeOptions(
+  title: string,
+  current: number,
+  steps: number[],
+  min: number,
+  max: number,
+  name: (v: number) => string,
+  spec: (v: number) => PreviewSpec
+): Preview {
+  const values = [...new Set(steps.map((d) => Math.round(Math.min(max, Math.max(min, current + d)) * 100) / 100))]
+  return {
+    title,
+    spec: spec(current),
+    options: values.map((v) => ({ label: name(v), current: Math.abs(v - current) < 0.001, spec: spec(v) }))
+  }
+}
+
 export function SizeControls() {
   const s = useSettings()
-  const sizePreview = (to: number): Preview | null => {
-    const v = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Math.round(to * 100) / 100))
-    return Math.abs(v - s.uiScale) < 0.001 ? null : { title: 'Interface size', from: pct(s.uiScale), to: pct(v), spec: { kind: 'size', from: s.uiScale, to: v } }
-  }
-  const codePreview = (v: number): Preview | null =>
-    v === s.codeSize ? null : { title: 'Diff font size', from: `${s.codeSize}px`, to: `${v}px`, spec: { kind: 'code', from: s.codeSize, to: v } }
   return (
     <>
       <label className="field">
@@ -99,7 +111,7 @@ export function SizeControls() {
           Interface size
           <PreviewEye
             label="Interface size"
-            make={() => [sizePreview(s.uiScale + 0.15), sizePreview(s.uiScale - 0.15)].filter((p): p is Preview => !!p)}
+            make={() => sizeOptions('Interface size', s.uiScale, [-0.15, 0, 0.15], SCALE_MIN, SCALE_MAX, pct, (v) => ({ kind: 'size', from: v, to: v }))}
           />
           <b>{Math.round(s.uiScale * 100)}%</b>
         </span>
@@ -133,7 +145,7 @@ export function SizeControls() {
           Diff font size
           <PreviewEye
             label="Diff font size"
-            make={() => [codePreview(Math.min(24, s.codeSize + 2)), codePreview(Math.max(9, s.codeSize - 2))].filter((p): p is Preview => !!p)}
+            make={() => sizeOptions('Diff font size', s.codeSize, [-2, 0, 2], 9, 24, (v) => `${v}px`, (v) => ({ kind: 'code', from: v, to: v }))}
           />
           <b>{s.codeSize}px</b>
         </span>
@@ -214,35 +226,35 @@ function AppearanceTab() {
         />
         <span className="hint">Collapsed tags open in a list when you click the dot or chip.</span>
       </div>
-      <label className="check">
-        <input
+      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
+      <div className="check">
+        <input id="set-branch-labels-in-lane-colors"
           type="checkbox"
           checked={s.laneColoredBranches}
           onChange={(e) => updateSettings({ laneColoredBranches: e.target.checked })}
         />
         <span>
-          Color branch labels like their graph line
-          <ToggleEye title={'Branch labels in lane colors'} on={s.laneColoredBranches} spec={(from, to) => ({ kind: 'laneLabels', from, to })} />
+          <label htmlFor="set-branch-labels-in-lane-colors">Color branch labels like their graph line</label> <ToggleEye title={'Branch labels in lane colors'} on={s.laneColoredBranches} spec={(from, to) => ({ kind: 'laneLabels', from, to })} />
         </span>
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={s.playfulNet} onChange={(e) => updateSettings({ playfulNet: e.target.checked })} />
+      </div>
+      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
+      <div className="check">
+        <input id="set-playful-toolbar-animations" type="checkbox" checked={s.playfulNet} onChange={(e) => updateSettings({ playfulNet: e.target.checked })} />
         <span>
-          Playful toolbar animations: a dog fetches, a rope gets pulled, a big button gets pushed
-          <ToggleEye title={'Playful toolbar animations'} on={s.playfulNet} spec={(from, to) => ({ kind: 'playful', from, to })} />
+          <label htmlFor="set-playful-toolbar-animations">Playful toolbar animations: a dog fetches, a rope gets pulled, a big button gets pushed</label> <ToggleEye title={'Playful toolbar animations'} on={s.playfulNet} spec={(from, to) => ({ kind: 'playful', from, to })} />
         </span>
-      </label>
-      <label className="check">
-        <input
+      </div>
+      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
+      <div className="check">
+        <input id="set-remote-name-on-branch-labels"
           type="checkbox"
           checked={s.showRemoteName}
           onChange={(e) => updateSettings({ showRemoteName: e.target.checked })}
         />
         <span>
-          Show the remote’s name next to the cloud on branch labels (☁ origin), including remote-only branches
-          <ToggleEye title={'Remote name on branch labels'} on={s.showRemoteName} spec={(from, to) => ({ kind: 'remoteName', from, to })} />
+          <label htmlFor="set-remote-name-on-branch-labels">Show the remote’s name next to the cloud on branch labels (☁ origin), including remote-only branches</label> <ToggleEye title={'Remote name on branch labels'} on={s.showRemoteName} spec={(from, to) => ({ kind: 'remoteName', from, to })} />
         </span>
-      </label>
+      </div>
       <div className="field">
         <span className="field-label">
           Branch spotlight
@@ -317,18 +329,30 @@ function AppearanceTab() {
 
 /** Hover handlers for an on/off setting: previews flipping it. */
 function ToggleEye({ title, on, spec }: { title: string; on: boolean; spec: (from: boolean, to: boolean) => PreviewSpec }) {
-  return <PreviewEye label={title} make={() => [{ title, from: on ? 'On' : 'Off', to: on ? 'Off' : 'On', spec: spec(on, !on) }]} />
+  return (
+    <PreviewEye
+      label={title}
+      make={() => ({
+        title,
+        spec: spec(on, on),
+        options: [false, true].map((v) => ({ label: v ? 'On' : 'Off', current: v === on, spec: spec(v, v) }))
+      })}
+    />
+  )
 }
 
-/** Previews from the current value to each of the others, for a choice's eye. */
+/** Every option of a choice, side by side, for its eye. */
 function choicePreviews<T extends string>(
   title: string,
   value: T,
   options: [T, string][],
   spec: (from: T, to: T) => PreviewSpec
-): Preview[] {
-  const name = (v: T): string => options.find(([x]) => x === v)?.[1] ?? v
-  return options.filter(([v]) => v !== value).map(([v, label]) => ({ title, from: name(value), to: label, spec: spec(value, v) }))
+): Preview {
+  return {
+    title,
+    spec: spec(value, value),
+    options: options.map(([v, label]) => ({ label, current: v === value, spec: spec(v, v) }))
+  }
 }
 
 function SidebarSectionsField() {

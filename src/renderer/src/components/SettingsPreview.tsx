@@ -44,8 +44,17 @@ export type PreviewSpec =
   /** Up to three authors and their row color before and after (null: the normal look). */
   | { kind: 'authors'; authors: { name: string; from: string | null; to: string | null }[] }
 
+/** One choice in an all-options card: its name, whether it's the current one, and how it looks. */
+export interface PreviewOption {
+  label: string
+  current: boolean
+  spec: PreviewSpec
+}
+
 export interface Preview {
   title: string
+  /** Every choice side by side (the eye next to a setting); spec is then unused. */
+  options?: PreviewOption[]
   /** The two ends of the animation, named for the header; a color preview has neither. */
   from?: string
   to?: string
@@ -54,8 +63,7 @@ export interface Preview {
 
 // ---------- which preview is showing ----------
 
-/** cycle: previews to step through in turn (the eye next to a setting shows every alternative). */
-type Showing = { preview: Preview; anchor: HTMLElement; cycle?: Preview[] } | null
+type Showing = { preview: Preview; anchor: HTMLElement } | null
 let shown: Showing = null
 const listeners = new Set<() => void>()
 let showTimer: ReturnType<typeof setTimeout> | undefined
@@ -84,15 +92,15 @@ function hideSoon(): void {
 const sameAs = (a: Showing, preview: Preview, anchor: HTMLElement): boolean =>
   !!a && a.anchor === anchor && JSON.stringify(a.preview) === JSON.stringify(preview)
 
-function offer(preview: Preview | null, anchor: HTMLElement, cycle?: Preview[]): void {
+function offer(preview: Preview | null, anchor: HTMLElement): void {
   clearTimeout(hideTimer)
   if (!preview) return hideSoon()
   // A slider sends one of these per mouse move; nothing happens until the value under it changes.
   if (sameAs(shown, preview, anchor) || sameAs(pending, preview, anchor)) return
   // Moving between options of an open preview swaps it at once; a fresh hover waits a moment,
   // so passing over the window doesn't flash cards.
-  if (shown) return set({ preview, anchor, cycle })
-  pending = { preview, anchor, cycle }
+  if (shown) return set({ preview, anchor })
+  pending = { preview, anchor }
   clearTimeout(showTimer)
   showTimer = setTimeout(() => pending && set(pending), 220)
 }
@@ -107,21 +115,26 @@ export function hoverPreview(make: () => Preview | null) {
 }
 
 /**
- * The eye next to a setting: hovering it previews switching to each other value in turn, so you can
- * see what every option looks like without hovering (or accidentally picking) the options themselves.
+ * The eye next to a setting: hovering it shows every option side by side, in the setting's order,
+ * with the current one outlined, so they can be compared without hovering (or picking) any of them.
  */
-export function PreviewEye({ make, label }: { make: () => Preview[]; label: string }) {
+export function PreviewEye({ make, label }: { make: () => Preview; label: string }) {
   return (
     <span
       className="pv-eye"
       role="img"
       aria-label={`Preview ${label}`}
-      onMouseEnter={(e) => {
-        const list = make()
-        if (list.length) offer(list[0], e.currentTarget, list)
-      }}
+      onMouseEnter={(e) => offer(make(), e.currentTarget)}
       onMouseLeave={hideSoon}
-      onClick={(e) => e.preventDefault()}
+      // Inside a checkbox's label: a press here must not press (or toggle) the checkbox.
+      onMouseDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+      onClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
     >
       <svg viewBox="0 0 24 24" width="1.05em" height="1.05em" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
@@ -147,7 +160,7 @@ export function PreviewCard() {
   )
   useEffect(() => hidePreview, [])
   const card = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; width: number; edge: 'top' | 'bottom' } | null>(null)
   const [phase, setPhase] = useState(false)
   const specKey = current ? JSON.stringify(current.preview.spec) : ''
 
@@ -157,17 +170,9 @@ export function PreviewCard() {
     if (reducedMotion()) return setPhase(true)
     setPhase(false)
     let interval: ReturnType<typeof setInterval> | undefined
-    let flips = 0
     const start = setTimeout(() => {
       setPhase(true)
-      interval = setInterval(() => {
-        // With several alternatives, show each one's there-and-back, then move on to the next.
-        const c = shown?.cycle
-        if (c && c.length > 1 && ++flips % 2 === 0) {
-          const i = c.findIndex((p) => p === shown!.preview)
-          set({ ...shown!, preview: c[(i + 1) % c.length] })
-        } else setPhase((p) => !p)
-      }, 1800)
+      interval = setInterval(() => setPhase((p) => !p), 1800)
     }, 450)
     return () => {
       clearTimeout(start)
@@ -175,18 +180,17 @@ export function PreviewCard() {
     }
   }, [specKey])
 
-  // Beside the Settings window when there's room (right, then left), else over its right edge.
+  // A drawer inside the Settings window, as wide as it: rising from the bottom for settings in the
+  // upper half, dropping from the top for the lower half, so it never covers what's being previewed.
+  // It stays inside the window, so it works on any screen size.
   useLayoutEffect(() => {
     if (!current || !card.current) return setPos(null)
     const a = current.anchor.getBoundingClientRect()
     const m = (current.anchor.closest('.modal') ?? current.anchor).getBoundingClientRect()
-    const { width: w, height: h } = card.current.getBoundingClientRect()
-    const gap = 12
-    let left = m.right + gap
-    if (left + w > window.innerWidth - 8) left = m.left - gap - w
-    if (left < 8) left = Math.max(8, m.right - w - gap)
-    const top = Math.min(Math.max(8, a.top + a.height / 2 - h / 2), window.innerHeight - h - 8)
-    setPos((p) => (p && p.left === left && p.top === top ? p : { left, top }))
+    const h = card.current.getBoundingClientRect().height
+    const edge = a.top + a.height / 2 < m.top + m.height / 2 ? 'bottom' : 'top'
+    const next = { left: m.left, width: m.width, top: edge === 'bottom' ? m.bottom - h : m.top, edge } as const
+    setPos((p) => (p && p.left === next.left && p.top === next.top && p.width === next.width && p.edge === edge ? p : next))
   }, [current, specKey])
 
   if (!current) return null
@@ -194,13 +198,13 @@ export function PreviewCard() {
   return (
     <div
       ref={card}
-      className="pv-card"
-      style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }}
+      className={`pv-card drawer ${pos ? `from-${pos.edge}` : ''}`}
+      style={pos ? { left: pos.left, top: pos.top, width: pos.width } : { visibility: 'hidden' }}
       aria-hidden="true"
     >
       <div className="pv-head">
         <span className="pv-title">{preview.title}</span>
-        {preview.from !== undefined && preview.to !== undefined && (
+        {!preview.options && preview.from !== undefined && preview.to !== undefined && (
           <span className="pv-ends">
             <span className={`pv-end ${phase ? '' : 'on'}`}>{preview.from}</span>
             <span className="pv-arrow">→</span>
@@ -208,9 +212,29 @@ export function PreviewCard() {
           </span>
         )}
       </div>
-      <div className="pv-stage">
-        <Stage spec={preview.spec} phase={phase} />
-      </div>
+      {preview.options ? (
+        // Each option as it looks; a spec whose "from" and "to" are the same value shows just that value.
+        // Every option in a row (four as 2 × 2), each tile as large as the drawer allows.
+        <div className={`pv-options cols-${preview.options.length === 4 ? 2 : Math.min(3, preview.options.length)}`}>
+          {preview.options.map((o) => (
+            <div key={o.label} className={`pv-option ${o.current ? 'current' : ''}`}>
+              <div className="pv-option-head">
+                <span className="pv-option-name">{o.label}</span>
+                {o.current && <span className="pv-now">current</span>}
+              </div>
+              <div className="pv-stage mini">
+                <div className="pv-mini-inner">
+                  <Stage spec={o.spec} phase />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="pv-stage">
+          <Stage spec={preview.spec} phase={phase} />
+        </div>
+      )}
     </div>
   )
 }

@@ -1161,9 +1161,6 @@ button.branch-chip:hover:not(:disabled) {
   color: var(--text);
 }
 .check input {
-  accent-color: var(--accent-fg);
-  width: 1.05em;
-  height: 1.05em;
   margin: 0;
 }
 
@@ -5245,4 +5242,188 @@ select:hover {
 }
 .field-label .pv-eye {
   margin-right: auto;
+}
+
+/* All-options card (the eye next to a setting): every choice side by side, current one outlined. */
+.pv-options {
+  display: grid;
+  gap: 0.45rem;
+}
+.pv-options.cols-1 {
+  grid-template-columns: 1fr;
+}
+.pv-options.cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.pv-options.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.pv-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+.pv-option.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.pv-option-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: 0.82em;
+}
+.pv-option-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-now {
+  flex: none;
+  padding: 0 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  border-radius: 999px;
+  color: var(--accent-fg);
+  font-size: 0.85em;
+}
+/* A full-size scene drawn smaller, so each option fits in a tile: three in a row are scaled most. */
+.pv-stage.mini {
+  height: 9.6rem;
+  --mini: 0.88;
+}
+.cols-3 .pv-stage.mini {
+  height: 7.8rem;
+  --mini: 0.72;
+}
+.cols-1 .pv-stage.mini {
+  height: 11rem;
+  --mini: 1;
+}
+.pv-mini-inner {
+  width: calc(100% / var(--mini));
+  height: calc(100% / var(--mini));
+  transform: scale(var(--mini));
+  transform-origin: top left;
+}
+.pv-mini-inner > * {
+  height: 100%;
+}
+/* The preview as a drawer inside the Settings window (position and width set from the window). */
+.pv-card.drawer {
+  max-height: 58vh;
+  overflow: hidden;
+  padding: 0.75rem 1.3rem 0.9rem;
+  border-radius: 0;
+  box-shadow: 0 -12px 30px var(--shadow);
+  animation: none;
+}
+.pv-card.drawer.from-bottom {
+  border-width: 1px 1px 1px 1px;
+  border-top-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  border-radius: 0 0 0.9rem 0.9rem;
+  animation: pv-rise 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.pv-card.drawer.from-top {
+  border-bottom-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  border-radius: 0.9rem 0.9rem 0 0;
+  box-shadow: 0 12px 30px var(--shadow);
+  animation: pv-drop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes pv-rise {
+  from {
+    clip-path: inset(100% 0 0 0);
+    transform: translateY(0.6rem);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes pv-drop {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(-0.6rem);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv-card.drawer {
+    animation: none !important;
+  }
+}
+
+/* Settings gets more room than other wide dialogs (its previews use the full width). */
+.modal.wide:has(.settings-tabs) {
+  width: min(60rem, calc(100vw - 2rem));
+}
+
+/* ---------- switches ----------
+   Every checkbox in the app is drawn as an iOS-style switch. It stays a real checkbox underneath,
+   so labels, Space and screen readers work as before. */
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  position: relative;
+  width: 1.95em;
+  height: 1.15em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 20%, var(--bg-elev));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent);
+  vertical-align: middle;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 0.13em;
+  left: 0.13em;
+  width: 0.89em;
+  height: 0.89em;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 0.22s cubic-bezier(0.3, 1.3, 0.5, 1),
+    width 0.15s ease;
+}
+input[type='checkbox']:checked {
+  background: var(--accent);
+  box-shadow: none;
+}
+input[type='checkbox']:checked::before {
+  transform: translateX(0.8em);
+}
+/* Pressed: the knob stretches a little, like iOS. */
+input[type='checkbox']:active:not(:disabled)::before {
+  width: 1.08em;
+}
+input[type='checkbox']:checked:active:not(:disabled)::before {
+  transform: translateX(0.61em);
+}
+input[type='checkbox']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  input[type='checkbox'],
+  input[type='checkbox']::before {
+    transition: none;
+  }
 }
