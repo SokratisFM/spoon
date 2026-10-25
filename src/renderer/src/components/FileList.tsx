@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { FileChange } from '../../../shared/types'
 import { splitPath } from '../format'
 import { rowHeight, useSettings } from '../settings'
+import { isMac } from '../platform'
 
 const STATUS_LABEL: Record<string, string> = {
   A: 'Added',
@@ -49,6 +50,8 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
   const selectedFiles = (): FileChange[] => files.filter((f) => selected.has(f.path))
 
   const click = (index: number, e: React.MouseEvent): void => {
+    // ⌃-click on a Mac is a right-click; the context menu decides what it applies to.
+    if (isMac && e.ctrlKey && e.button === 0) return
     const f = files[index]
     if (e.shiftKey) {
       const [a, b] = [Math.min(anchor.current, index), Math.max(anchor.current, index)]

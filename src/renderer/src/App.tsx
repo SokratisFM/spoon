@@ -12,7 +12,7 @@ import { choose, DialogHost } from './dialogs'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
 import { useUpdateState } from './appinfo'
-import { contextMenu, MenuHost } from './menus'
+import { closeMenu, contextMenu, MenuHost } from './menus'
 
 export function App() {
   const settings = useSettings()
@@ -100,6 +100,9 @@ export function App() {
 
   useEffect(() => window.spoon.setMenuItemVisible('review', settings.claudeEnabled), [settings.claudeEnabled])
 
+  // A menu belongs to the tab it was opened in; its choice must never act on another repo.
+  useEffect(() => void closeMenu(), [current])
+
   // Once the visible tab has had its turn, load the others in the background so switching is instant.
   useEffect(() => {
     warmTabs(tabs, current)
@@ -125,6 +128,7 @@ export function App() {
   // none) left, close the window instead, as its close button would. The last tab is kept so it
   // reopens next time.
   const closeTabOrWindow = (): void => {
+    if (closeMenu()) return // an open menu goes first, like a dialog
     const overlay = document.querySelector('.modal-backdrop, .palette-backdrop, .popover')
     if (overlay) {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))

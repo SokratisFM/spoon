@@ -23,7 +23,7 @@ import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
 import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
-import { ErrorModal } from './Modal'
+import { ErrorModal, overlayOpen } from './Modal'
 import { PullDialog, PushDialog } from './SyncDialogs'
 import { ParentChip, SubmoduleChip, submoduleActions } from './Submodules'
 import { NetButton, type NetKind, type NetState } from './NetButton'
@@ -116,6 +116,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [selectedPr, setSelectedPr] = usePersistentState<number | null>(`spoon.pr.selected.${path}`, null)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
   const wasCancelled = useRef(false)
+  const latestProgress = useRef('')
+  const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const filterInput = useRef<HTMLInputElement>(null)
   // The refresh button spins for at least one turn, so a quick refresh still shows it happened.
   const [refreshing, setRefreshing] = useState(false)
@@ -242,10 +244,18 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     () =>
       window.spoon.onProgress((repoPath, line) => {
         if (repoPath !== path) return
-        setBusy((b) => (b ? { ...b, progress: line } : b))
+        // git prints progress many times a second; show it at most ~10 times a second, and only touch
+        // the ring when the percentage actually moves, so the toolbar animation stays smooth.
+        latestProgress.current = line
+        if (!progressTimer.current)
+          progressTimer.current = setTimeout(() => {
+            progressTimer.current = null
+            const l = latestProgress.current
+            setBusy((b) => (b && b.progress !== l ? { ...b, progress: l } : b))
+          }, 100)
         // Follow the transfer itself; counting/compressing phases keep the ring indeterminate.
         const pct = /(?:Receiving|Writing) objects:\s+(\d{1,3})%/.exec(line)?.[1]
-        if (pct) setNet((n) => (n?.phase === 'working' ? { ...n, pct: Number(pct) } : n))
+        if (pct) setNet((n) => (n?.phase === 'working' && n.pct !== Number(pct) ? { ...n, pct: Number(pct) } : n))
       }),
     [path]
   )
@@ -362,7 +372,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     if (!ok && wasCancelled.current) return setNet(null)
     const arrived = lastLog.current.filter((c) => !before.has(c.hash)).map((c) => c.hash)
     setNet({ kind, phase: ok ? 'done' : 'failed', gained: kind === 'push' ? 0 : arrived.length })
-    if (ok && arrived.length && before.size) setFresh({ hashes: new Set(arrived), n: Date.now() })
+    if (ok && arrived.length && before.size) {
+      const n = Date.now()
+      setFresh({ hashes: new Set(arrived), n })
+      // Once the flash has played, forget them, so a row scrolled back into view doesn't flash again.
+      setTimeout(() => setFresh((f) => (f?.n === n ? null : f)), 2200)
+    }
     setTimeout(() => setNet((n) => (n?.kind === kind && n.phase !== 'working' ? null : n)), ok ? 1800 : 1400)
   }
 
@@ -378,7 +393,13 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       setOpError({ title: 'Push failed', message: 'This repository has no remotes.' })
       return
     }
-    const remoteBranch = (info.upstreamRemote === remote && info.upstreamBranch) || info.branch
+    // Only push without asking when it goes to the same-named branch. A branch tracking a different
+    // one (made with `switch -c feature origin/main`) would otherwise land straight on main.
+    if (info.upstreamBranch && info.upstreamBranch !== info.branch) {
+      setDialog('push')
+      return
+    }
+    const remoteBranch = info.branch
     netOp(
       'push',
       'Pushing…',
@@ -392,8 +413,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     netOp('fetch', 'Fetching…', () => window.spoon.fetch(path, true), 'Fetch failed')
   }
 
+  // A menu command is for the tab that's showing when it's given: never replay one from before this
+  // view mounted (switching tabs remounts it), and ignore them while a dialog or menu is open.
+  const mountedAt = useRef(Date.now())
   useEffect(() => {
-    if (!command) return
+    if (!command || command.n < mountedAt.current) return
+    if (overlayOpen() && command.name !== 'refresh') return
     if (command.name === 'filter-commits') {
       setView('history')
       filterInput.current?.focus()
@@ -445,12 +470,15 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     return commits.filter((c) => theirs.has(c.hash))
   }
 
-  const jumpTo = (hash: string): void => {
-    setView('history')
-    setFilter('')
-    setSelected(hash)
-    setScrollTo({ hash, n: Date.now() })
-  }
+  const jumpTo = useCallback(
+    (hash: string): void => {
+      setView('history')
+      setFilter('')
+      setSelected(hash)
+      setScrollTo({ hash, n: Date.now() })
+    },
+    [setView]
+  )
 
   if (error && !repo) {
     return (

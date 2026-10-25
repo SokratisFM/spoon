@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { FileChange } from '../../../shared/types'
 import { fullDate, hueFor, initials } from '../format'
 import { useCachedAsync } from '../hooks'
@@ -16,7 +16,8 @@ interface Props {
   onJump: (hash: string) => void
 }
 
-export function CommitPanel({ path, hash, onJump }: Props) {
+// Memoized: RepoView re-renders on every status refresh and progress tick.
+export const CommitPanel = memo(function CommitPanel({ path, hash, onJump }: Props) {
   // Commits never change, so their details come from the cache when they've been shown before.
   const { data: details, error } = useCachedAsync(detailsCache, hash ? `${path}|${hash}` : null, () =>
     window.spoon.commitDetails(path, hash!)
@@ -110,4 +111,5 @@ export function CommitPanel({ path, hash, onJump }: Props) {
       <DiffView path={path} target={file ? { kind: 'commit', hash: details.hash, file } : null} />
     </Split>
   )
-}
+})
+

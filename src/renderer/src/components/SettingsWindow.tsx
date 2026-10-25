@@ -40,7 +40,7 @@ type Tab = SettingsTab
 
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab)
-  const tabsRef = useSlidingIndicator<HTMLDivElement>()
+  const tabsRef = useSlidingIndicator<HTMLDivElement>(tab)
   return (
     <Modal
       title="Settings"
@@ -1182,7 +1182,7 @@ export function Segmented<T extends string>({
   /** Hovering another option previews switching to it. */
   preview?: { title: string; spec: (from: T, to: T) => PreviewSpec }
 }) {
-  const ref = useSlidingIndicator<HTMLDivElement>()
+  const ref = useSlidingIndicator<HTMLDivElement>(value)
   const name = (v: T): string => options.find(([x]) => x === v)?.[1] ?? v
   return (
     <div className="segmented slider" ref={ref}>

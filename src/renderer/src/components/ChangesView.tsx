@@ -136,17 +136,15 @@ export function ChangesView({
   const discard = async (files: FileChange[], area: Area): Promise<void> => {
     const usable = files.filter((f) => f.status !== 'U')
     if (!usable.length) return
-    const deleted = usable.filter((f) => f.status === '?' || (area === 'staged' && (f.status === 'A' || f.status === 'R')))
     const name = usable.length === 1 ? usable[0].path : `${usable.length} files`
+    const repoName = path.split('/').pop() ?? 'repo'
     const ok = await confirm({
       message: `Discard changes to ${name}?`,
       detail: [
         area === 'staged'
-          ? 'Staged and unstaged changes go back to the last commit.'
-          : 'Unstaged changes are thrown away; anything already staged stays.',
-        deleted.length
-          ? `${deleted.length === 1 ? 'The new file is' : `${deleted.length} new files are`} moved to the Trash, so you can still get ${deleted.length === 1 ? 'it' : 'them'} back.`
-          : 'This can’t be undone.',
+          ? 'The staged changes are undone. Unstaged edits to the same files stay, unless they overlap.'
+          : 'Unstaged changes are thrown away; anything already staged stays. New files are deleted.',
+        `Your current versions go to the Trash (in a “${repoName} – discarded …” folder), so you can get them back.`,
         usable.length < files.length ? 'Files with conflicts are left alone.' : ''
       ]
         .filter(Boolean)
@@ -310,11 +308,15 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
   // An amended commit that's already pushed needs a force push, which stays a deliberate step.
   const canPush = !amend || !pushedTo
 
+  // Bumped on every toggle, so a slow headMessage() from an earlier "on" can't land after "off".
+  const amendSeq = useRef(0)
   const toggleAmend = async (on: boolean): Promise<void> => {
     setAmend(on)
+    const seq = ++amendSeq.current
     if (on) {
       beforeAmend.current = draft
       const msg = await window.spoon.headMessage(path)
+      if (seq !== amendSeq.current) return
       const [subject, ...rest] = msg.split('\n')
       setDraft({ subject, body: rest.join('\n').replace(/^\n+/, '') })
     } else if (beforeAmend.current) {
@@ -325,13 +327,24 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
 
   const canCommit = !!draft.subject.trim() && (stagedCount > 0 || amend)
 
+  // One commit at a time: a double-click or a held ⌘↵ must not commit (or amend, or push) twice.
+  const [committing, setCommitting] = useState(false)
+  const committingRef = useRef(false)
   const commit = async (push = false): Promise<void> => {
+    if (committingRef.current) return
     if (!canCommit) {
       subjectRef.current?.focus()
       return
     }
+    committingRef.current = true
+    setCommitting(true)
     const message = draft.body.trim() ? `${draft.subject.trim()}\n\n${draft.body.trim()}\n` : `${draft.subject.trim()}\n`
-    const ok = await ops.run(amend ? 'Amending…' : 'Committing…', () => window.spoon.commit(path, message, amend), 'Commit failed')
+    const ok = await ops
+      .run(amend ? 'Amending…' : 'Committing…', () => window.spoon.commit(path, message, amend), 'Commit failed')
+      .finally(() => {
+        committingRef.current = false
+        setCommitting(false)
+      })
     if (ok) {
       setDraft({ subject: '', body: '' })
       setAmend(false)
@@ -394,7 +407,7 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
         <span className={`char-count ${draft.subject.length > 72 ? 'warn' : ''}`}>{draft.subject.length}</span>
         <button
           className={`btn primary ${pushing ? 'commit-push' : ''}`}
-          disabled={!canCommit}
+          disabled={!canCommit || committing}
           onClick={(e) => commit(e.altKey && canPush)}
           onMouseMove={(e) => e.altKey !== alt && setAlt(e.altKey)}
           title={`${keys('⌘↵')} to commit · hold ⌥ (or ${keys('⌥⌘↵')}) to commit and push`}

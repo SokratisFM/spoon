@@ -19,8 +19,16 @@ function findCli(): Promise<string | null> {
   })
 }
 
-export async function availability(): Promise<ClaudeAvailability> {
-  return { cli: await findCli(), desktop: process.platform === 'darwin' && existsSync(DESKTOP_APP) }
+// Finding `claude` starts a login shell, which can take seconds with a heavy shell setup, so the
+// answer is reused for a while; installing Claude meanwhile shows up within a minute.
+let cached: { at: number; value: Promise<ClaudeAvailability> } | null = null
+
+export function availability(): Promise<ClaudeAvailability> {
+  if (!cached || Date.now() - cached.at > 60_000) {
+    const value = findCli().then((cli) => ({ cli, desktop: process.platform === 'darwin' && existsSync(DESKTOP_APP) }))
+    cached = { at: Date.now(), value }
+  }
+  return cached.value
 }
 
 const sq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`

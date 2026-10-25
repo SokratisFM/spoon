@@ -184,13 +184,15 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
                   </span>
                 ))}
                 <input
+                  data-own-enter
                   placeholder={users ? 'Add a reviewer' : 'Loading people…'}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && candidates[0]) {
-                      e.preventDefault()
-                      e.stopPropagation()
+                    // Enter here only ever adds a reviewer, never submits the dialog.
+                    if (e.key !== 'Enter') return
+                    e.preventDefault()
+                    if (candidates[0]) {
                       setReviewers([...reviewers, candidates[0].login])
                       setQuery('')
                     }
@@ -218,7 +220,8 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
 
           <span className="hint">
             {base === info.base ? `${info.commits.length} commit${info.commits.length === 1 ? '' : 's'} into ${base}` : `Into ${base}`}
-            {info.needsPush ? ` · ${branch} is pushed to ${info.remote} first` : ''}
+            {info.needsPush ? ` · ${branch} is pushed to ${info.remote}/${info.headRef} first` : ''}
+            {!info.needsPush && info.headRef !== branch ? ` · from ${info.remote}/${info.headRef}` : ''}
           </span>
         </div>
       )}

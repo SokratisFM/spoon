@@ -38,7 +38,7 @@ export function PullRequestView({ path, number, ops, onJump }: Props) {
   const [viewed, setViewed] = useState<Record<string, boolean>>({})
   const [showReview, setShowReview] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const tabsRef = useSlidingIndicator<HTMLDivElement>()
+  const tabsRef = useSlidingIndicator<HTMLDivElement>(tab)
 
   useEffect(() => {
     if (!pr) return

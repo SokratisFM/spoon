@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { memo, Fragment, useMemo, useState, type ReactNode } from 'react'
 import { SIDEBAR_SECTIONS, updateSettings, useSettings, type SidebarSection } from '../settings'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { confirm } from '../dialogs'
@@ -74,7 +74,8 @@ function buildTree(refs: Ref[], strip = 0): TreeNode[] {
   return sort(root.children)
 }
 
-export function Sidebar(props: Props) {
+// Memoized: RepoView re-renders on every status refresh and progress tick.
+export const Sidebar = memo(function Sidebar(props: Props) {
   const { repo, changeCount, view, onView, onJump, ops, subActions, prs, prError, selectedPr, onSelectPr, onDeleteBranch } = props
   // The ref picked in the sidebar (click), so Backspace/Delete know what to act on.
   const [picked, setPicked] = useState<string | null>(null)
@@ -407,7 +408,8 @@ export function Sidebar(props: Props) {
       </div>
     </nav>
   )
-}
+})
+
 
 function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: string; ops: Ops; onJump: (h: string) => void }) {
   const [picked, setPicked] = useState<Set<string>>(new Set())

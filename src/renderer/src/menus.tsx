@@ -30,6 +30,13 @@ function close(id: string | null): void {
   was?.resolve(id)
 }
 
+/** Closes an open menu without a choice (tab switch, window closing…). */
+export function closeMenu(): boolean {
+  if (!current) return false
+  close(null)
+  return true
+}
+
 export function contextMenu(items: MenuItem[]): Promise<string | null> {
   if (current) close(null) // a new menu replaces an open one
   return new Promise((resolve) => {
@@ -73,14 +80,24 @@ export function MenuHost() {
       origin: `${flipY ? 'bottom' : 'top'} ${flipX ? 'right' : 'left'}`
     })
     setActive(-1)
+    // Take focus, so Space or Enter can't press whatever was focused behind the menu; give it back after.
+    const before = document.activeElement as HTMLElement | null
+    ref.current.focus({ preventScroll: true })
+    return () => before?.focus?.({ preventScroll: true })
   }, [open?.n])
+
+  // Keyboard moves keep the highlighted item in view in long, scrolling menus.
+  useEffect(() => {
+    ref.current?.querySelector('.ctx-item.active')?.scrollIntoView({ block: 'nearest' })
+  }, [active])
 
   // Keyboard: arrows move, Enter picks, Escape closes. Captured, so nothing behind reacts.
   useEffect(() => {
     if (!open) return
     const usable = open.items.map((it, i) => (!it.separator && it.enabled !== false && it.id ? i : -1)).filter((i) => i >= 0)
     const onKey = (e: KeyboardEvent): void => {
-      e.stopPropagation()
+      // The menu is the top layer: no key reaches the dialog or the view behind it.
+      e.stopImmediatePropagation()
       if (e.key === 'Escape') {
         e.preventDefault()
         close(null)
@@ -119,7 +136,10 @@ export function MenuHost() {
         e.preventDefault()
         close(null)
       }}
-      onWheel={() => close(null)}
+      onWheel={(e) => {
+        // Scrolling a long menu scrolls it; scrolling anywhere else closes it.
+        if (!ref.current?.contains(e.target as Node)) close(null)
+      }}
       onContextMenu={(e) => {
         e.preventDefault()
         if (ref.current?.contains(e.target as Node)) return
@@ -138,6 +158,7 @@ export function MenuHost() {
         key={open.n}
         className="ctx-menu"
         role="menu"
+        tabIndex={-1}
         style={pos ? { left: pos.left, top: pos.top, transformOrigin: pos.origin } : { visibility: 'hidden', left: 0, top: 0 }}
       >
         {open.items.map((it, i) =>

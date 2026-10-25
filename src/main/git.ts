@@ -2,7 +2,8 @@
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { basename, delimiter, join, resolve } from 'node:path'
+import { cp, lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises'
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   Commit,
   CommitDetails,
@@ -510,10 +511,15 @@ export async function stage(cwd: string, paths: string[]): Promise<void> {
 }
 
 /**
- * Throws away local changes. Unstaged entries go back to what's staged (or are deleted when new);
- * staged entries go back to HEAD, both in the index and on disk. Files that would be deleted are
- * handed to `trash` (the system Trash), so a mistaken discard can still be recovered there.
- * Conflicted files are left alone.
+ * Throws away local changes, keeping a way back: the current version of every file it overwrites or
+ * deletes is first put in one folder, which goes to the system Trash ("<repo> – discarded <time>").
+ *
+ * - Unstaged entries go back to what's staged; new (untracked) files are deleted.
+ * - Staged entries undo only the staged part: the index goes back to HEAD and the staged changes are
+ *   reversed in the file, so unstaged edits to it stay. When the two overlap and can't be separated,
+ *   the file goes back to HEAD (its previous contents are in the Trash folder).
+ * - Staged new files leave the index and are deleted; a staged rename goes back to the old name.
+ * - Conflicted files are left alone.
  */
 export async function discard(
   cwd: string,
@@ -522,34 +528,103 @@ export async function discard(
 ): Promise<void> {
   if (!files.length) return
   await exclusive(cwd, async () => {
+    const root = resolve(cwd)
+    // Paths come from the renderer: only ones inside the work tree (and outside .git) are touched.
+    const inside = (p: string): string => {
+      const abs = resolve(root, p)
+      const rel = relative(root, abs)
+      if (!rel || rel.startsWith('..') || isAbsolute(rel) || rel.split(sep)[0] === '.git')
+        throw new Error(`Refusing to discard a path outside the repository: ${p}`)
+      return abs
+    }
     const head = await hasHead(cwd)
-    const toTrash: string[] = []
-    const fromIndex: string[] = [] // restore the working tree from the index
-    const fromHead: string[] = [] // restore index and working tree from HEAD
-    const unindex: string[] = [] // new files: drop from the index, then trash
+    const remove: string[] = [] // deleted from disk (after being moved into the Trash folder)
+    const fromIndex: string[] = [] // working tree back to the index
+    const fromHead: string[] = [] // index and working tree back to HEAD
+    const unindex: string[] = [] // dropped from the index
     for (const f of files) {
+      inside(f.path)
+      if (f.oldPath) inside(f.oldPath)
       if (f.status === 'U') continue
       if (!f.staged) {
-        if (f.status === '?') toTrash.push(f.path)
+        if (f.status === '?') remove.push(f.path)
         else fromIndex.push(f.path)
       } else if (f.status === 'A' || !head) {
         unindex.push(f.path)
-        toTrash.push(f.path)
+        remove.push(f.path)
       } else if (f.status === 'R' || f.status === 'C') {
         if (f.oldPath && f.status === 'R') fromHead.push(f.oldPath)
         unindex.push(f.path)
-        toTrash.push(f.path)
+        remove.push(f.path)
       } else {
         fromHead.push(f.path)
       }
     }
-    if (fromIndex.length) await withPaths(cwd, ['restore', '--worktree'], fromIndex)
-    if (fromHead.length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged', '--worktree'], fromHead)
-    if (unindex.length) await withPaths(cwd, ['rm', '--cached', '-r', '-q', '--ignore-unmatch'], unindex)
-    for (const p of toTrash) {
-      const abs = join(cwd, p)
-      if (existsSync(abs)) await trash(abs)
+
+    // Staged files that also have unstaged edits: only their staged part is undone, if possible.
+    const unstagedNow = new Set((await git(cwd, ['diff', '--name-only', '-z'])).split('\0').filter(Boolean))
+    const partial = fromHead.filter((p) => unstagedNow.has(p))
+    const whole = fromHead.filter((p) => !unstagedNow.has(p))
+
+    // 1. Keep the current versions: copy what gets overwritten, move what gets deleted.
+    const gitDir = await gitDirOf(cwd)
+    const d = new Date()
+    const two = (n: number): string => String(n).padStart(2, '0')
+    const stamp = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())}.${two(d.getSeconds())}`
+    let box = join(gitDir, 'spoon-discard', `${basename(root)} – discarded ${stamp}`)
+    for (let n = 2; existsSync(box); n++) box = join(gitDir, 'spoon-discard', `${basename(root)} – discarded ${stamp} (${n})`)
+    let kept = 0
+    const keep = async (rel: string, move: boolean): Promise<void> => {
+      const abs = inside(rel)
+      const st = await lstat(abs).catch(() => null)
+      if (!st || st.isDirectory()) return // nothing on disk, or a submodule's folder
+      const dest = join(box, rel)
+      await mkdir(dirname(dest), { recursive: true })
+      if (move) {
+        await rename(abs, dest).catch(async () => {
+          await cp(abs, dest, { verbatimSymlinks: true })
+          await rm(abs, { force: true })
+        })
+      } else {
+        await cp(abs, dest, { verbatimSymlinks: true })
+      }
+      kept++
     }
+    for (const p of new Set([...fromIndex, ...fromHead])) await keep(p, false)
+    for (const p of new Set(remove)) await keep(p, true)
+
+    // 2. Discard.
+    if (fromIndex.length) await withPaths(cwd, ['restore', '--worktree'], fromIndex)
+    if (whole.length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged', '--worktree'], whole)
+    for (const p of partial) {
+      const staged = await run(cwd, ['diff', '--cached', '--binary', '--', p])
+      const reversed = await run(cwd, ['apply', '-R', '--whitespace=nowarn', '-'], { input: staged }).then(
+        () => true,
+        () => false
+      )
+      if (reversed) await git(cwd, ['restore', '--source=HEAD', '--staged', '--', p])
+      else await git(cwd, ['restore', '--source=HEAD', '--staged', '--worktree', '--', p])
+    }
+    if (unindex.length) await withPaths(cwd, ['rm', '--cached', '-r', '-q', '--ignore-unmatch'], unindex)
+
+    // Folders the deleted files leave empty go too, as `git clean` would.
+    for (const p of remove) {
+      let dir = dirname(inside(p))
+      while (dir !== root && dir.startsWith(root + sep)) {
+        if ((await readdir(dir).catch(() => ['?'])).length) break
+        await rmdir(dir).catch(() => undefined)
+        dir = dirname(dir)
+      }
+    }
+
+    // 3. The kept versions go to the Trash in one folder.
+    if (kept === 0) return rmSync(box, { recursive: true, force: true })
+    try {
+      await trash(box)
+    } catch {
+      throw new Error(`The changes were discarded, but their copies couldn’t be moved to the Trash. They’re in ${box}`)
+    }
+    await rmdir(join(gitDir, 'spoon-discard')).catch(() => undefined) // only removed when left empty
   })
 }
 
@@ -1069,7 +1144,11 @@ export async function pullDraftInfo(cwd: string, branch: string): Promise<PullDr
   const upstreamRemote = await cfg(`branch.${branch}.remote`)
   const remote = upstreamRemote || (remotes.includes('origin') ? 'origin' : remotes[0])
   if (!remote) throw new Error('This repository has no remotes.')
-  const headRef = (await cfg(`branch.${branch}.merge`)).replace(/^refs\/heads\//, '') || branch
+  // The PR's head is this branch under its own name. An upstream with a different name (a branch made
+  // with `switch -c feature origin/main` tracks main) is where it came from, not where it goes.
+  const merge = (await cfg(`branch.${branch}.merge`)).replace(/^refs\/heads\//, '')
+  const headRef = branch
+  const tracksItself = !!upstreamRemote && upstreamRemote === remote && merge === branch
 
   const refsOut = await git(cwd, [
     'for-each-ref',
@@ -1107,16 +1186,16 @@ export async function pullDraftInfo(cwd: string, branch: string): Promise<PullDr
     // The integration branch (default, develop, release/…, candidates/…) whose merge-base with this
     // branch is the fewest commits back. Other feature branches are left out: one that forked from
     // the same place later would always look "nearer" than the branch both really came from.
-    const integration = all.filter((b) => b === defaultBranch || INTEGRATION.test(b)).slice(0, 60)
+    // `all` is newest first, so the cap keeps the recently active ones; at most 8 git processes at a
+    // time (a Unity library repo can have hundreds of release/candidate branches).
+    const integration = all.filter((b) => b === defaultBranch || INTEGRATION.test(b)).slice(0, 30)
     const candidates = [...new Set([defaultBranch, ...integration])].filter((c) => all.includes(c))
-    const scored = await Promise.all(
-      candidates.map(async (c, order) => {
+    const scored = await mapLimit(candidates, 8, async (c, order) => {
         const mb = (await git(cwd, ['merge-base', branch, `refs/remotes/${remote}/${c}`], [0, 1])).trim()
         if (!mb) return null
         const n = Number((await git(cwd, ['rev-list', '--count', `${mb}..${branch}`])).trim())
         return { c, n, order: c === defaultBranch ? -1 : order }
-      })
-    )
+    })
     const best = scored
       .filter((x): x is { c: string; n: number; order: number } => !!x)
       .sort((a, b) => a.n - b.n || a.order - b.order)[0]
@@ -1152,5 +1231,19 @@ export async function pullDraftInfo(cwd: string, branch: string): Promise<PullDr
   }
 
   const bases = [base, ...all.filter((b) => b !== base)]
-  return { branch, remote, headRef, bases, base, baseReason, commits, needsPush, hasUpstream: !!upstreamRemote, template }
+  return { branch, remote, headRef, bases, base, baseReason, commits, needsPush, hasUpstream: tracksItself, template }
+}
+
+/** Like Promise.all over `items`, running at most `limit` at a time. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
 }

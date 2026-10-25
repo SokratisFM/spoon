@@ -79,9 +79,14 @@ function hideSoon(): void {
   hideTimer = setTimeout(hidePreview, 140)
 }
 
+const sameAs = (a: typeof shown, preview: Preview, anchor: HTMLElement): boolean =>
+  !!a && a.anchor === anchor && JSON.stringify(a.preview) === JSON.stringify(preview)
+
 function offer(preview: Preview | null, anchor: HTMLElement): void {
   clearTimeout(hideTimer)
   if (!preview) return hideSoon()
+  // A slider sends one of these per mouse move; nothing happens until the value under it changes.
+  if (sameAs(shown, preview, anchor) || sameAs(pending, preview, anchor)) return
   // Moving between options of an open preview swaps it at once; a fresh hover waits a moment,
   // so passing over the window doesn't flash cards.
   if (shown) return set({ preview, anchor })
@@ -159,7 +164,7 @@ export function PreviewCard() {
     if (left + w > window.innerWidth - 8) left = m.left - gap - w
     if (left < 8) left = Math.max(8, m.right - w - gap)
     const top = Math.min(Math.max(8, a.top + a.height / 2 - h / 2), window.innerHeight - h - 8)
-    setPos({ left, top })
+    setPos((p) => (p && p.left === left && p.top === top ? p : { left, top }))
   }, [current, specKey])
 
   if (!current) return null

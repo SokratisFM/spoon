@@ -2393,9 +2393,11 @@ input[type='color']::-webkit-color-swatch {
 
 /* ---------- lane spotlight ---------- */
 
-.graph path,
-.graph circle,
-.graph rect {
+/* Fades only for the hover spotlight; following the selection (arrow keys) switches instantly, so
+   holding ↑/↓ doesn't keep dozens of SVGs repainting. */
+.spot-fade .graph path,
+.spot-fade .graph circle,
+.spot-fade .graph rect {
   transition: opacity 0.18s ease;
 }
 .graph.spotlit path.dim,
@@ -3655,13 +3657,18 @@ kbd.soft {
 .graph .head-halo {
   transform-box: fill-box;
   transform-origin: center;
-  animation: head-pulse 2.4s ease-in-out infinite;
+  /* A few pulses when the commit becomes HEAD (or scrolls back into view), then it rests: an endless
+     SVG animation costs several percent CPU while the app sits idle. */
+  animation: head-pulse 2.4s ease-in-out 3 forwards;
 }
 @keyframes head-pulse {
-  0%,
-  100% {
+  0% {
     opacity: 0.25;
     transform: scale(0.85);
+  }
+  100% {
+    opacity: 0.45;
+    transform: scale(0.92);
   }
   50% {
     opacity: 0.7;
@@ -3947,13 +3954,24 @@ select:hover {
 }
 @keyframes arrive-flash {
   from {
-    background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 .commit-row.fresh {
-  animation:
-    arrive 0.35s cubic-bezier(0.2, 0.9, 0.3, 1),
-    arrive-flash 1.8s ease-out 0.2s;
+  animation: arrive 0.35s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+/* The flash is an overlay fading out (opacity is composited; animating the row's background isn't). */
+.commit-row.fresh::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  opacity: 0;
+  animation: arrive-flash 1.8s ease-out 0.2s backwards;
 }
 
 /* Fetch / Pull / Push while working, done or failed (NetButton). */
@@ -4176,10 +4194,13 @@ select:hover {
   border: 1px solid var(--border);
   background: var(--bg-list);
   font-size: 0.85em;
+  contain: strict;
 }
 .pv-stage * {
   transition:
-    all 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.05),
+    transform 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.05),
+    opacity 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.05),
+    max-width 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.05),
     color 0.4s,
     background-color 0.4s;
 }
@@ -4584,9 +4605,13 @@ select:hover {
   overflow: hidden;
   animation: scene-open 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1);
 }
+/* Opens by unclipping from the middle (the pill's width is set once, not animated every frame). */
 @keyframes scene-open {
   from {
-    width: 1.9em;
+    clip-path: inset(0 33% 0 33% round 999px);
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 999px);
   }
 }
 .pl-scene {
@@ -4987,6 +5012,7 @@ select:hover {
 }
 .ctx-menu {
   position: fixed;
+  outline: none;
   min-width: 13rem;
   max-width: 26rem;
   max-height: calc(100vh - 12px);
@@ -4994,8 +5020,7 @@ select:hover {
   padding: 0.3rem;
   border: 1px solid var(--border-strong);
   border-radius: calc(var(--radius) + 0.1rem);
-  background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
-  backdrop-filter: blur(18px) saturate(1.4);
+  background: var(--bg-elev);
   box-shadow:
     0 10px 30px var(--shadow, rgba(0, 0, 0, 0.35)),
     0 2px 6px rgba(0, 0, 0, 0.18);

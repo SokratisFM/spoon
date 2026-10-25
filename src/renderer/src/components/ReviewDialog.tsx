@@ -1,6 +1,6 @@
 // Review with Claude: pick what to review and how, then hand it to Claude Code in Terminal or to
 // the Claude desktop app. Claude reads the diff itself; Spoon writes the prompt.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RepoState } from '../../../shared/types'
 import { useAsync, usePersistentState } from '../hooks'
 import { Modal } from './Modal'
@@ -112,8 +112,10 @@ export function ReviewDialog({ path, repo, stagedCount, changeCount, commit, onC
   const canSend =
     !!avail && (prefs.where === 'terminal' ? !!avail.cli : avail.desktop) && scopes.find(([s]) => s === scope)?.[2]
 
+  const sending = useRef(false)
   const send = (): void => {
-    if (!canSend) return
+    if (!canSend || sending.current) return
+    sending.current = true
     if (remember) setSaved(prefs)
     const scopeShort = { staged: 'staged', local: 'local changes', commit: target ? target.hash.slice(0, 7) : 'last commit', branch: `vs ${base}` }[scope]
     window.spoon
@@ -125,7 +127,10 @@ export function ReviewDialog({ path, repo, stagedCount, changeCount, commit, onC
         name: `Review: ${branch ?? repo.name} (${scopeShort})`,
         prompt
       })
-      .then(onClose, (err: Error) => onError(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+      .then(onClose, (err: Error) => {
+        sending.current = false
+        onError(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      })
   }
 
   return (

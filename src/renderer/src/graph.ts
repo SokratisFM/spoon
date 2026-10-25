@@ -110,11 +110,15 @@ export interface Spotlight {
  * The branch line through a commit: from it, follow first parents down and first-parent children
  * up for as long as they stay in the same column (a lane belongs to one branch from tip to fork).
  */
-export function spotlightAt(commits: Commit[], graph: Graph, start: number): Spotlight | null {
+export function spotlightAt(
+  commits: Commit[],
+  graph: Graph,
+  start: number,
+  index: Map<string, number>
+): Spotlight | null {
   const row = graph.rows[start]
   if (!row) return null
   const col = row.col
-  const index = new Map(commits.map((c, i) => [c.hash, i]))
   const nodes = new Set([start])
   let top = start
   let bottom = start

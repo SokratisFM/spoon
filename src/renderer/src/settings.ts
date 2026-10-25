@@ -143,7 +143,15 @@ let appliedExtra: string[] = []
 let current = load()
 const listeners = new Set<() => void>()
 
+// What apply() depends on; when none of it changed (most settings), it doesn't touch :root at all.
+let appliedKey = ''
+let applyFrame = 0
+
 function apply(s: Settings): void {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const key = JSON.stringify([s.uiScale, s.codeSize, s.density, s.theme, s.customBase, s.customColors, dark])
+  if (key === appliedKey) return
+  appliedKey = key
   const root = document.documentElement
   root.style.fontSize = `${BASE_FONT_PX * s.uiScale}px`
   root.style.setProperty('--code-size', `${(s.codeSize * s.uiScale).toFixed(2)}px`)
@@ -170,14 +178,33 @@ export function updateSettings(patch: Partial<Settings>): void {
   current = { ...current, ...patch }
   current.uiScale = Math.round(clamp(current.uiScale, SCALE_MIN, SCALE_MAX) * 100) / 100
   current.codeSize = clamp(current.codeSize, 9, 24)
+  persistSoon()
+  // Dragging a slider or a color picker sends many updates a frame; restyle once per frame.
+  if (!applyFrame)
+    applyFrame = requestAnimationFrame(() => {
+      applyFrame = 0
+      apply(current)
+    })
+  listeners.forEach((l) => l())
+}
+
+// Saved shortly after the last change (typing in a field saves once, not per keystroke), and
+// always before the window goes away.
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+function persistNow(): void {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = null
   try {
     storage.setItem(KEY, JSON.stringify(current))
   } catch {
     // not persisted; still applied for this session
   }
-  apply(current)
-  listeners.forEach((l) => l())
 }
+function persistSoon(): void {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(persistNow, 300)
+}
+window.addEventListener('beforeunload', persistNow)
 
 export function resetScale(): void {
   updateSettings({ uiScale: DEFAULTS.uiScale })

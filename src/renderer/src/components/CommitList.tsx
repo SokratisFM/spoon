@@ -8,6 +8,7 @@ import { jiraConfig, jiraUrl, splitByTickets, ticketKeys, type JiraConfig } from
 import { CheckoutIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, TagIcon } from './Icons'
 import type { Ops } from './RepoView'
 import { contextMenu } from '../menus'
+import { isMac } from '../platform'
 
 const MAX_GRAPH_LANES = 14
 
@@ -90,7 +91,8 @@ function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
   return map
 }
 
-export function CommitList({
+// Memoized: RepoView re-renders on every status refresh and progress tick.
+export const CommitList = memo(function CommitList({
   commits,
   graph,
   repo,
@@ -143,11 +145,12 @@ export function CommitList({
   // Lane spotlight (Settings → Appearance): one branch's line stays bright while the others dim.
   const [hoverHash, setHoverHash] = useState<string | null>(null)
   const spotHash = settings.laneSpotlight === 'selected' ? selected : settings.laneSpotlight === 'hover' ? hoverHash : null
+  const indexOf = useMemo(() => new Map(commits.map((c, i) => [c.hash, i])), [commits])
   const spot = useMemo(() => {
     if (!spotHash) return null
-    const i = commits.findIndex((c) => c.hash === spotHash)
-    return i < 0 ? null : spotlightAt(commits, graph, i)
-  }, [spotHash, commits, graph])
+    const i = indexOf.get(spotHash)
+    return i === undefined ? null : spotlightAt(commits, graph, i, indexOf)
+  }, [spotHash, commits, graph, indexOf])
   const onLabelHover = useCallback((hash: string | null) => setHoverHash(hash), [])
 
   const showGraph = !q
@@ -326,14 +329,21 @@ export function CommitList({
   if (commits.length === 0) return <div className="empty-state muted">No commits yet.</div>
 
   return (
-    <div className="commit-list">
+    <div className={`commit-list ${settings.laneSpotlight === 'hover' ? 'spot-fade' : ''}`}>
       <div className="list-header" style={{ gridTemplateColumns: gridTemplate }}>
         <span className="header-desc">Description</span>
         <span>Author</span>
         <span>Date</span>
         <span>Commit</span>
       </div>
-      <div className="list-scroll" ref={parentRef} tabIndex={0} onKeyDown={onKeyDown}>
+      <div
+        className="list-scroll"
+        ref={parentRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        // The hovered label may scroll away without a mouseleave; don't leave its branch lit.
+        onScroll={hoverHash ? () => setHoverHash(null) : undefined}
+      >
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
           {virtualizer.getVirtualItems().map((v) => {
             const i = indices[v.index]
@@ -388,7 +398,8 @@ export function CommitList({
       )}
     </div>
   )
-}
+})
+
 
 function TagPopover({
   x,
@@ -514,7 +525,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
           '--author': p.authorColor
         } as React.CSSProperties
       }
-      onMouseDown={() => p.onSelect(c.hash)}
+      onMouseDown={(e) => !(isMac && e.ctrlKey) && p.onSelect(c.hash)}
       onDoubleClick={() => p.onDoubleClick(c)}
       onContextMenu={(e) => {
         e.preventDefault()

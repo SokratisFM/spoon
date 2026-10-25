@@ -81,17 +81,19 @@ export function DialogHost() {
     if (!req) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' && e.key !== 'Enter') return
-      e.stopPropagation()
+      if (document.querySelector('.ctx-layer')) return // a menu is open on top
+      e.stopImmediatePropagation()
       if (e.key === 'Escape') {
         e.preventDefault()
         answer(req.cancelId)
         return
       }
-      // Enter on a focused button presses that button; otherwise it means the default one.
+      // Enter on a focused button presses that button. Otherwise it means the primary button; a risky
+      // one (delete, discard) is never pressed by a stray Enter.
       if ((document.activeElement as HTMLElement | null)?.closest('.app-dialog button')) return
       e.preventDefault()
-      const def = req.buttons.find((b) => b.kind) ?? req.buttons[req.buttons.length - 1]
-      answer(def.id)
+      const def = req.buttons.find((b) => b.kind === 'primary')
+      if (def) answer(def.id)
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
@@ -103,12 +105,13 @@ export function DialogHost() {
     <div className="app-dialog" key={req.n}>
       <Modal
         title={req.title}
+        ownKeys
         onClose={() => answer(req.cancelId)}
         footer={req.buttons.map((b) => (
           <button
             key={b.id}
             className={`btn ${b.kind === 'warn' ? 'primary warn' : b.kind === 'primary' ? 'primary' : ''}`}
-            autoFocus={!!b.kind}
+            autoFocus={b.kind === 'primary' || (!req.buttons.some((x) => x.kind === 'primary') && b.id === req.cancelId)}
             onClick={() => answer(b.id)}
           >
             {b.label}
