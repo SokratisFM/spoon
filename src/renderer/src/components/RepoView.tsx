@@ -31,6 +31,7 @@ import { DeleteBranchDialog } from './DeleteBranchDialog'
 import { RebaseEditor } from './RebaseEditor'
 import { RebaseBanner } from './RebaseBanner'
 import { SubmoduleUpdateDialog } from './SubmoduleUpdateDialog'
+import { MainLibDialog } from './MainLibDialog'
 import { CreatePullDialog } from './CreatePullDialog'
 import { ReviewDialog } from './ReviewDialog'
 import { ClaudeIcon, CloseIcon, FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon } from './Icons'
@@ -361,7 +362,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     }),
     [run, checkout, rebase, canCreatePull, claudeEnabled]
   )
-  const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo, setSubUpdate), [path, ops, onOpenRepo])
+  const [mainlibFor, setMainlibFor] = useState<Submodule | null>(null)
+  const mainlibName = useSettings().mainlibName
+  const subActions = useMemo(
+    () => submoduleActions(path, ops, onOpenRepo, setSubUpdate, mainlibName, setMainlibFor),
+    [path, ops, onOpenRepo, mainlibName]
+  )
 
   // Fetch/pull/push with their button animation: working (ring follows git's %), then done
   // (check, "+N" new commits, which also slide into the list) or failed (shake).
@@ -789,6 +795,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               setOpError({ title: `Pull request #${pr.number} created, with problems`, message: pr.warnings.join('\n') })
           }}
         />
+      )}
+      {mainlibFor && repo && (
+        <MainLibDialog path={path} repoName={repo.name} sub={mainlibFor} onClose={() => setMainlibFor(null)} onDone={load} />
       )}
       {subUpdate && (
         <SubmoduleUpdateDialog

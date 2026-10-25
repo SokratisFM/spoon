@@ -77,6 +77,12 @@ const api: SpoonApi = {
     return () => ipcRenderer.removeListener('git:command', listener)
   },
   claudeAvailability: () => ipcRenderer.invoke('claude:availability'),
+  atlassianAccount: () => ipcRenderer.invoke('atlassian:account'),
+  atlassianConnect: (email, token, pageUrl) => ipcRenderer.invoke('atlassian:connect', email, token, pageUrl),
+  atlassianDisconnect: () => ipcRenderer.invoke('atlassian:disconnect'),
+  confluencePage: (url) => ipcRenderer.invoke('atlassian:page', url),
+  mainlibState: (path, sub, prefix) => ipcRenderer.invoke('mainlib:state', path, sub, prefix),
+  mainlibSwitch: (path, sub, ref) => ipcRenderer.invoke('mainlib:switch', path, sub, ref),
   claudeLaunch: (launch) => ipcRenderer.invoke('claude:launch', launch),
   setMenuItemVisible: (id, visible) => ipcRenderer.send('ui:menuItemVisible', id, visible),
   ghPull: (path, n) => ipcRenderer.invoke('gh:pull', path, n),

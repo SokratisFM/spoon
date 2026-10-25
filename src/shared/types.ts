@@ -235,6 +235,39 @@ export interface PullDraftInfo {
   template: string | null
 }
 
+export interface AtlassianAccount {
+  email: string
+}
+
+export interface ConfluencePage {
+  title: string
+  /** The page body in Confluence's storage format (XHTML). */
+  html: string
+}
+
+/** A version branch of the MainLib submodule ("origin/candidates/4.2.0"). */
+export interface MainLibVersion {
+  /** Remote-tracking ref, e.g. "origin/candidates/4.2.0". */
+  ref: string
+  /** Branch name without the remote, e.g. "candidates/4.2.0". */
+  branch: string
+  /** The version part, e.g. "4.2.0". */
+  version: string
+  date: number
+  hash: string
+}
+
+export interface MainLibState {
+  /** Where the submodule is checked out, relative to the parent repo. */
+  path: string
+  /** `git describe --tags` of its HEAD ("v3.7.2-2-g02a447a"), or the short hash. */
+  describe: string
+  hash: string
+  branch: string | null
+  /** Newest first. */
+  versions: MainLibVersion[]
+}
+
 /** One git command Spoon ran, for the Git Command History window. */
 export interface GitCommandEntry {
   id: number
@@ -506,6 +539,14 @@ export interface SpoonApi {
   /** Called as each git command starts and again when it ends. */
   onGitCommand(handler: (entry: GitCommandEntry) => void): () => void
   claudeAvailability(): Promise<ClaudeAvailability>
+  atlassianAccount(): Promise<AtlassianAccount | null>
+  atlassianConnect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount>
+  atlassianDisconnect(): Promise<void>
+  confluencePage(url: string): Promise<ConfluencePage>
+  /** Fetches the submodule and lists its version branches (prefix like "candidates/"). */
+  mainlibState(path: string, submodulePath: string, prefix: string): Promise<MainLibState>
+  /** Checks out the version branch in the submodule (fast-forwarding an existing local branch). */
+  mainlibSwitch(path: string, submodulePath: string, ref: string): Promise<void>
   claudeLaunch(launch: ClaudeLaunch): Promise<void>
   /** Shows or hides an item of the app's menu bar by id. */
   setMenuItemVisible(id: string, visible: boolean): void

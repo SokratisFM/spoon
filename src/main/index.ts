@@ -8,6 +8,7 @@ import { initUpdater } from './updater'
 import * as gh from './github'
 import * as claude from './claude'
 import * as history from './history'
+import * as atlassian from './atlassian'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
@@ -206,6 +207,14 @@ function registerIpc(): void {
   ipcMain.handle('gh:assignable', (_e, path: string) => gh.assignable(path))
   ipcMain.handle('gh:createPull', (_e, path: string, pull: NewPull) => gh.createPull(path, pull))
   ipcMain.handle('claude:availability', () => claude.availability())
+  ipcMain.handle('atlassian:account', () => atlassian.account())
+  ipcMain.handle('atlassian:connect', (_e, email: string, token: string, pageUrl: string) =>
+    atlassian.connect(email, token, pageUrl)
+  )
+  ipcMain.handle('atlassian:disconnect', () => atlassian.disconnect())
+  ipcMain.handle('atlassian:page', (_e, url: string) => atlassian.page(url))
+  ipcMain.handle('mainlib:state', (_e, path: string, sub: string, prefix: string) => git.mainlibState(path, sub, prefix))
+  ipcMain.handle('mainlib:switch', (_e, path: string, sub: string, ref: string) => git.mainlibSwitch(path, sub, ref))
   ipcMain.handle('git:history', () => history.list())
   ipcMain.handle('git:clearHistory', () => history.clear())
   history.onCommand((entry) => {

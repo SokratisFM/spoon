@@ -5430,3 +5430,250 @@ input[type='checkbox']:focus-visible {
     transition: none;
   }
 }
+
+/* ---------- Update MainLib ---------- */
+
+.ml {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.ml-sub b {
+  color: var(--text);
+  font-weight: 600;
+}
+.ml-steps {
+  display: flex;
+  gap: 0.4rem;
+}
+.ml-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.88em;
+  white-space: nowrap;
+}
+.ml-step i {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  font-style: normal;
+  font-size: 0.8em;
+}
+.ml-step.on {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+.ml-step.on i,
+.ml-step.done i {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.ml-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  height: min(50vh, 26rem);
+  overflow-y: auto;
+}
+.ml-version {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.ml-version:hover {
+  background: var(--bg-hover);
+}
+.ml-version.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.ml-version.current {
+  opacity: 0.6;
+  cursor: default;
+}
+.ml-radio {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+}
+.ml-version.on .ml-radio {
+  border-color: var(--accent);
+  background: radial-gradient(var(--accent) 40%, transparent 45%);
+}
+.ml-version.current .ml-radio {
+  border-style: dashed;
+}
+.ml-vmain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.ml-vmain .mono {
+  font-size: 0.82em;
+}
+.ml-count,
+.ml-total {
+  font-size: 0.85em;
+}
+.ml-pill {
+  margin-left: 0.3rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78em;
+  font-weight: 600;
+}
+.ml-pill.rc {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+}
+.ml-pill.shipped,
+.ml-pill.latest {
+  background: color-mix(in srgb, var(--lane-2) 18%, transparent);
+  color: var(--lane-2);
+}
+.ml-pill.current {
+  background: var(--bg-selected);
+  color: var(--accent-fg);
+}
+.ml-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.ml-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.ml-ticket {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  gap: 0.6rem;
+  padding: 0.3rem 0.7rem;
+  align-items: baseline;
+}
+.ml-key {
+  color: var(--accent-fg);
+  font-size: 0.85em;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.18em;
+}
+.ml-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.ml-task > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+.ml-task .mono {
+  font-size: 0.82em;
+}
+.ml-claude {
+  gap: 0.45rem !important;
+}
+.ml-src {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 0.85em;
+}
+.ml-src a {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-fg);
+}
+.ml-claude-opts {
+  display: flex;
+  gap: 0.4rem;
+}
+.ml-claude textarea {
+  width: 100%;
+  font-family: var(--font-code);
+  font-size: 0.85em;
+  resize: vertical;
+}
+.ml-progress {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+}
+.ml-state {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  font-size: 0.75em;
+  font-weight: 700;
+}
+.ml-progress.done .ml-state {
+  border-color: var(--add);
+  background: var(--add);
+  color: var(--bg);
+}
+.ml-progress.failed .ml-state {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.ml-progress.working .ml-state {
+  border: 0;
+}
+.ml-progress.skipped {
+  color: var(--text-muted);
+}
+.ml-error {
+  display: block;
+  margin-top: 0.2rem;
+}
+.ml-foot {
+  margin-right: auto;
+  font-size: 0.9em;
+}
+.mainlib-btn {
+  color: var(--accent-fg);
+}
+.mainlib-field .form-row .field {
+  flex: 1;
+}

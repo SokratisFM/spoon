@@ -4,7 +4,7 @@ import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
 import { cleanError, useSlidingIndicator, useAsync } from '../hooks'
 import { hoverPreview, PreviewCard, PreviewEye, type Preview, type PreviewSpec, type SectionState } from './SettingsPreview'
-import type { DeviceCode } from '../../../shared/types'
+import type { DeviceCode, AtlassianAccount } from '../../../shared/types'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
 import { knownAuthors } from '../authors'
 import {
@@ -20,7 +20,8 @@ import {
   type SubmoduleTabs,
   type TagDisplay,
   type HeadHighlight,
-  type LaneSpotlight
+  type LaneSpotlight,
+  MAINLIB_DEFAULTS
 } from '../settings'
 import {
   AUTHOR_PALETTE,
@@ -1066,6 +1067,7 @@ function AccountsTab() {
       </div>
 
       <ClaudeField />
+      <MainLibField />
     </>
   )
 }
@@ -1086,6 +1088,108 @@ function ClaudeField() {
         right-click menu. Reviews open in the Claude app or in Terminal, using your own Claude sign-in.
         {avail && (found ? ` Found ${found} on this computer.` : ' Neither the Claude app nor Claude Code is installed.')}
       </span>
+    </div>
+  )
+}
+
+function MainLibField() {
+  const s = useSettings()
+  const [account, setAccount] = useState<AtlassianAccount | null | undefined>(undefined)
+  const [email, setEmail] = useState('')
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    window.spoon.atlassianAccount().then(setAccount)
+  }, [])
+  const url = (key: 'mainlibChangelogUrl' | 'mainlibInstructionsUrl', label: string, hint: string, def: string) => (
+    <div className="field">
+      <span className="field-label">
+        {label}
+        {s[key] !== def && (
+          <button className="link-btn" onClick={() => updateSettings({ [key]: def })}>
+            Reset to the team default
+          </button>
+        )}
+      </span>
+      <input className="mono" value={s[key]} spellCheck={false} onChange={(e) => updateSettings({ [key]: e.target.value.trim() })} />
+      <span className="hint">{hint}</span>
+    </div>
+  )
+  const connect = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      setAccount(await window.spoon.atlassianConnect(email, token, s.mainlibChangelogUrl))
+      setToken('')
+    } catch (err) {
+      setError(cleanError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="field jira-field mainlib-field">
+      <span className="field-label">MainLib updates</span>
+      <span className="hint">
+        In a repository with the {s.mainlibName} submodule, “Update {s.mainlibName}…” (submodule menu) moves it to a newer
+        version branch and can hand the follow-up work to Claude.
+      </span>
+      {url('mainlibChangelogUrl', 'Changelog page', 'Where the version pills and ticket lists come from.', MAINLIB_DEFAULTS.changelog)}
+      {url(
+        'mainlibInstructionsUrl',
+        'Upgrade instructions',
+        'The page Claude follows when it updates MainLib in a game.',
+        MAINLIB_DEFAULTS.instructions
+      )}
+      <div className="form-row">
+        <label className="field">
+          <span className="field-label">Submodule name</span>
+          <input value={s.mainlibName} spellCheck={false} onChange={(e) => updateSettings({ mainlibName: e.target.value.trim() })} />
+        </label>
+        <label className="field">
+          <span className="field-label">Version branches</span>
+          <input className="mono" value={s.mainlibPrefix} spellCheck={false} onChange={(e) => updateSettings({ mainlibPrefix: e.target.value.trim() })} />
+        </label>
+      </div>
+      <div className="field">
+        <span className="field-label">Atlassian account</span>
+        {account ? (
+          <div className="form-row">
+            <span>
+              Connected as <b>{account.email}</b>
+            </span>
+            <span className="spacer" />
+            <button className="btn" onClick={() => window.spoon.atlassianDisconnect().then(() => setAccount(null))}>
+              Disconnect
+            </button>
+          </div>
+        ) : (
+          <>
+            <span className="hint">
+              Lets Spoon read the changelog page. Use your Atlassian email and an{' '}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  window.spoon.openExternal('https://id.atlassian.com/manage-profile/security/api-tokens')
+                }}
+              >
+                API token
+              </a>
+              ; it’s kept in your Keychain.
+            </span>
+            <div className="form-row">
+              <input placeholder="you@fm-games.com" value={email} spellCheck={false} onChange={(e) => setEmail(e.target.value)} />
+              <input type="password" placeholder="API token" value={token} onChange={(e) => setToken(e.target.value)} />
+              <button className="btn" disabled={busy || !email.trim() || !token.trim()} onClick={connect}>
+                {busy ? 'Checking…' : 'Connect'}
+              </button>
+            </div>
+          </>
+        )}
+        {error && <span className="error-text">{error}</span>}
+      </div>
     </div>
   )
 }

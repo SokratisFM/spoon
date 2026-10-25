@@ -23,6 +23,9 @@ export interface SubmoduleActions {
   open: (s: Submodule) => void
   update: (s: Submodule) => void
   menu: (s: Submodule) => void
+  /** The team's shared library submodule (MainLib): can be moved to a newer version branch. */
+  isMainlib: (s: Submodule) => boolean
+  updateMainlib: (s: Submodule) => void
 }
 
 export function submoduleActions(
@@ -30,8 +33,13 @@ export function submoduleActions(
   ops: Ops,
   onOpenRepo: (path: string) => void,
   /** Opens the dialog that explains and confirms an update/reset. */
-  askUpdate: (s: Submodule) => void
+  askUpdate: (s: Submodule) => void,
+  /** The MainLib submodule's name (Settings) and its update dialog. */
+  mainlibName: string,
+  openMainlib: (s: Submodule) => void
 ): SubmoduleActions {
+  const isMainlib = (s: Submodule): boolean =>
+    !!mainlibName && s.state !== 'uninitialized' && s.name.toLowerCase() === mainlibName.toLowerCase()
   const update = (s: Submodule): void => {
     if (s.state === 'uninitialized')
       ops.run(
@@ -45,15 +53,19 @@ export function submoduleActions(
   return {
     open,
     update,
+    isMainlib,
+    updateMainlib: openMainlib,
     menu: async (s) => {
       const choice = await contextMenu([
+        ...(isMainlib(s) ? [{ id: 'mainlib', label: `Update ${s.name} to a Newer Version…` }, { separator: true }] : []),
         { id: 'open', label: 'Open in New Tab', enabled: s.state !== 'uninitialized' },
         { id: 'update', label: s.state === 'uninitialized' ? 'Initialize' : 'Update to Recorded Commit' },
         { separator: true },
         { id: 'reveal', label: revealLabel },
         { id: 'copy', label: 'Copy Path' }
       ])
-      if (choice === 'open') open(s)
+      if (choice === 'mainlib') openMainlib(s)
+      else if (choice === 'open') open(s)
       else if (choice === 'update') update(s)
       else if (choice === 'reveal') window.spoon.revealInFinder(`${repoPath}/${s.path}`)
       else if (choice === 'copy') navigator.clipboard.writeText(s.path)
@@ -123,6 +135,19 @@ export function SubmoduleChip({ submodules, actions }: { submodules: Submodule[]
                   </span>
                   <span className={`sub-meta tone-${st.tone}`}>{st.label}</span>
                 </div>
+                {actions.isMainlib(s) && (
+                  <button
+                    className="mini-btn mainlib-btn"
+                    title={`Move ${s.name} to a newer version branch`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setOpen(false)
+                      actions.updateMainlib(s)
+                    }}
+                  >
+                    New version…
+                  </button>
+                )}
                 {/* Catching up is "Update"; going back to the recorded commit is "Reset". */}
                 {(s.state === 'outdated' || s.state === 'uninitialized') && (
                   <button

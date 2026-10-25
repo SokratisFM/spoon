@@ -22,6 +22,8 @@ import type {
   DeleteResult,
   DiscardEntry,
   PullDraftInfo,
+  MainLibState,
+  MainLibVersion,
   RebaseAction,
   RebaseCommit,
   RebasePlan,
@@ -1251,4 +1253,57 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: nu
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
   return out
+}
+
+// ---------- MainLib (a submodule with version branches) ----------
+
+/** "4.2.0" and "3.8.0.2" as comparable number lists. */
+const versionParts = (v: string): number[] => v.split(/[.\-_]/).map((x) => Number.parseInt(x, 10) || 0)
+export function compareVersions(a: string, b: string): number {
+  const x = versionParts(a)
+  const y = versionParts(b)
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0)
+  return 0
+}
+
+export async function mainlibState(cwd: string, submodulePath: string, prefix: string): Promise<MainLibState> {
+  const dir = join(cwd, submodulePath)
+  if (!existsSync(join(dir, '.git'))) throw new Error(`${submodulePath} isn’t checked out. Initialize the submodule first.`)
+  if (!/^[\w./-]+$/.test(prefix)) throw new Error(`Invalid branch prefix: ${prefix}`)
+  // New version branches only show up after a fetch.
+  await exclusive(dir, () => run(dir, ['fetch', '--prune', '--quiet', 'origin'], { cancellable: true }))
+  const [describe, hash, branch, refs] = await Promise.all([
+    git(dir, ['describe', '--tags', '--always'], [0, 128]).then((s) => s.trim()),
+    git(dir, ['rev-parse', '--short', 'HEAD']).then((s) => s.trim()),
+    git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).then((s) => s.trim() || null),
+    git(dir, ['for-each-ref', `--format=%(refname:short)${FS}%(committerdate:unix)${FS}%(objectname:short)`, `refs/remotes/origin/${prefix}`])
+  ])
+  const versions: MainLibVersion[] = refs
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [ref, date, h] = line.split(FS)
+      const name = ref.slice('origin/'.length)
+      return { ref, branch: name, version: name.slice(prefix.length), date: Number(date), hash: h }
+    })
+    .filter((v) => /^\d/.test(v.version))
+    .sort((a, b) => compareVersions(b.version, a.version))
+  return { path: submodulePath, describe: describe || hash, hash, branch, versions }
+}
+
+/** Checks out a version branch in the submodule: an existing local branch is fast-forwarded to it. */
+export function mainlibSwitch(cwd: string, submodulePath: string, ref: string): Promise<void> {
+  const dir = join(cwd, submodulePath)
+  return exclusive(dir, async () => {
+    if (!ref.startsWith('origin/')) throw new Error(`Not a remote branch: ${ref}`)
+    const local = ref.slice('origin/'.length)
+    await assertBranchName(dir, local)
+    const exists = !!(await git(dir, ['rev-parse', '-q', '--verify', `refs/heads/${local}`], [0, 1])).trim()
+    if (exists) {
+      await git(dir, ['switch', '--quiet', local])
+      await git(dir, ['merge', '--ff-only', '--quiet', `refs/remotes/${ref}`])
+    } else {
+      await git(dir, ['switch', '--quiet', '-c', local, '--track', `refs/remotes/${ref}`])
+    }
+  })
 }

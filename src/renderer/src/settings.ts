@@ -28,6 +28,14 @@ export interface AuthorColor {
   color: string
 }
 
+/** The team's MainLib setup; each can be changed in Settings → Accounts and reset to these. */
+export const MAINLIB_DEFAULTS = {
+  name: 'MainLib',
+  prefix: 'candidates/',
+  changelog: 'https://fm-games.atlassian.net/wiki/spaces/DEV/pages/4083417090/Mainlib+Changelog',
+  instructions: 'https://fm-games.atlassian.net/wiki/spaces/DEV/pages/4827578369/Mainlib+update+agent+instructions'
+}
+
 export type LaneSpotlight = 'selected' | 'hover' | 'off'
 
 export interface Settings {
@@ -65,6 +73,11 @@ export interface Settings {
   laneSpotlight: LaneSpotlight
   /** Review with Claude: the toolbar button, ⇧⌘R, the commit box button and right-click items. */
   claudeEnabled: boolean
+  /** MainLib updates: which submodule, its version branches, and the two Confluence pages. */
+  mainlibName: string
+  mainlibPrefix: string
+  mainlibChangelogUrl: string
+  mainlibInstructionsUrl: string
   /** Branch colors (0–7, the theme's lane colors) reserved for branch-name prefixes. */
   reservedColors: Record<number, string[]>
   /** Reserved colors also apply to the branch's line in the graph. */
@@ -101,6 +114,10 @@ const DEFAULTS: Settings = {
   playfulNet: false,
   laneSpotlight: 'selected',
   claudeEnabled: true,
+  mainlibName: MAINLIB_DEFAULTS.name,
+  mainlibPrefix: MAINLIB_DEFAULTS.prefix,
+  mainlibChangelogUrl: MAINLIB_DEFAULTS.changelog,
+  mainlibInstructionsUrl: MAINLIB_DEFAULTS.instructions,
   reservedColors: {},
   reservedColorsGraph: true,
   jiraSite: 'https://fm-games.atlassian.net',
