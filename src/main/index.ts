@@ -78,6 +78,7 @@ function buildMenu(): void {
         label: 'Repository',
         submenu: [
           { label: 'Commit', accelerator: 'CmdOrCtrl+Enter', click: () => send('commit') },
+          { label: 'Commit and Push', accelerator: 'CmdOrCtrl+Alt+Enter', click: () => send('commit-push') },
           { label: 'Discard Selected Changes…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('discard') },
           { type: 'separator' },
           { label: 'Fetch', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('fetch') },

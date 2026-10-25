@@ -45,6 +45,8 @@ export interface Ops {
   checkout: (target: CheckoutTarget, description: string) => void
   /** Rebase the current branch onto a branch; interactive opens the editable plan first. */
   rebase: (onto: string, interactive: boolean) => void
+  /** Push the current branch to its upstream (or origin) without the Push dialog. */
+  push: () => void
 }
 
 interface Busy {
@@ -82,8 +84,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [busy, setBusy] = useState<Busy | null>(null)
   const [opError, setOpError] = useState<{ title: string; message: string } | null>(null)
   const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
-  const [commitRequest, setCommitRequest] = useState(0)
-  const clearCommitRequest = useCallback(() => setCommitRequest(0), [])
+  // ⌘↵ / ⌥⌘↵ from the menu: commit, optionally followed by a push.
+  const [commitRequest, setCommitRequest] = useState<{ push: boolean; n: number } | null>(null)
+  const clearCommitRequest = useCallback(() => setCommitRequest(null), [])
   const [discardRequest, setDiscardRequest] = useState(0)
   const clearDiscardRequest = useCallback(() => setDiscardRequest(0), [])
   const refsSignature = useRef(snap?.refsSignature ?? '')
@@ -325,7 +328,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     [path, run]
   )
 
-  const ops = useMemo<Ops>(() => ({ run, checkout, rebase }), [run, checkout, rebase])
+  // Defined further down (it uses the Push button's animation); read through a ref so ops stays stable.
+  const quickPushRef = useRef<() => void>(() => undefined)
+  const ops = useMemo<Ops>(
+    () => ({ run, checkout, rebase, push: () => quickPushRef.current() }),
+    [run, checkout, rebase]
+  )
   const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo, setSubUpdate), [path, ops, onOpenRepo])
 
   // Fetch/pull/push with their button animation: working (ring follows git's %), then done
@@ -339,6 +347,27 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     setNet({ kind, phase: ok ? 'done' : 'failed', gained: kind === 'push' ? 0 : arrived.length })
     if (ok && arrived.length && before.size) setFresh({ hashes: new Set(arrived), n: Date.now() })
     setTimeout(() => setNet((n) => (n?.kind === kind && n.phase !== 'working' ? null : n)), ok ? 1800 : 1400)
+  }
+
+  // Commit and Push: push where the Push dialog would by default, without asking.
+  quickPushRef.current = async () => {
+    const info = await window.spoon.syncInfo(path).catch(() => null)
+    if (!info?.branch) {
+      setOpError({ title: 'Push failed', message: 'HEAD is detached. Check out a branch to push.' })
+      return
+    }
+    const remote = info.upstreamRemote ?? (info.remotes.includes('origin') ? 'origin' : info.remotes[0])
+    if (!remote) {
+      setOpError({ title: 'Push failed', message: 'This repository has no remotes.' })
+      return
+    }
+    const remoteBranch = (info.upstreamRemote === remote && info.upstreamBranch) || info.branch
+    netOp(
+      'push',
+      'Pushing…',
+      () => window.spoon.push(path, { remote, remoteBranch, setUpstream: !info.upstreamRemote, tags: false }),
+      'Push failed'
+    )
   }
 
   const fetchAll = (): void => {
@@ -359,9 +388,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     else if (command.name === 'discard') {
       // Acts on the files selected in Local Changes, like Fork's ⇧⌘D.
       if (view === 'changes') setDiscardRequest(Date.now())
-    } else if (command.name === 'commit') {
+    } else if (command.name === 'commit' || command.name === 'commit-push') {
       setView('changes')
-      setCommitRequest(Date.now())
+      setCommitRequest({ push: command.name === 'commit-push', n: Date.now() })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command])

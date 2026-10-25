@@ -452,3 +452,4 @@ export type MenuCommand =
   | 'find-project'
   | 'filter-commits'
   | 'discard'
+  | 'commit-push'

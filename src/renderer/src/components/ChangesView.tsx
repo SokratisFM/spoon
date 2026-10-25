@@ -25,7 +25,7 @@ interface Props {
   pushedTo: string | null
   ops: Ops
   /** Set by ⌘Enter from the menu; cleared with onCommitHandled once acted on. */
-  commitRequest: number
+  commitRequest: { push: boolean; n: number } | null
   onCommitHandled: () => void
   /** Set by ⇧⌘D from the menu; discards the selected files once confirmed. */
   discardRequest: number
@@ -282,7 +282,7 @@ interface CommitBoxProps {
   stagedCount: number
   pushedTo: string | null
   ops: Ops
-  commitRequest: number
+  commitRequest: { push: boolean; n: number } | null
   onCommitHandled: () => void
 }
 
@@ -292,6 +292,22 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
   const [amend, setAmend] = useState(false)
   const beforeAmend = useRef<{ subject: string; body: string } | null>(null)
   const subjectRef = useRef<HTMLInputElement>(null)
+  // Holding ⌥ turns the button into Commit and Push, like Fork.
+  const [alt, setAlt] = useState(false)
+  useEffect(() => {
+    const track = (e: KeyboardEvent): void => setAlt(e.altKey)
+    const reset = (): void => setAlt(false)
+    window.addEventListener('keydown', track)
+    window.addEventListener('keyup', track)
+    window.addEventListener('blur', reset)
+    return () => {
+      window.removeEventListener('keydown', track)
+      window.removeEventListener('keyup', track)
+      window.removeEventListener('blur', reset)
+    }
+  }, [])
+  // An amended commit that's already pushed needs a force push, which stays a deliberate step.
+  const canPush = !amend || !pushedTo
 
   const toggleAmend = async (on: boolean): Promise<void> => {
     setAmend(on)
@@ -308,7 +324,7 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
 
   const canCommit = !!draft.subject.trim() && (stagedCount > 0 || amend)
 
-  const commit = async (): Promise<void> => {
+  const commit = async (push = false): Promise<void> => {
     if (!canCommit) {
       subjectRef.current?.focus()
       return
@@ -319,6 +335,7 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
       setDraft({ subject: '', body: '' })
       setAmend(false)
       beforeAmend.current = null
+      if (push && canPush) ops.push()
     }
   }
 
@@ -327,10 +344,19 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
   useEffect(() => {
     if (!commitRequest) return
     onCommitHandled()
-    commitRef.current()
+    commitRef.current(commitRequest.push)
   }, [commitRequest, onCommitHandled])
 
-  const label = amend ? 'Amend Last Commit' : stagedCount ? `Commit ${stagedCount} File${stagedCount === 1 ? '' : 's'}` : 'Commit'
+  const pushing = alt && canPush
+  const label = pushing
+    ? amend
+      ? 'Amend and Push'
+      : 'Commit and Push'
+    : amend
+      ? 'Amend Last Commit'
+      : stagedCount
+        ? `Commit ${stagedCount} File${stagedCount === 1 ? '' : 's'}`
+        : 'Commit'
 
   return (
     <div className="commit-box">
@@ -360,7 +386,13 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
           Amend
         </label>
         <span className={`char-count ${draft.subject.length > 72 ? 'warn' : ''}`}>{draft.subject.length}</span>
-        <button className="btn primary" disabled={!canCommit} onClick={commit} title={keys('⌘↵')}>
+        <button
+          className={`btn primary ${pushing ? 'commit-push' : ''}`}
+          disabled={!canCommit}
+          onClick={(e) => commit(e.altKey && canPush)}
+          onMouseMove={(e) => e.altKey !== alt && setAlt(e.altKey)}
+          title={`${keys('⌘↵')} to commit · hold ⌥ (or ${keys('⌥⌘↵')}) to commit and push`}
+        >
           {label}
         </button>
       </div>
