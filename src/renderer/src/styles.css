@@ -4216,6 +4216,7 @@ select:hover {
   padding: 0 0.7rem;
 }
 .pv-row {
+  flex: none; /* keep each row's real height; squeezed to fit, every density would look the same */
   border-bottom: 1px solid var(--border);
 }
 .pv-band {
@@ -5336,22 +5337,24 @@ select:hover {
   box-shadow: 0 12px 30px var(--shadow);
   animation: pv-drop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
 }
+/* The clip reaches 3rem past the drawer's edges, so its shadow is revealed with the moving edge
+   instead of appearing once the animation ends. */
 @keyframes pv-rise {
   from {
-    clip-path: inset(100% 0 0 0);
+    clip-path: inset(100% -3rem -3rem -3rem);
     transform: translateY(0.6rem);
   }
   to {
-    clip-path: inset(0 0 0 0);
+    clip-path: inset(-3rem -3rem -3rem -3rem);
   }
 }
 @keyframes pv-drop {
   from {
-    clip-path: inset(0 0 100% 0);
+    clip-path: inset(-3rem -3rem 100% -3rem);
     transform: translateY(-0.6rem);
   }
   to {
-    clip-path: inset(0 0 0 0);
+    clip-path: inset(-3rem -3rem -3rem -3rem);
   }
 }
 @media (prefers-reduced-motion: reduce) {

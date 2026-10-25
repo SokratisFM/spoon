@@ -374,7 +374,27 @@ function SidebarSectionsField() {
   }
   return (
     <div className="field">
-      <span className="field-label">Sidebar sections</span>
+      <span className="field-label">
+        Sidebar sections
+        <PreviewEye
+          label="Sidebar sections"
+          make={() => {
+            const defaults = SIDEBAR_SECTIONS.map((d) => ({ id: d.id, visible: true }))
+            const same = JSON.stringify(defaults) === JSON.stringify(list.map(({ id, visible }) => ({ id, visible })))
+            const tile = (l: typeof list): PreviewSpec => ({ kind: 'sidebar', from: states(l), to: states(l) })
+            return {
+              title: 'Sidebar sections',
+              spec: tile(list),
+              options: same
+                ? [{ label: 'Now (the default)', current: true, spec: tile(list) }]
+                : [
+                    { label: 'Now', current: true, spec: tile(list) },
+                    { label: 'Default (Reset)', current: false, spec: tile(defaults) }
+                  ]
+            }
+          }}
+        />
+      </span>
       <div className="section-order">
         {list.map((x, i) => (
           <div key={x.id} className={`section-order-row ${x.visible ? '' : 'hidden'}`}>
@@ -416,7 +436,7 @@ function SidebarSectionsField() {
           </div>
         ))}
       </div>
-      <span className="hint">Untick to hide a section; arrows change the order.</span>
+      <span className="hint">Switch a section off to hide it; the arrows change the order.</span>
     </div>
   )
 }
@@ -457,17 +477,18 @@ function BranchColorsField() {
         spec: { kind: 'branch', prefix: reserved[i]?.[0] ?? 'release/', from: { label: auto, line: auto }, to: { label: i, line: s.reservedColorsGraph ? i : auto } }
       }
     })
-  const graphPreview = hoverPreview(() => {
+  // The graph-line switch's eye: the reserved branch with its line in the usual color, then in its own.
+  const graphOptions = (): Preview => {
     const slot = reservedSlots[0] ?? 2
     const auto = autoLane(slot)
-    const on = s.reservedColorsGraph
+    const prefix = reserved[slot]?.[0] ?? 'release/'
+    const spec = (on: boolean): PreviewSpec => ({ kind: 'branch', prefix, from: { label: slot, line: on ? slot : auto }, to: { label: slot, line: on ? slot : auto } })
     return {
       title: 'Reserved color on the graph line',
-      from: on ? 'On' : 'Off',
-      to: on ? 'Off' : 'On',
-      spec: { kind: 'branch', prefix: reserved[slot]?.[0] ?? 'release/', from: { label: slot, line: on ? slot : auto }, to: { label: slot, line: on ? auto : slot } }
+      spec: spec(s.reservedColorsGraph),
+      options: [false, true].map((on) => ({ label: on ? 'On' : 'Off', current: on === s.reservedColorsGraph, spec: spec(on) }))
     }
-  })
+  }
 
   return (
     <div className="field">
@@ -521,14 +542,18 @@ function BranchColorsField() {
           )
         })}
       </div>
-      <label className="check" {...graphPreview}>
+      <div className="check">
         <input
+          id="set-reserved-graph-line"
           type="checkbox"
           checked={s.reservedColorsGraph}
           onChange={(e) => updateSettings({ reservedColorsGraph: e.target.checked })}
         />
-        Also color the branch’s graph line
-      </label>
+        <span>
+          <label htmlFor="set-reserved-graph-line">Also color the branch’s graph line</label>{' '}
+          <PreviewEye label="Reserved color on the graph line" make={graphOptions} />
+        </span>
+      </div>
     </div>
   )
 }
@@ -709,19 +734,33 @@ function AuthorsTab() {
 
   return (
     <>
-      <label
-        className="check"
-        {...authorsPreview('Color commits by author', s.authorColorsEnabled ? 'On' : 'Off', s.authorColorsEnabled ? 'Off' : 'On', sample(), (n) =>
-          s.authorColorsEnabled ? null : listedColor(n)
-        )}
-      >
+      <div className="check">
         <input
+          id="set-author-colors"
           type="checkbox"
           checked={s.authorColorsEnabled}
           onChange={(e) => updateSettings({ authorColorsEnabled: e.target.checked })}
         />
-        Color commits by author
-      </label>
+        <span>
+          <label htmlFor="set-author-colors">Color commits by author</label>{' '}
+          {sample().some((n) => listedColor(n)) && (
+            <PreviewEye
+              label="Color commits by author"
+              make={() => {
+                const tile = (on: boolean): PreviewSpec => ({
+                  kind: 'authors',
+                  authors: sample().map((name) => ({ name, from: on ? listedColor(name) : null, to: on ? listedColor(name) : null }))
+                })
+                return {
+                  title: 'Color commits by author',
+                  spec: tile(s.authorColorsEnabled),
+                  options: [false, true].map((on) => ({ label: on ? 'On' : 'Off', current: on === s.authorColorsEnabled, spec: tile(on) }))
+                }
+              }}
+            />
+          )}
+        </span>
+      </div>
       <p className="hint">
         Listed authors get their color on the commit dot, avatar and a tint across the row. Match by name or email;
         authors not listed keep the normal look.
