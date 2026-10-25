@@ -7,6 +7,7 @@ import { Split } from './Split'
 import { FileList } from './FileList'
 import { DiffView, type HunkAction } from './DiffView'
 import { keys, mod, revealLabel } from '../platform'
+import { contextMenu as showMenu } from '../menus'
 
 type Area = 'unstaged' | 'staged'
 
@@ -172,7 +173,7 @@ export function ChangesView({
 
   const contextMenu = (area: Area) => async (files: FileChange[]) => {
     const n = files.length === 1 ? '' : ` ${files.length} files`
-    const choice = await window.spoon.contextMenu([
+    const choice = await showMenu([
       { id: 'toggle', label: area === 'unstaged' ? `Stage${n}` : `Unstage${n}` },
       {
         id: 'discard',
@@ -381,6 +382,11 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
         </span>
       )}
       <div className="commit-actions">
+        {ops.review && (
+          <button className="btn review-btn" onClick={() => ops.review?.()} title={`Review with Claude (${keys('⇧⌘R')})`}>
+            ✦ Review
+          </button>
+        )}
         <label className="check">
           <input type="checkbox" checked={amend} onChange={(e) => toggleAmend(e.target.checked)} />
           Amend

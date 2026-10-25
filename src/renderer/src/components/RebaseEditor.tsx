@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RebaseAction, RebasePlan, RebaseStep } from '../../../shared/types'
 import { shortDate } from '../format'
 import { AlertIcon } from './Icons'
+import { contextMenu } from '../menus'
 
 interface Row {
   hash: string
@@ -121,7 +122,7 @@ export function RebaseEditor({ plan, branch, onto, selected, onSelect, onCancel,
 
   const actionMenu = async (i: number): Promise<void> => {
     onSelect(rows[i].hash)
-    const choice = await window.spoon.contextMenu(
+    const choice = await contextMenu(
       ACTIONS.map((a) => ({
         id: a.id,
         label: `${a.id[0].toUpperCase()}${a.id.slice(1)}  (${a.key.toUpperCase()}) · ${a.hint}`,

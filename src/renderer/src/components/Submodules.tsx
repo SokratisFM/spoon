@@ -3,6 +3,7 @@ import type { Submodule } from '../../../shared/types'
 import type { Ops } from './RepoView'
 import { BackIcon, BoxIcon, ChevronIcon } from './Icons'
 import { revealLabel } from '../platform'
+import { contextMenu } from '../menus'
 
 export function submoduleStatus(s: Submodule): { label: string; tone: 'ok' | 'warn' | 'danger' | 'off' } {
   if (s.state === 'uninitialized') return { label: 'not initialized', tone: 'off' }
@@ -45,7 +46,7 @@ export function submoduleActions(
     open,
     update,
     menu: async (s) => {
-      const choice = await window.spoon.contextMenu([
+      const choice = await contextMenu([
         { id: 'open', label: 'Open in New Tab', enabled: s.state !== 'uninitialized' },
         { id: 'update', label: s.state === 'uninitialized' ? 'Initialize' : 'Update to Recorded Commit' },
         { separator: true },

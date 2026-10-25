@@ -24,6 +24,7 @@ import {
   StashIcon,
   TagIcon
 } from './Icons'
+import { contextMenu } from '../menus'
 
 interface Props {
   repo: RepoState
@@ -96,7 +97,7 @@ export function Sidebar(props: Props) {
           : `Checkout Tag ${ref.name}…`
     const canRebase = !!repo.headBranch && ref.kind !== 'tag' && !isCurrent && ref.target !== repo.headHash
     setPicked(ref.fullName)
-    const choice = await window.spoon.contextMenu([
+    const choice = await contextMenu([
       { id: 'checkout', label: checkoutLabel, enabled: !isCurrent },
       ...(canRebase
         ? [
@@ -105,6 +106,7 @@ export function Sidebar(props: Props) {
             { id: 'irebase', label: `Interactive Rebase ${repo.headBranch} onto ${ref.name}…` }
           ]
         : []),
+      ...(ref.kind === 'head' && ops.createPull ? [{ separator: true }, { id: 'pr', label: `Create Pull Request for ${ref.name}…` }] : []),
       { separator: true },
       { id: 'show', label: 'Show in History' },
       { id: 'copy', label: 'Copy Name' },
@@ -115,6 +117,7 @@ export function Sidebar(props: Props) {
     if (choice?.startsWith('jira:') && jira) window.spoon.openExternal(jiraUrl(jira, choice.slice(5)))
     else if (choice === 'delete') onDeleteBranch(ref)
     else if (choice === 'checkout') checkoutRef(ref)
+    else if (choice === 'pr') ops.createPull?.(ref.name)
     else if (choice === 'rebase' || choice === 'irebase') ops.rebase(ref.name, choice === 'irebase')
     else if (choice === 'show') onJump(ref.target)
     else if (choice === 'copy') navigator.clipboard.writeText(ref.name)
@@ -216,7 +219,7 @@ export function Sidebar(props: Props) {
   const prGroupsMenu = async (e: React.MouseEvent): Promise<void> => {
     e.preventDefault()
     const g = settings.prGroups
-    const choice = await window.spoon.contextMenu([
+    const choice = await contextMenu([
       { label: 'Show in Pull Requests', enabled: false },
       { id: 'awaiting', label: 'Awaiting your review', kind: 'checkbox', checked: true, enabled: false },
       { id: 'yours', label: 'Yours', kind: 'checkbox', checked: g.yours },
@@ -228,7 +231,7 @@ export function Sidebar(props: Props) {
     if (e.defaultPrevented) return // an item showed its own menu
     e.preventDefault()
     const list = settings.sidebarSections
-    const choice = await window.spoon.contextMenu([
+    const choice = await contextMenu([
       { label: 'Show in sidebar', enabled: false },
       ...list.map((x) => ({
         id: x.id,

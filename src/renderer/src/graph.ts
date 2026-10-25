@@ -97,3 +97,39 @@ export function buildGraph(commits: Commit[], rules?: ColorRules): Graph {
 }
 
 export const LANE_COLORS = 8
+
+/** The part of the graph that belongs to one branch line: a column and the rows it spans. */
+export interface Spotlight {
+  col: number
+  top: number
+  bottom: number
+  nodes: Set<number>
+}
+
+/**
+ * The branch line through a commit: from it, follow first parents down and first-parent children
+ * up for as long as they stay in the same column (a lane belongs to one branch from tip to fork).
+ */
+export function spotlightAt(commits: Commit[], graph: Graph, start: number): Spotlight | null {
+  const row = graph.rows[start]
+  if (!row) return null
+  const col = row.col
+  const index = new Map(commits.map((c, i) => [c.hash, i]))
+  const nodes = new Set([start])
+  let top = start
+  let bottom = start
+  for (let cur = start; ; ) {
+    const p = index.get(commits[cur].parents[0] ?? '')
+    if (p === undefined || graph.rows[p]?.col !== col) break
+    nodes.add(p)
+    bottom = cur = p
+  }
+  // Children above: the nearest commit in the same column whose first parent is the current one.
+  for (let cur = start, i = start - 1; i >= 0; i--) {
+    if (graph.rows[i].col !== col) continue
+    if (commits[i].parents[0] !== commits[cur].hash) break
+    nodes.add(i)
+    top = cur = i
+  }
+  return { col, top, bottom, nodes }
+}

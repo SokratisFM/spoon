@@ -1141,7 +1141,8 @@ button.branch-chip:hover:not(:disabled) {
   align-items: center;
   gap: 0.8rem;
 }
-.commit-actions .btn {
+/* Review and Amend on the left, the character count and Commit on the right. */
+.commit-actions .char-count {
   margin-left: auto;
 }
 .char-count {
@@ -2159,6 +2160,248 @@ input[type='color']::-webkit-color-swatch {
   background: var(--warn);
   border-color: var(--warn);
   color: color-mix(in srgb, var(--warn) 22%, #000);
+}
+
+/* ---------- review with Claude ---------- */
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.review-form .segmented button:disabled {
+  opacity: 0.4;
+}
+.review-base {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+}
+.review-base select {
+  flex: 1;
+  min-width: 0;
+}
+.review-dest {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.review-dest button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.review-dest button span {
+  color: var(--text-muted);
+  font-size: 0.88em;
+  line-height: 1.35;
+}
+.review-dest button.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+.review-dest button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.review-model {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 0.8rem;
+  transition: opacity 0.2s;
+}
+.review-model.dim {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.review-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.review-chips button {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.review-chips button.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+.review-form textarea {
+  width: 100%;
+  resize: vertical;
+}
+.review-prompt summary {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+.review-prompt[open] summary .chevron {
+  transform: rotate(90deg);
+}
+.review-prompt textarea {
+  margin-top: 0.4rem;
+  font-family: var(--font-code);
+  font-size: 0.85em;
+  line-height: 1.45;
+}
+.review-prompt-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+.review-prompt-foot .hint {
+  flex: 1;
+}
+.review-edited {
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+  font-size: 0.8em;
+}
+.tool-btn.claude-tool .icon {
+  color: #d97757;
+}
+.tool-btn.claude-tool:hover:not(:disabled) .icon {
+  transform: rotate(45deg);
+}
+.tool-btn.claude-tool .icon {
+  transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+/* Claude's clay for the hand-off buttons. */
+.btn.primary.claude {
+  background: #d97757;
+  border-color: #d97757;
+  color: #fff;
+}
+.btn.review-btn {
+  color: #d97757;
+  border-color: color-mix(in srgb, #d97757 45%, var(--border));
+}
+
+/* ---------- create pull request ---------- */
+
+.pr-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.pr-route {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.pr-route select {
+  flex: 1;
+  min-width: 0;
+}
+.pr-form .field input,
+.pr-body {
+  width: 100%;
+}
+.pr-body {
+  resize: vertical;
+  min-height: 7rem;
+  font-family: var(--font-code);
+  font-size: 0.9em;
+}
+.pr-people {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 0.8rem;
+  align-items: start;
+}
+.pr-reviewers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.pr-reviewers input {
+  flex: 1;
+  min-width: 7rem;
+  border: none !important;
+  background: none !important;
+  padding: 0.15rem 0.3rem !important;
+  box-shadow: none !important;
+}
+.pr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.1rem 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: var(--bg-selected);
+  font-size: 0.9em;
+}
+.pr-chip img,
+.pr-suggest img {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+}
+.pr-chip .icon-btn {
+  padding: 0.05rem;
+}
+.pr-suggest {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+.pr-suggest button {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.55rem;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pr-suggest button:hover {
+  background: var(--bg-hover);
+}
+
+/* ---------- lane spotlight ---------- */
+
+.graph path,
+.graph circle,
+.graph rect {
+  transition: opacity 0.18s ease;
+}
+.graph.spotlit path.dim,
+.graph.spotlit:not(.spot-node) circle,
+.graph.spotlit:not(.spot-node) rect {
+  opacity: 0.22;
 }
 
 /* ---------- interactive rebase ---------- */
@@ -4732,5 +4975,102 @@ select:hover {
   .pl-scene *,
   .net-scene-bar > span {
     animation: none !important;
+  }
+}
+
+/* ---------- in-app context menus ---------- */
+
+.ctx-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+}
+.ctx-menu {
+  position: fixed;
+  min-width: 13rem;
+  max-width: 26rem;
+  max-height: calc(100vh - 12px);
+  overflow-y: auto;
+  padding: 0.3rem;
+  border: 1px solid var(--border-strong);
+  border-radius: calc(var(--radius) + 0.1rem);
+  background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow:
+    0 10px 30px var(--shadow, rgba(0, 0, 0, 0.35)),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+  animation: ctx-in 0.13s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.3rem 0.6rem 0.3rem 0.2rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95em;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+.ctx-item.active:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.ctx-item:disabled {
+  color: var(--text-faint);
+}
+.ctx-mark {
+  flex: none;
+  width: 1rem;
+  text-align: center;
+  font-size: 0.9em;
+}
+.ctx-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-key {
+  flex: none;
+  margin-left: 1.2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 0.88em;
+  letter-spacing: 0.04em;
+}
+.ctx-item.active .ctx-key {
+  color: inherit;
+  opacity: 0.8;
+}
+.ctx-sep {
+  height: 1px;
+  margin: 0.3rem 0.5rem;
+  background: var(--border);
+}
+.ctx-heading {
+  padding: 0.3rem 0.6rem 0.15rem 1.6rem;
+  color: var(--text-faint);
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ctx-menu {
+    animation: none;
   }
 }

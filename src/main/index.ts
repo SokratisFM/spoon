@@ -6,10 +6,11 @@ import { pathsExist, scanRepos, toSlash } from './scan'
 import config from '../../spoon.config.json'
 import { initUpdater } from './updater'
 import * as gh from './github'
+import * as claude from './claude'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, MenuItem, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { ClaudeLaunch, NewPull, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -80,6 +81,7 @@ function buildMenu(): void {
           { label: 'Commit', accelerator: 'CmdOrCtrl+Enter', click: () => send('commit') },
           { label: 'Commit and Push', accelerator: 'CmdOrCtrl+Alt+Enter', click: () => send('commit-push') },
           { label: 'Discard Selected Changes…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('discard') },
+          { id: 'review', label: 'Review with Claude…', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('review') },
           { type: 'separator' },
           { label: 'Fetch', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('fetch') },
           { label: 'Pull…', accelerator: 'CmdOrCtrl+Shift+L', click: () => send('pull') },
@@ -198,6 +200,11 @@ function registerIpc(): void {
   ipcMain.handle('gh:disconnect', () => gh.disconnect())
   ipcMain.handle('gh:repo', (_e, path: string) => gh.repoSlug(path))
   ipcMain.handle('gh:pulls', (_e, path: string) => gh.pulls(path))
+  ipcMain.handle('repo:pullDraftInfo', (_e, path: string, branch: string) => git.pullDraftInfo(path, branch))
+  ipcMain.handle('gh:assignable', (_e, path: string) => gh.assignable(path))
+  ipcMain.handle('gh:createPull', (_e, path: string, pull: NewPull) => gh.createPull(path, pull))
+  ipcMain.handle('claude:availability', () => claude.availability())
+  ipcMain.handle('claude:launch', (_e, launch: ClaudeLaunch) => claude.launch(launch))
   ipcMain.handle('gh:pull', (_e, path: string, n: number) => gh.pull(path, n))
   ipcMain.handle('gh:comment', (_e, path: string, n: number, body: string) => gh.comment(path, n, body))
   ipcMain.handle('gh:reply', (_e, path: string, n: number, id: number, body: string) => gh.reply(path, n, id, body))
@@ -252,24 +259,10 @@ function registerIpc(): void {
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
   ipcMain.handle('repo:push', (e, path: string, opts: PushOptions) => git.push(path, opts, progress(e, path)))
 
-  ipcMain.handle('ui:contextMenu', (e, items: MenuItem[]) => {
-    const owner = BrowserWindow.fromWebContents(e.sender) ?? undefined
-    return new Promise<string | null>((resolve) => {
-      let chosen: string | null = null
-      Menu.buildFromTemplate(
-        items.map((it) =>
-          it.separator
-            ? { type: 'separator' as const }
-            : {
-                label: it.label,
-                enabled: it.enabled !== false,
-                ...(it.kind ? { type: it.kind, checked: !!it.checked } : {}),
-                ...(it.accelerator ? { accelerator: it.accelerator, registerAccelerator: false } : {}),
-                click: () => (chosen = it.id ?? null)
-              }
-        )
-      ).popup({ window: owner, callback: () => setTimeout(() => resolve(chosen)) })
-    })
+  // Menu items the renderer can hide (e.g. Review with Claude when Claude is turned off in Settings).
+  ipcMain.on('ui:menuItemVisible', (_e, id: string, visible: boolean) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(id)
+    if (item) item.visible = visible
   })
   ipcMain.on('ui:closeWindow', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
 }

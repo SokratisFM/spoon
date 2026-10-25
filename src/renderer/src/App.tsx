@@ -12,6 +12,7 @@ import { choose, DialogHost } from './dialogs'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
 import { useUpdateState } from './appinfo'
+import { contextMenu, MenuHost } from './menus'
 
 export function App() {
   const settings = useSettings()
@@ -96,6 +97,8 @@ export function App() {
     if (!current) return setCurrentMissing(false)
     window.spoon.pathsExist([current]).then(([ok]) => setCurrentMissing(!ok))
   }, [current])
+
+  useEffect(() => window.spoon.setMenuItemVisible('review', settings.claudeEnabled), [settings.claudeEnabled])
 
   // Once the visible tab has had its turn, load the others in the background so switching is instant.
   useEffect(() => {
@@ -233,7 +236,7 @@ export function App() {
     e.stopPropagation()
     const order = tabOrder
     const after = order.slice(order.indexOf(path) + 1)
-    const choice = await window.spoon.contextMenu([
+    const choice = await contextMenu([
       { id: 'close', label: 'Close Tab' },
       { id: 'others', label: 'Close Other Tabs', enabled: tabs.length > 1 },
       { id: 'right', label: 'Close Tabs to the Right', enabled: after.length > 0 },
@@ -256,7 +259,7 @@ export function App() {
   const tabBarMenu = async (e: React.MouseEvent): Promise<void> => {
     if (e.defaultPrevented) return
     e.preventDefault()
-    const choice = await window.spoon.contextMenu([
+    const choice = await contextMenu([
       { id: 'find', label: 'Open Project…' },
       { id: 'browse', label: 'Open Folder…' },
       ...submoduleTabItems()
@@ -407,6 +410,7 @@ export function App() {
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
 
       <DialogHost />
+      <MenuHost />
 
       {toast && (
         <div className="toast" role="alert" onClick={() => setToast(null)}>

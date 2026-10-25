@@ -31,7 +31,9 @@ import { DeleteBranchDialog } from './DeleteBranchDialog'
 import { RebaseEditor } from './RebaseEditor'
 import { RebaseBanner } from './RebaseBanner'
 import { SubmoduleUpdateDialog } from './SubmoduleUpdateDialog'
-import { FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon, CloseIcon } from './Icons'
+import { CreatePullDialog } from './CreatePullDialog'
+import { ReviewDialog } from './ReviewDialog'
+import { ClaudeIcon, CloseIcon, FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon } from './Icons'
 import { keys } from '../platform'
 
 const PullRequestIconLarge = () => <PullRequestIcon className="icon big-icon" />
@@ -47,6 +49,10 @@ export interface Ops {
   rebase: (onto: string, interactive: boolean) => void
   /** Push the current branch to its upstream (or origin) without the Push dialog. */
   push: () => void
+  /** Open the Create Pull Request dialog for a local branch (null when GitHub isn't set up here). */
+  createPull: ((branch: string) => void) | null
+  /** Open Review with Claude: local changes by default, or one commit (null when Claude is turned off). */
+  review: ((commit?: { hash: string; subject: string }) => void) | null
 }
 
 interface Busy {
@@ -95,6 +101,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [net, setNet] = useState<NetState | null>(null)
   const [deleting, setDeleting] = useState<Ref | null>(null)
   const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
+  const [prFor, setPrFor] = useState<string | null>(null)
+  const [reviewing, setReviewing] = useState<{ commit?: { hash: string; subject: string } } | null>(null)
   // Interactive rebase being planned: the commit list turns into its editor.
   const [rebasing, setRebasing] = useState<{ onto: string; branch: string; plan: RebasePlan } | null>(null)
   // Commits that just arrived (fetch/pull); the list slides them in and flashes them once.
@@ -330,9 +338,18 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
 
   // Defined further down (it uses the Push button's animation); read through a ref so ops stays stable.
   const quickPushRef = useRef<() => void>(() => undefined)
+  const canCreatePull = !!account && !!ghSlug
+  const claudeEnabled = useSettings().claudeEnabled
   const ops = useMemo<Ops>(
-    () => ({ run, checkout, rebase, push: () => quickPushRef.current() }),
-    [run, checkout, rebase]
+    () => ({
+      run,
+      checkout,
+      rebase,
+      push: () => quickPushRef.current(),
+      createPull: canCreatePull ? setPrFor : null,
+      review: claudeEnabled ? (commit) => setReviewing({ commit }) : null
+    }),
+    [run, checkout, rebase, canCreatePull, claudeEnabled]
   )
   const subActions = useMemo(() => submoduleActions(path, ops, onOpenRepo, setSubUpdate), [path, ops, onOpenRepo])
 
@@ -388,6 +405,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     else if (command.name === 'discard') {
       // Acts on the files selected in Local Changes, like Fork's ⇧⌘D.
       if (view === 'changes') setDiscardRequest(Date.now())
+    } else if (command.name === 'review') {
+      if (settings.claudeEnabled) setReviewing({})
     } else if (command.name === 'commit' || command.name === 'commit-push') {
       setView('changes')
       setCommitRequest({ push: command.name === 'commit-push', n: Date.now() })
@@ -513,6 +532,17 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
             disabled={networkBusy}
             onClick={() => setDialog('push')}
           />
+          {settings.claudeEnabled && (
+            <button
+              className="tool-btn claude-tool"
+              onClick={() => setReviewing({})}
+              title={`Review with Claude (${keys('⇧⌘R')})`}
+            >
+              <ClaudeIcon />
+              <span>Claude</span>
+              <kbd className="tool-key">{keys('⇧⌘R')}</kbd>
+            </button>
+          )}
         </div>
 
         <div className="toolbar-right">
@@ -702,6 +732,33 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               },
               'Delete failed'
             )
+          }}
+        />
+      )}
+      {reviewing && repo && (
+        <ReviewDialog
+          path={path}
+          repo={repo}
+          stagedCount={tree.staged.length}
+          changeCount={changeCount}
+          commit={reviewing.commit}
+          onClose={() => setReviewing(null)}
+          onError={(message) => setOpError({ title: 'Couldn’t start the review', message })}
+        />
+      )}
+      {prFor && account && (
+        <CreatePullDialog
+          path={path}
+          branch={prFor}
+          me={account.login}
+          ops={ops}
+          onClose={() => setPrFor(null)}
+          onCreated={(pr) => {
+            loadPrs(true)
+            setSelectedPr(pr.number)
+            setView('prs')
+            if (pr.warnings.length)
+              setOpError({ title: `Pull request #${pr.number} created, with problems`, message: pr.warnings.join('\n') })
           }}
         />
       )}

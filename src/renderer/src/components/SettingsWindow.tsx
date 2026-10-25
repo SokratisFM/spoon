@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
-import { cleanError, useSlidingIndicator } from '../hooks'
+import { cleanError, useSlidingIndicator, useAsync } from '../hooks'
 import { hoverPreview, PreviewCard, sliderPreview, type Preview, type PreviewSpec, type SectionState } from './SettingsPreview'
 import type { DeviceCode } from '../../../shared/types'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
@@ -19,7 +19,8 @@ import {
   type DiffLayout,
   type SubmoduleTabs,
   type TagDisplay,
-  type HeadHighlight
+  type HeadHighlight,
+  type LaneSpotlight
 } from '../settings'
 import {
   AUTHOR_PALETTE,
@@ -209,6 +210,20 @@ function AppearanceTab() {
         />
         Show the remote’s name next to the cloud on branch labels (☁ origin), including remote-only branches
       </label>
+      <div className="field">
+        <span className="field-label">Branch spotlight</span>
+        <Segmented<LaneSpotlight>
+          value={s.laneSpotlight}
+          options={[
+            ['selected', 'Selected commit’s branch'],
+            ['hover', 'Hovered branch label'],
+            ['off', 'Off']
+          ]}
+          onChange={(laneSpotlight) => updateSettings({ laneSpotlight })}
+          preview={{ title: 'Branch spotlight', spec: (from, to) => ({ kind: 'spotlight', from, to }) }}
+        />
+        <span className="hint">Lights up one branch’s line through the graph and dims the rest.</span>
+      </div>
       <div className="field">
         <span className="field-label">Checked-out commit</span>
         <Segmented<HeadHighlight>
@@ -925,7 +940,29 @@ function AccountsTab() {
           <span className="error-text">The address must start with https://</span>
         )}
       </div>
+
+      <ClaudeField />
     </>
+  )
+}
+
+function ClaudeField() {
+  const s = useSettings()
+  const { data: avail } = useAsync(() => window.spoon.claudeAvailability(), [])
+  const found = avail ? [avail.desktop && 'the Claude app', avail.cli && 'Claude Code'].filter(Boolean).join(' and ') : ''
+  return (
+    <div className="field jira-field">
+      <span className="field-label">Claude</span>
+      <label className="check">
+        <input type="checkbox" checked={s.claudeEnabled} onChange={(e) => updateSettings({ claudeEnabled: e.target.checked })} />
+        Review with Claude
+      </label>
+      <span className="hint">
+        Adds a Claude button next to Push ({keys('⇧⌘R')}), a Review button in the commit box and “Review This Commit” to the
+        right-click menu. Reviews open in the Claude app or in Terminal, using your own Claude sign-in.
+        {avail && (found ? ` Found ${found} on this computer.` : ' Neither the Claude app nor Claude Code is installed.')}
+      </span>
+    </div>
   )
 }
 

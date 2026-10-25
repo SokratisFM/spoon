@@ -211,6 +211,63 @@ export interface PushOptions {
   tags: boolean
   /** --force-with-lease: needed after rewriting commits that were already pushed. */
   force?: boolean
+  /** Local branch to push; the checked-out one when omitted. */
+  branch?: string
+}
+
+/** What Spoon works out before opening the Create Pull Request dialog. */
+export interface PullDraftInfo {
+  branch: string
+  /** The remote the branch lives on (or will be pushed to), and its name there. */
+  remote: string
+  headRef: string
+  /** Branches on that remote it could merge into, the detected base first. */
+  bases: string[]
+  base: string
+  /** How the base was found: the branch's creation record, the nearest branch it forked from, or the default branch. */
+  baseReason: 'created-from' | 'nearest' | 'default'
+  /** Commits that would be in the PR, newest first. */
+  commits: ShortCommit[]
+  /** The branch isn't on the remote yet, or has commits that aren't. */
+  needsPush: boolean
+  hasUpstream: boolean
+  /** The repo's pull request template, if it has one. */
+  template: string | null
+}
+
+export interface ClaudeAvailability {
+  /** Path of the `claude` command (Claude Code), or null when it isn't installed. */
+  cli: string | null
+  /** The Claude desktop app is installed. */
+  desktop: boolean
+}
+
+export interface ClaudeLaunch {
+  where: 'terminal' | 'desktop'
+  cwd: string
+  model: string
+  effort: string
+  /** Session name shown in Claude Code. */
+  name: string
+  prompt: string
+}
+
+export interface NewPull {
+  branch: string
+  headRef: string
+  base: string
+  title: string
+  body: string
+  draft: boolean
+  assignees: string[]
+  reviewers: string[]
+}
+
+export interface CreatedPull {
+  number: number
+  url: string
+  /** Things that didn't stick (e.g. a reviewer GitHub refused); the PR itself was created. */
+  warnings: string[]
 }
 
 export interface MenuItem {
@@ -400,7 +457,6 @@ export interface SpoonApi {
   /** Progress lines from the running fetch/pull/push of a repo. */
   onProgress(handler: (repo: string, line: string) => void): () => void
 
-  contextMenu(items: MenuItem[]): Promise<string | null>
   /** Closes the window the way its close button would. */
   closeWindow(): void
   revealInFinder(path: string): Promise<void>
@@ -427,6 +483,14 @@ export interface SpoonApi {
   /** owner/name of the repo's GitHub remote, or null. */
   ghRepo(path: string): Promise<string | null>
   ghPulls(path: string): Promise<PullSummary[]>
+  pullDraftInfo(path: string, branch: string): Promise<PullDraftInfo>
+  /** People who can be assigned or asked to review in this repository. */
+  ghAssignable(path: string): Promise<GhUser[]>
+  ghCreatePull(path: string, pull: NewPull): Promise<CreatedPull>
+  claudeAvailability(): Promise<ClaudeAvailability>
+  claudeLaunch(launch: ClaudeLaunch): Promise<void>
+  /** Shows or hides an item of the app's menu bar by id. */
+  setMenuItemVisible(id: string, visible: boolean): void
   ghPull(path: string, number: number): Promise<PullDetail>
   ghComment(path: string, number: number, body: string): Promise<void>
   ghReply(path: string, number: number, commentId: number, body: string): Promise<void>
@@ -453,3 +517,4 @@ export type MenuCommand =
   | 'filter-commits'
   | 'discard'
   | 'commit-push'
+  | 'review'

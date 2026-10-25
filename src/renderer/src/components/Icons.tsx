@@ -197,3 +197,9 @@ export const CloudOffIcon = (p: P) => (
     <path d="M4 4l16 16" />
   </Icon>
 )
+/** Claude's spark. */
+export const ClaudeIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 3.5v17M3.5 12h17M6 6l12 12M18 6L6 18" strokeWidth={2.1} />
+  </Icon>
+)

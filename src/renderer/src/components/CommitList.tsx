@@ -1,12 +1,13 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Commit, Ref, RepoState } from '../../../shared/types'
-import { LANE_COLORS, type Graph, type GraphRow } from '../graph'
+import { LANE_COLORS, spotlightAt, type Graph, type GraphRow } from '../graph'
 import { hueFor, initials, shortDate } from '../format'
 import { authorColorMap, reservedPrefixes, rowHeight, useSettings } from '../settings'
 import { jiraConfig, jiraUrl, splitByTickets, ticketKeys, type JiraConfig } from '../jira'
 import { CheckoutIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, TagIcon } from './Icons'
 import type { Ops } from './RepoView'
+import { contextMenu } from '../menus'
 
 const MAX_GRAPH_LANES = 14
 
@@ -139,6 +140,16 @@ export function CommitList({
     })
   }, [commits, q, badges])
 
+  // Lane spotlight (Settings → Appearance): one branch's line stays bright while the others dim.
+  const [hoverHash, setHoverHash] = useState<string | null>(null)
+  const spotHash = settings.laneSpotlight === 'selected' ? selected : settings.laneSpotlight === 'hover' ? hoverHash : null
+  const spot = useMemo(() => {
+    if (!spotHash) return null
+    const i = commits.findIndex((c) => c.hash === spotHash)
+    return i < 0 ? null : spotlightAt(commits, graph, i)
+  }, [spotHash, commits, graph])
+  const onLabelHover = useCallback((hash: string | null) => setHoverHash(hash), [])
+
   const showGraph = !q
   // Diamond and count badge live on the graph dot; with the graph hidden (filtering) use the chip.
   const tagMode =
@@ -175,7 +186,7 @@ export function CommitList({
   const pickLocalBranch = async (hash: string, verb: string): Promise<Ref | null> => {
     const locals = repo.refs.filter((r) => r.kind === 'head' && r.target === hash && r.name !== repo.headBranch)
     if (locals.length <= 1) return locals[0] ?? null
-    const choice = await window.spoon.contextMenu(locals.map((r) => ({ id: r.fullName, label: `${verb} ${r.name}…` })))
+    const choice = await contextMenu(locals.map((r) => ({ id: r.fullName, label: `${verb} ${r.name}…` })))
     return locals.find((r) => r.fullName === choice) ?? null
   }
 
@@ -206,7 +217,7 @@ export function CommitList({
       const remotes = here.filter((b) => b.kind === 'remote')
       if (locals.length === 1) return ops.checkout({ kind: 'branch', name: locals[0].label }, locals[0].label)
       if (locals.length > 1) {
-        const choice = await window.spoon.contextMenu(
+        const choice = await contextMenu(
           locals.map((b) => ({ id: b.label, label: `Checkout ${b.label}` }))
         )
         if (choice) ops.checkout({ kind: 'branch', name: choice }, choice)
@@ -214,7 +225,7 @@ export function CommitList({
       }
       if (remotes.length === 1) return ops.checkout({ kind: 'remote', name: remotes[0].label }, remotes[0].label)
       if (remotes.length > 1) {
-        const choice = await window.spoon.contextMenu(
+        const choice = await contextMenu(
           remotes.map((b) => ({ id: b.label, label: `Checkout ${b.label}` }))
         )
         if (choice) ops.checkout({ kind: 'remote', name: choice }, choice)
@@ -230,7 +241,7 @@ export function CommitList({
     async (c: Commit) => {
       onSelect(c.hash)
       const branches = (badges.get(c.hash) ?? []).filter((b) => b.kind !== 'tag' && !b.current)
-      const choice = await window.spoon.contextMenu([
+      const choice = await contextMenu([
         ...branches.map((b) => ({
           id: `branch:${b.key}`,
           label: `Checkout ${b.label}`
@@ -250,10 +261,18 @@ export function CommitList({
               ])
             ]
           : []),
+        ...(ops.createPull
+          ? branches
+              .concat((badges.get(c.hash) ?? []).filter((b) => b.kind === 'head' && b.current))
+              .filter((b) => b.kind === 'head')
+              .slice(0, 3)
+              .map((b) => ({ id: `pr:${b.label}`, label: `Create Pull Request for ${b.label}…` }))
+          : []),
         ...(repo.refs.some((r) => r.kind === 'head' && r.target === c.hash && r.name !== repo.headBranch)
           ? [{ separator: true }, { id: 'delete-branch', label: 'Delete Branch…' }]
           : []),
         { separator: true },
+        ...(ops.review ? [{ id: 'review', label: 'Review This Commit with Claude…' }, { separator: true }] : []),
         { id: 'hash', label: 'Copy Commit Hash' },
         { id: 'subject', label: 'Copy Commit Message' },
         // One "Copy" per branch on this commit (local and remote).
@@ -281,6 +300,8 @@ export function CommitList({
         })()
       ])
       if (!choice) return
+      if (choice === 'review') return ops.review?.({ hash: c.hash, subject: c.subject })
+      if (choice.startsWith('pr:')) return ops.createPull?.(choice.slice(3))
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)
       if (choice.startsWith('copy:')) return void navigator.clipboard.writeText(choice.slice(5))
@@ -322,6 +343,10 @@ export function CommitList({
                 key={c.hash}
                 commit={c}
                 row={showGraph ? graph.rows[i] : null}
+                spotCol={showGraph && spot ? spot.col : -1}
+                spotSpan={!!spot && i >= spot.top && i <= spot.bottom}
+                spotNode={!!spot?.nodes.has(i)}
+                onLabelHover={settings.laneSpotlight === 'hover' ? onLabelHover : undefined}
                 badges={badges.get(c.hash)}
                 tagMode={tagMode}
                 headStyle={settings.headHighlight}
@@ -436,6 +461,11 @@ function TagPopover({
 interface RowProps {
   commit: Commit
   row: GraphRow | null
+  /** Lane spotlight: the lit column (-1 when nothing is lit), whether this row is within its span, and whether this commit is on it. */
+  spotCol: number
+  spotSpan: boolean
+  spotNode: boolean
+  onLabelHover?: (hash: string | null) => void
   badges: Badge[] | undefined
   tagMode: 'diamond' | 'badge' | 'chip' | 'all'
   headStyle: 'band' | 'pill' | 'ring'
@@ -495,6 +525,9 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
         {p.row && (
           <GraphCell
             row={p.row}
+            spotCol={p.spotCol}
+            spotSpan={p.spotSpan}
+            spotNode={p.spotNode}
             rowH={p.rowH}
             laneW={p.laneW}
             isHead={p.isHead}
@@ -508,6 +541,8 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
         {shown?.map((b) => (
           <span
             key={b.key}
+            onMouseEnter={p.onLabelHover && b.kind !== 'tag' ? () => p.onLabelHover!(c.hash) : undefined}
+            onMouseLeave={p.onLabelHover && b.kind !== 'tag' ? () => p.onLabelHover!(null) : undefined}
             className={`ref-badge ${b.kind} ${b.current ? 'current' : ''} ${badgeLane(b) !== null ? 'laned' : ''}`}
             style={
               badgeLane(b) !== null
@@ -589,6 +624,9 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
 
 function GraphCell({
   row,
+  spotCol,
+  spotSpan,
+  spotNode,
   rowH,
   laneW,
   isHead,
@@ -599,6 +637,9 @@ function GraphCell({
   onTagsClick
 }: {
   row: GraphRow
+  spotCol: number
+  spotSpan: boolean
+  spotNode: boolean
   rowH: number
   laneW: number
   isHead: boolean
@@ -619,8 +660,11 @@ function GraphCell({
   const r = Math.max(3.5, rowH * 0.17)
   const color = (n: number): string => `var(--lane-${n % LANE_COLORS})`
 
+  // With a spotlight on, the lit branch's straight line and dots stay bright and everything else dims.
+  const lit = spotCol >= 0
+  const segLit = (s: { from: number; to: number }): boolean => spotSpan && s.from === spotCol && s.to === spotCol
   return (
-    <svg className="graph" width={width} height={rowH}>
+    <svg className={`graph ${lit ? 'spotlit' : ''} ${spotNode ? 'spot-node' : ''}`} width={width} height={rowH}>
       {row.segments.map((s, i) => {
         const x1 = x(s.from)
         const x2 = x(s.to)
@@ -628,7 +672,16 @@ function GraphCell({
         if (s.kind === 'full') d = `M${x1} 0V${rowH}`
         else if (s.kind === 'top') d = x1 === x2 ? `M${x1} 0V${mid}` : `M${x1} 0C${x1} ${mid} ${x2} 0 ${x2} ${mid}`
         else d = x1 === x2 ? `M${x1} ${mid}V${rowH}` : `M${x1} ${mid}C${x1} ${rowH} ${x2} ${mid} ${x2} ${rowH}`
-        return <path key={i} d={d} stroke={color(s.color)} strokeWidth={stroke} fill="none" />
+        return (
+          <path
+            key={i}
+            className={lit ? (segLit(s) ? 'lit' : 'dim') : undefined}
+            d={d}
+            stroke={color(s.color)}
+            strokeWidth={lit && segLit(s) ? stroke * 1.35 : stroke}
+            fill="none"
+          />
+        )
       })}
       {headRing && (
         <circle

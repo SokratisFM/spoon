@@ -28,6 +28,8 @@ export interface AuthorColor {
   color: string
 }
 
+export type LaneSpotlight = 'selected' | 'hover' | 'off'
+
 export interface Settings {
   uiScale: number // 0.8 – 2.0, multiplies everything
   codeSize: number // diff font size in px at 100% scale
@@ -59,6 +61,10 @@ export interface Settings {
   laneColoredBranches: boolean
   /** Fetch/Pull/Push play a little scene (dog, rope, big button) while they run. */
   playfulNet: boolean
+  /** Light up one branch's line in the graph: the selected commit's, the hovered label's, or none. */
+  laneSpotlight: LaneSpotlight
+  /** Review with Claude: the toolbar button, ⇧⌘R, the commit box button and right-click items. */
+  claudeEnabled: boolean
   /** Branch colors (0–7, the theme's lane colors) reserved for branch-name prefixes. */
   reservedColors: Record<number, string[]>
   /** Reserved colors also apply to the branch's line in the graph. */
@@ -93,6 +99,8 @@ const DEFAULTS: Settings = {
   showRemoteName: false,
   laneColoredBranches: true,
   playfulNet: false,
+  laneSpotlight: 'selected',
+  claudeEnabled: true,
   reservedColors: {},
   reservedColorsGraph: true,
   jiraSite: 'https://fm-games.atlassian.net',

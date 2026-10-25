@@ -7,7 +7,9 @@ import { app } from 'electron'
 import * as git from './git'
 import { safeStorage } from 'electron'
 import type {
+  CreatedPull,
   DeviceCode,
+  NewPull,
   GhUser,
   GitHubAccount,
   GitHubSource,
@@ -498,4 +500,35 @@ export async function checkoutPull(path: string, number: number): Promise<void> 
   } else {
     await git.fetchAndCheckout(path, remote, `refs/pull/${number}/head`, `pr-${number}`)
   }
+}
+
+// ---------- creating pull requests ----------
+
+/** Everyone who can be assigned (and so asked for review) in the repository. */
+export async function assignable(path: string): Promise<GhUser[]> {
+  const slug = await slugOrThrow(path)
+  const list = await apiAll<{ login: string; avatar_url: string }>(`/repos/${slug}/assignees`, 3)
+  return list.map(user)
+}
+
+export async function createPull(path: string, p: NewPull): Promise<CreatedPull> {
+  const slug = await slugOrThrow(path)
+  const created = await api<{ number: number; html_url: string }>(`/repos/${slug}/pulls`, {
+    method: 'POST',
+    body: { title: p.title, body: p.body, head: p.headRef, base: p.base, draft: p.draft }
+  })
+  const warnings: string[] = []
+  if (p.assignees.length) {
+    await api(`/repos/${slug}/issues/${created.number}/assignees`, {
+      method: 'POST',
+      body: { assignees: p.assignees }
+    }).catch((e: Error) => warnings.push(`Assignee: ${e.message}`))
+  }
+  if (p.reviewers.length) {
+    await api(`/repos/${slug}/pulls/${created.number}/requested_reviewers`, {
+      method: 'POST',
+      body: { reviewers: p.reviewers }
+    }).catch((e: Error) => warnings.push(`Reviewers: ${e.message}`))
+  }
+  return { number: created.number, url: created.html_url, warnings }
 }

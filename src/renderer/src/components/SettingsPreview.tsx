@@ -8,6 +8,7 @@ import {
   type Density,
   type DiffLayout,
   type HeadHighlight,
+  type LaneSpotlight,
   type Settings,
   type SidebarSection,
   type SubmoduleTabs,
@@ -33,6 +34,7 @@ export type PreviewSpec =
   | { kind: 'laneLabels'; from: boolean; to: boolean }
   | { kind: 'remoteName'; from: boolean; to: boolean }
   | { kind: 'playful'; from: boolean; to: boolean }
+  | { kind: 'spotlight'; from: LaneSpotlight; to: LaneSpotlight }
   | { kind: 'head'; from: HeadHighlight; to: HeadHighlight }
   | { kind: 'subtabs'; from: SubmoduleTabs; to: SubmoduleTabs }
   /** Lane indexes for the branch's label and graph line, before and after. */
@@ -430,6 +432,35 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
               {x.label}
             </div>
           ))}
+        </div>
+      )
+    }
+    case 'spotlight': {
+      // Three branch lines; the orange one lights up the way the mode would.
+      const mode = phase ? spec.to : spec.from
+      const lit = mode !== 'off'
+      const op = (lane: number): number => (!lit || lane === 1 ? 1 : 0.22)
+      return (
+        <div className="pv-list">
+          <svg viewBox="0 0 240 120" style={{ width: '100%', height: '9rem' }}>
+            <path d="M20 10V112" stroke={laneColor(0)} strokeWidth="2" opacity={op(0)} />
+            <path d="M20 26q0 12 22 16V112" stroke={laneColor(1)} strokeWidth={lit ? 2.8 : 2} fill="none" opacity={op(1)} />
+            <path d="M20 56q0 12 44 16V112" stroke={laneColor(2)} strokeWidth="2" fill="none" opacity={op(2)} />
+            {[10, 26, 56].map((y) => (
+              <circle key={y} cx="20" cy={y} r="4" fill={laneColor(0)} opacity={op(0)} />
+            ))}
+            {[50, 78, 100].map((y) => (
+              <circle key={y} cx="42" cy={y} r="4" fill={laneColor(1)} opacity={op(1)} />
+            ))}
+            {[88].map((y) => (
+              <circle key={y} cx="64" cy={y} r="4" fill={laneColor(2)} opacity={op(2)} />
+            ))}
+            <rect x="54" y="42" width="78" height="16" rx="8" fill={laneColor(1)} opacity={0.18} />
+            <text x="61" y="54" fontSize="10" fontWeight="600" fill={laneColor(1)}>feature/ads</text>
+            <text x="140" y="54" fontSize="9.5" fill="var(--text-muted)">
+              {mode === 'selected' ? '← selected commit' : mode === 'hover' ? '← pointer on label' : ''}
+            </text>
+          </svg>
         </div>
       )
     }

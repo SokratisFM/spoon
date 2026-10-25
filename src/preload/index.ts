@@ -42,7 +42,6 @@ const api: SpoonApi = {
     ipcRenderer.on('progress', listener)
     return () => ipcRenderer.removeListener('progress', listener)
   },
-  contextMenu: (items) => ipcRenderer.invoke('ui:contextMenu', items),
   closeWindow: () => ipcRenderer.send('ui:closeWindow'),
   revealInFinder: (path) => ipcRenderer.invoke('shell:reveal', path),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
@@ -67,6 +66,12 @@ const api: SpoonApi = {
   ghDisconnect: () => ipcRenderer.invoke('gh:disconnect'),
   ghRepo: (path) => ipcRenderer.invoke('gh:repo', path),
   ghPulls: (path) => ipcRenderer.invoke('gh:pulls', path),
+  pullDraftInfo: (path, branch) => ipcRenderer.invoke('repo:pullDraftInfo', path, branch),
+  ghAssignable: (path) => ipcRenderer.invoke('gh:assignable', path),
+  ghCreatePull: (path, pull) => ipcRenderer.invoke('gh:createPull', path, pull),
+  claudeAvailability: () => ipcRenderer.invoke('claude:availability'),
+  claudeLaunch: (launch) => ipcRenderer.invoke('claude:launch', launch),
+  setMenuItemVisible: (id, visible) => ipcRenderer.send('ui:menuItemVisible', id, visible),
   ghPull: (path, n) => ipcRenderer.invoke('gh:pull', path, n),
   ghComment: (path, n, body) => ipcRenderer.invoke('gh:comment', path, n, body),
   ghReply: (path, n, id, body) => ipcRenderer.invoke('gh:reply', path, n, id, body),

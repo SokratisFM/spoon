@@ -20,6 +20,7 @@ import type {
   SyncInfo,
   DeleteResult,
   DiscardEntry,
+  PullDraftInfo,
   RebaseAction,
   RebaseCommit,
   RebasePlan,
@@ -682,7 +683,9 @@ export function push(cwd: string, opts: PushOptions, onProgress: (l: string) => 
 
 async function pushNow(cwd: string, opts: PushOptions, onProgress: (l: string) => void): Promise<void> {
   const info = await syncInfo(cwd)
-  if (!info.branch) throw new Error('HEAD is detached. Check out a branch to push.')
+  const branch = opts.branch ?? info.branch
+  if (!branch) throw new Error('HEAD is detached. Check out a branch to push.')
+  if (opts.branch) await assertBranchName(cwd, opts.branch)
   await assertRemote(cwd, opts.remote)
   await assertBranchName(cwd, opts.remoteBranch, 'remote branch name')
   const args = ['push', '--progress']
@@ -691,7 +694,7 @@ async function pushNow(cwd: string, opts: PushOptions, onProgress: (l: string) =
   // The lease alone passes once a fetch has updated the remote-tracking branch; --force-if-includes
   // also refuses when the remote has commits that were never part of this branch.
   if (opts.force) args.push('--force-with-lease', '--force-if-includes')
-  await run(cwd, [...args, opts.remote, `refs/heads/${info.branch}:refs/heads/${opts.remoteBranch}`], {
+  await run(cwd, [...args, opts.remote, `refs/heads/${branch}:refs/heads/${opts.remoteBranch}`], {
     onProgress,
     cancellable: true
   })
@@ -1040,4 +1043,114 @@ async function rebaseInteractiveNow(cwd: string, onto: string, steps: RebaseStep
 export async function rebaseContinue(cwd: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult> {
   if (!['continue', 'skip', 'abort'].includes(action)) throw new Error(`Unknown rebase action: ${action}`)
   return exclusive(cwd, () => rebaseOutcome(cwd, git(cwd, ['rebase', `--${action}`])))
+}
+
+// ---------- pull requests ----------
+
+const INTEGRATION = /^(main|master|develop|development|dev|trunk|staging|production)$|^(release|releases|candidate|candidates|hotfix|hotfixes|support|version|versions)\//i
+
+const PR_TEMPLATES = [
+  '.github/pull_request_template.md',
+  '.github/PULL_REQUEST_TEMPLATE.md',
+  'docs/pull_request_template.md',
+  'pull_request_template.md',
+  'PULL_REQUEST_TEMPLATE.md'
+]
+
+/**
+ * Everything the Create Pull Request dialog pre-fills. The base is the branch this one started
+ * from: git's own record of how it was created when there is one ("Created from origin/main"),
+ * otherwise the remote branch it forked from most recently, otherwise the default branch.
+ */
+export async function pullDraftInfo(cwd: string, branch: string): Promise<PullDraftInfo> {
+  await assertBranchName(cwd, branch)
+  const cfg = async (key: string): Promise<string> => (await git(cwd, ['config', '--get', key], [0, 1])).trim()
+  const remotes = (await git(cwd, ['remote'])).split('\n').filter(Boolean)
+  const upstreamRemote = await cfg(`branch.${branch}.remote`)
+  const remote = upstreamRemote || (remotes.includes('origin') ? 'origin' : remotes[0])
+  if (!remote) throw new Error('This repository has no remotes.')
+  const headRef = (await cfg(`branch.${branch}.merge`)).replace(/^refs\/heads\//, '') || branch
+
+  const refsOut = await git(cwd, [
+    'for-each-ref',
+    '--sort=-committerdate',
+    '--format=%(refname:short)',
+    `refs/remotes/${remote}`
+  ])
+  const all = refsOut
+    .split('\n')
+    .filter(Boolean)
+    .map((r) => r.slice(remote.length + 1))
+    .filter((r) => r && r !== 'HEAD' && r !== headRef && r !== branch)
+  const defaultBranch =
+    (await git(cwd, ['symbolic-ref', '-q', '--short', `refs/remotes/${remote}/HEAD`], [0, 1])).trim().slice(remote.length + 1) ||
+    ['main', 'master', 'develop'].find((b) => all.includes(b)) ||
+    all[0] ||
+    'main'
+
+  let base = ''
+  let baseReason: PullDraftInfo['baseReason'] = 'default'
+  // "branch: Created from origin/main" is the oldest reflog entry when it was made with checkout -b / switch -c.
+  const created = (await git(cwd, ['reflog', 'show', '--format=%gs', `refs/heads/${branch}`, '--'], [0, 128]))
+    .split('\n')
+    .filter(Boolean)
+    .pop()
+  const from = /^branch: Created from (.+)$/.exec(created ?? '')?.[1]?.replace(/^refs\/(remotes|heads)\//, '')
+  if (from && from !== 'HEAD') {
+    const name = from.startsWith(`${remote}/`) ? from.slice(remote.length + 1) : from
+    if (all.includes(name)) {
+      base = name
+      baseReason = 'created-from'
+    }
+  }
+  if (!base) {
+    // The integration branch (default, develop, release/…, candidates/…) whose merge-base with this
+    // branch is the fewest commits back. Other feature branches are left out: one that forked from
+    // the same place later would always look "nearer" than the branch both really came from.
+    const integration = all.filter((b) => b === defaultBranch || INTEGRATION.test(b)).slice(0, 60)
+    const candidates = [...new Set([defaultBranch, ...integration])].filter((c) => all.includes(c))
+    const scored = await Promise.all(
+      candidates.map(async (c, order) => {
+        const mb = (await git(cwd, ['merge-base', branch, `refs/remotes/${remote}/${c}`], [0, 1])).trim()
+        if (!mb) return null
+        const n = Number((await git(cwd, ['rev-list', '--count', `${mb}..${branch}`])).trim())
+        return { c, n, order: c === defaultBranch ? -1 : order }
+      })
+    )
+    const best = scored
+      .filter((x): x is { c: string; n: number; order: number } => !!x)
+      .sort((a, b) => a.n - b.n || a.order - b.order)[0]
+    if (best) {
+      base = best.c
+      baseReason = best.c === defaultBranch ? 'default' : 'nearest'
+    }
+  }
+  if (!base) base = defaultBranch
+
+  const [log, remoteHead] = await Promise.all([
+    git(cwd, ['log', '-50', `--format=%H${FS}%s`, `refs/remotes/${remote}/${base}..${branch}`, '--'], [0, 128]),
+    git(cwd, ['rev-parse', '-q', '--verify', `refs/remotes/${remote}/${headRef}`], [0, 1])
+  ])
+  const commits = log
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      const [hash, subject] = l.split(FS)
+      return { hash, subject }
+    })
+  const needsPush =
+    !remoteHead.trim() ||
+    Number((await git(cwd, ['rev-list', '--count', `refs/remotes/${remote}/${headRef}..${branch}`])).trim()) > 0
+
+  let template: string | null = null
+  for (const p of PR_TEMPLATES) {
+    const t = await git(cwd, ['show', `HEAD:${p}`], [0, 128]).catch(() => '')
+    if (t.trim()) {
+      template = t.trim()
+      break
+    }
+  }
+
+  const bases = [base, ...all.filter((b) => b !== base)]
+  return { branch, remote, headRef, bases, base, baseReason, commits, needsPush, hasUpstream: !!upstreamRemote, template }
 }
