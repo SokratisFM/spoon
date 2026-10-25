@@ -5218,3 +5218,31 @@ select:hover {
   width: min(68rem, 94vw);
   max-width: none;
 }
+
+/* The eye next to a setting: hover it to preview the other choices. */
+.pv-eye {
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  border-radius: var(--radius-sm);
+  color: var(--accent-fg);
+  opacity: 0.75;
+  cursor: help;
+  transition:
+    opacity 0.15s,
+    background-color 0.15s;
+}
+.pv-eye:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.check .pv-eye {
+  margin-left: 0.15rem;
+  flex: none;
+}
+.field-label .pv-eye {
+  margin-right: auto;
+}

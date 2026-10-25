@@ -54,13 +54,15 @@ export interface Preview {
 
 // ---------- which preview is showing ----------
 
-let shown: { preview: Preview; anchor: HTMLElement } | null = null
+/** cycle: previews to step through in turn (the eye next to a setting shows every alternative). */
+type Showing = { preview: Preview; anchor: HTMLElement; cycle?: Preview[] } | null
+let shown: Showing = null
 const listeners = new Set<() => void>()
 let showTimer: ReturnType<typeof setTimeout> | undefined
 let hideTimer: ReturnType<typeof setTimeout> | undefined
-let pending: { preview: Preview; anchor: HTMLElement } | null = null
+let pending: Showing = null
 
-function set(next: typeof shown): void {
+function set(next: Showing): void {
   shown = next
   listeners.forEach((l) => l())
 }
@@ -79,18 +81,18 @@ function hideSoon(): void {
   hideTimer = setTimeout(hidePreview, 140)
 }
 
-const sameAs = (a: typeof shown, preview: Preview, anchor: HTMLElement): boolean =>
+const sameAs = (a: Showing, preview: Preview, anchor: HTMLElement): boolean =>
   !!a && a.anchor === anchor && JSON.stringify(a.preview) === JSON.stringify(preview)
 
-function offer(preview: Preview | null, anchor: HTMLElement): void {
+function offer(preview: Preview | null, anchor: HTMLElement, cycle?: Preview[]): void {
   clearTimeout(hideTimer)
   if (!preview) return hideSoon()
   // A slider sends one of these per mouse move; nothing happens until the value under it changes.
   if (sameAs(shown, preview, anchor) || sameAs(pending, preview, anchor)) return
   // Moving between options of an open preview swaps it at once; a fresh hover waits a moment,
   // so passing over the window doesn't flash cards.
-  if (shown) return set({ preview, anchor })
-  pending = { preview, anchor }
+  if (shown) return set({ preview, anchor, cycle })
+  pending = { preview, anchor, cycle }
   clearTimeout(showTimer)
   showTimer = setTimeout(() => pending && set(pending), 220)
 }
@@ -104,19 +106,31 @@ export function hoverPreview(make: () => Preview | null) {
   }
 }
 
-/** Handlers for a range input: previews the value under the pointer. */
-export function sliderPreview(min: number, max: number, step: number, make: (v: number) => Preview | null) {
-  const at = (e: MouseEvent<HTMLElement>): number => {
-    const r = e.currentTarget.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))
-    return Math.round((min + ratio * (max - min)) / step) * step
-  }
-  return {
-    onMouseMove: (e: MouseEvent<HTMLElement>) => offer(make(at(e)), e.currentTarget),
-    onMouseLeave: hideSoon,
-    onMouseDown: hidePreview
-  }
+/**
+ * The eye next to a setting: hovering it previews switching to each other value in turn, so you can
+ * see what every option looks like without hovering (or accidentally picking) the options themselves.
+ */
+export function PreviewEye({ make, label }: { make: () => Preview[]; label: string }) {
+  return (
+    <span
+      className="pv-eye"
+      role="img"
+      aria-label={`Preview ${label}`}
+      onMouseEnter={(e) => {
+        const list = make()
+        if (list.length) offer(list[0], e.currentTarget, list)
+      }}
+      onMouseLeave={hideSoon}
+      onClick={(e) => e.preventDefault()}
+    >
+      <svg viewBox="0 0 24 24" width="1.05em" height="1.05em" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    </span>
+  )
 }
+
 
 // ---------- the card ----------
 
@@ -143,9 +157,17 @@ export function PreviewCard() {
     if (reducedMotion()) return setPhase(true)
     setPhase(false)
     let interval: ReturnType<typeof setInterval> | undefined
+    let flips = 0
     const start = setTimeout(() => {
       setPhase(true)
-      interval = setInterval(() => setPhase((p) => !p), 1800)
+      interval = setInterval(() => {
+        // With several alternatives, show each one's there-and-back, then move on to the next.
+        const c = shown?.cycle
+        if (c && c.length > 1 && ++flips % 2 === 0) {
+          const i = c.findIndex((p) => p === shown!.preview)
+          set({ ...shown!, preview: c[(i + 1) % c.length] })
+        } else setPhase((p) => !p)
+      }, 1800)
     }, 450)
     return () => {
       clearTimeout(start)
@@ -611,3 +633,4 @@ function MiniApp({ hit }: { hit: ColorKey }) {
     </div>
   )
 }
+
