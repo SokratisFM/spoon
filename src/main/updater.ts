@@ -175,6 +175,53 @@ function bundlePath(): string {
   return resolve(process.execPath, '..', '..', '..')
 }
 
+const sq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
+
+/**
+ * The shell script that installs a staged update once Spoon has quit, then opens it again.
+ *
+ * macOS checks an app it hasn't seen before on its first launch (~2.5 s for an Electron app), so
+ * when the Electron framework is unchanged (any update that isn't an Electron upgrade) only
+ * Spoon's own files (Resources and Info.plist) are swapped inside the installed app and its
+ * signature renewed; the already-checked framework and helpers stay. A clone of the app is kept
+ * until that verifies, and anything unexpected falls back to replacing the whole bundle (keeping
+ * the old one until the new one is in place).
+ */
+export function updateScript(pid: number, target: string, staged: string): string {
+  return `#!/bin/sh
+TARGET=${sq(target)}
+NEW=${sq(staged)}
+while kill -0 ${pid} 2>/dev/null; do sleep 0.2; done
+FW="Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+swap() {
+  [ -d "$TARGET" ] || { mv "$NEW" "$TARGET"; return; }
+  OLD="$TARGET.old-$$"
+  if mv "$TARGET" "$OLD" && mv "$NEW" "$TARGET"; then
+    rm -rf "$OLD"
+  else
+    [ -d "$OLD" ] && [ ! -d "$TARGET" ] && mv "$OLD" "$TARGET"
+  fi
+}
+if [ -d "$TARGET" ] && cmp -s "$NEW/$FW" "$TARGET/$FW"; then
+  BACKUP="$TARGET.backup-$$"
+  if { cp -cR "$TARGET" "$BACKUP" 2>/dev/null || ditto "$TARGET" "$BACKUP"; } &&
+    rsync -a --checksum --delete "$NEW/Contents/Resources/" "$TARGET/Contents/Resources/" &&
+    cp "$NEW/Contents/Info.plist" "$TARGET/Contents/Info.plist" &&
+    codesign --force --sign - "$TARGET" 2>/dev/null &&
+    codesign --verify --deep --strict "$TARGET" 2>/dev/null; then
+    rm -rf "$BACKUP" "$NEW"
+  else
+    [ -d "$BACKUP" ] && rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"
+    swap
+  fi
+else
+  swap
+fi
+open "$TARGET"
+rm -f "$0"
+`
+}
+
 export function installUpdate(): void {
   if (!staged) return
   if (!app.isPackaged) {
@@ -192,21 +239,7 @@ export function installUpdate(): void {
     // A tiny script outlives Spoon: waits for it to quit, swaps the bundles (keeping the old one
     // until the new one is in place), then opens the new version.
     const script = join(tmpdir(), `spoon-update-${process.pid}.sh`)
-    writeFileSync(
-      script,
-      `#!/bin/sh
-while kill -0 ${process.pid} 2>/dev/null; do sleep 0.2; done
-OLD="${target}.old-$$"
-if mv "${target}" "$OLD" && mv "${staged.path}" "${target}"; then
-  rm -rf "$OLD"
-else
-  [ -d "$OLD" ] && [ ! -d "${target}" ] && mv "$OLD" "${target}"
-fi
-open "${target}"
-rm -f "$0"
-`,
-      { mode: 0o755 }
-    )
+    writeFileSync(script, updateScript(process.pid, target, staged.path), { mode: 0o755 })
     spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' }).unref()
   } else {
     // electron-builder's NSIS installer: /S installs silently over the current version,

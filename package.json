@@ -1,7 +1,7 @@
 {
   "name": "spoon",
   "productName": "Spoon",
-  "version": "0.26.2",
+  "version": "0.26.3",
   "description": "A Fork-style git client with a scalable, modern UI",
   "main": "./out/main/index.js",
   "private": true,
@@ -31,6 +31,7 @@
     "marked": "^18.1.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "shiki": "^4.5.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.5"
   },
@@ -85,8 +86,5 @@
       "shortcutName": "Spoon",
       "deleteAppDataOnUninstall": false
     }
-  },
-  "dependencies": {
-    "shiki": "^4.5.0"
   }
 }
