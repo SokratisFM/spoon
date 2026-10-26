@@ -264,6 +264,9 @@ function registerIpc(): void {
   ipcMain.handle('repo:rebaseContinue', (_e, path: string, action: 'continue' | 'skip' | 'abort') =>
     git.rebaseContinue(path, action)
   )
+  ipcMain.handle('repo:stashApply', (_e, path: string, name: string, pop: boolean) => git.stashApply(path, name, pop))
+  ipcMain.handle('repo:stashDrop', (_e, path: string, name: string) => git.stashDrop(path, name))
+  ipcMain.handle('repo:fastForwardBranches', (_e, path: string, names: string[]) => git.fastForwardBranches(path, names))
   ipcMain.handle('repo:deleteBranches', (_e, path: string, names: string[], force: boolean) =>
     git.deleteBranches(path, names, force)
   )

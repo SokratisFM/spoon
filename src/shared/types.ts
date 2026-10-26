@@ -28,6 +28,8 @@ export interface Stash {
   index: number
   name: string // stash@{0}
   hash: string
+  /** The commit it was made on. */
+  base: string
   message: string
 }
 
@@ -490,6 +492,11 @@ export interface SpoonApi {
   updateSubmodule(path: string, submodulePath: string, backupBranch?: string): Promise<void>
   submoduleUpdatePreview(path: string, submodulePath: string): Promise<SubmoduleUpdatePreview>
   deleteBranches(path: string, names: string[], force: boolean): Promise<DeleteResult>
+  /** Applies a stash ("stash@{0}"); pop also deletes it. */
+  stashApply(path: string, name: string, pop: boolean): Promise<void>
+  stashDrop(path: string, name: string): Promise<void>
+  /** Moves branches that are only behind their upstream up to it. */
+  fastForwardBranches(path: string, names: string[]): Promise<void>
   deleteRemoteBranch(path: string, remote: string, branch: string): Promise<void>
   pull(path: string, opts: PullOptions): Promise<void>
   push(path: string, opts: PushOptions): Promise<void>

@@ -22,9 +22,11 @@ import {
   PullRequestIcon,
   SearchIcon,
   StashIcon,
+  PullIcon,
   TagIcon
 } from './Icons'
 import { contextMenu } from '../menus'
+import { stashMenu, stashTitle } from './stashMenu'
 
 interface Props {
   repo: RepoState
@@ -149,16 +151,12 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo, q])
 
-  // Stale = local branches that are safe to drop locally: their origin branch was deleted,
-  // or they match it exactly. The checked-out branch is never stale.
-  const stale = repo.refs.filter(
-    (r): r is Ref =>
-      r.kind === 'head' &&
-      r.name !== repo.headBranch &&
-      !!r.upstream &&
-      (r.gone === true || (!r.ahead && !r.behind)) &&
-      match(r)
-  )
+  // Stale, as git means it: local branches whose remote branch was deleted. Behind: local branches
+  // that are behind their remote branch and have no commits of their own, so they can be
+  // fast-forwarded or dropped. The checked-out branch is in neither.
+  const others = repo.refs.filter((r) => r.kind === 'head' && r.name !== repo.headBranch && !!r.upstream && match(r))
+  const stale = others.filter((r) => r.gone === true)
+  const behind = others.filter((r) => !r.gone && !!r.behind && !r.ahead)
 
   const stashes = repo.stashes.filter((s) => !q || s.message.toLowerCase().includes(q))
 
@@ -231,6 +229,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const sectionsMenu = async (e: React.MouseEvent): Promise<void> => {
     if (e.defaultPrevented) return // an item showed its own menu
     e.preventDefault()
+    // Only the headers and the empty space between sections; an item without a menu has none.
+    if ((e.target as HTMLElement).closest('.side-item, .side-empty, .stale-actions')) return
     const list = settings.sidebarSections
     const choice = await contextMenu([
       { label: 'Show in sidebar', enabled: false },
@@ -334,9 +334,14 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               className="side-item"
               style={{ paddingLeft: '1.85rem' }}
               title={s.message}
+              onClick={() => onJump(s.hash)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                stashMenu(s, repo.path, ops, () => onJump(s.hash))
+              }}
             >
               <StashIcon />
-              <span className="side-label">{s.message.replace(/^(WIP )?[Oo]n [^:]+: /, '')}</span>
+              <span className="side-label">{stashTitle(s)}</span>
             </div>
           ))
         ),
@@ -345,7 +350,29 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           'stale',
           'Stale',
           stale.length,
-          <StaleBranches stale={stale} path={repo.path} ops={ops} onJump={onJump} />
+          <BranchCleanup
+            branches={stale}
+            path={repo.path}
+            ops={ops}
+            onJump={onJump}
+            onMenu={refMenu}
+            empty="No stale branches. Fetch to check for deleted remotes."
+          />
+        ),
+
+    behind: section(
+          'behind',
+          'Behind',
+          behind.length,
+          <BranchCleanup
+            branches={behind}
+            path={repo.path}
+            ops={ops}
+            onJump={onJump}
+            onMenu={refMenu}
+            empty="No branches behind their remote."
+            canFastForward
+          />
         ),
   }
 
@@ -411,9 +438,26 @@ export const Sidebar = memo(function Sidebar(props: Props) {
 })
 
 
-function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: string; ops: Ops; onJump: (h: string) => void }) {
+/** A checklist of local branches to clean up: delete them, or (when only behind) fast-forward them. */
+function BranchCleanup({
+  branches,
+  path,
+  ops,
+  onJump,
+  onMenu,
+  empty,
+  canFastForward
+}: {
+  branches: Ref[]
+  path: string
+  ops: Ops
+  onJump: (h: string) => void
+  onMenu: (e: React.MouseEvent, ref: Ref) => void
+  empty: string
+  canFastForward?: boolean
+}) {
   const [picked, setPicked] = useState<Set<string>>(new Set())
-  const names = stale.map((r) => r.name)
+  const names = branches.map((r) => r.name)
   const selected = names.filter((n) => picked.has(n))
   const all = selected.length === names.length && names.length > 0
 
@@ -452,8 +496,16 @@ function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: strin
     setPicked(new Set())
   }
 
-  if (stale.length === 0)
-    return <div className="side-empty">No stale branches. Fetch to check for deleted remotes.</div>
+  const fastForward = async (): Promise<void> => {
+    await ops.run(
+      `Fast-forwarding ${selected.length === 1 ? selected[0] : `${selected.length} branches`}…`,
+      () => window.spoon.fastForwardBranches(path, selected),
+      'Fast-forward failed'
+    )
+    setPicked(new Set())
+  }
+
+  if (branches.length === 0) return <div className="side-empty">{empty}</div>
 
   return (
     <div className="stale">
@@ -461,28 +513,34 @@ function StaleBranches({ stale, path, ops, onJump }: { stale: Ref[]; path: strin
         <input type="checkbox" checked={all} onChange={() => setPicked(all ? new Set() : new Set(names))} />
         <span className="side-label muted">Select all</span>
       </label>
-      {stale.map((r) => (
+      {branches.map((r) => (
         <label
           key={r.fullName}
           className="side-item"
           style={{ paddingLeft: '1.85rem' }}
           title={`${r.name} → ${r.upstream}`}
           onDoubleClick={() => onJump(r.target)}
+          onContextMenu={(e) => onMenu(e, r)}
         >
           <input type="checkbox" checked={picked.has(r.name)} onChange={() => toggle(r.name)} />
           <span className="side-label">{r.name}</span>
           {r.gone ? (
-            <span className="badge danger" title="The origin branch was deleted">
+            <span className="badge danger" title={`${r.upstream} was deleted on the remote`}>
               gone
             </span>
           ) : (
-            <span className="badge" title="Identical to its origin branch">
-              synced
+            <span className="badge" title={`${r.behind} commit${r.behind === 1 ? '' : 's'} behind ${r.upstream}, none of its own`}>
+              ↓{r.behind}
             </span>
           )}
         </label>
       ))}
       <div className="stale-actions">
+        {canFastForward && (
+          <button className="btn" disabled={selected.length === 0} onClick={fastForward} title="Move them up to their remote branch">
+            <PullIcon /> Fast-forward {selected.length || ''}
+          </button>
+        )}
         <button className="btn danger" disabled={selected.length === 0} onClick={remove}>
           <BroomIcon /> Delete {selected.length || ''}
         </button>

@@ -13,14 +13,15 @@ export type TagDisplay = 'diamond' | 'badge' | 'chip' | 'all'
 /** How the checked-out commit stands out: tinted row with an edge bar, a HEAD label, or a glowing dot. */
 export type HeadHighlight = 'band' | 'pill' | 'ring'
 
-export type SidebarSection = 'submodules' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'stale'
+export type SidebarSection = 'submodules' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'stale' | 'behind'
 export const SIDEBAR_SECTIONS: { id: SidebarSection; label: string }[] = [
   { id: 'submodules', label: 'Submodules' },
   { id: 'branches', label: 'Branches' },
   { id: 'remotes', label: 'Remotes' },
   { id: 'tags', label: 'Tags' },
   { id: 'stashes', label: 'Stashes' },
-  { id: 'stale', label: 'Stale branches' }
+  { id: 'stale', label: 'Stale branches' },
+  { id: 'behind', label: 'Behind branches' }
 ]
 
 export interface AuthorColor {

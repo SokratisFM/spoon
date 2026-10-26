@@ -361,44 +361,80 @@ async function readRefs(cwd: string): Promise<Ref[]> {
 }
 
 async function readStashes(cwd: string): Promise<Stash[]> {
-  const out = await git(cwd, ['stash', 'list', `--format=%gd${FS}%H${FS}%gs`], [0, 1])
+  const out = await git(cwd, ['stash', 'list', `--format=%gd${FS}%H${FS}%P${FS}%gs`], [0, 1])
   return out
     .split('\n')
     .filter(Boolean)
     .map((line, index) => {
-      const [name, hash, message] = line.split(FS)
-      return { index, name, hash, message }
+      const [name, hash, parents, message] = line.split(FS)
+      return { index, name, hash, base: parents.split(' ')[0], message }
     })
 }
 
+/** "On feature/x: tidy up" → "tidy up"; git's own "WIP on …" messages are kept as they are. */
+export const stashTitle = (message: string): string => message.replace(/^[Oo]n [^:]+: /, '')
+
 export async function log(cwd: string, limit: number): Promise<Commit[]> {
-  // A brand-new repo (no refs at all) just prints nothing.
   const format = ['%H', '%P', '%an', '%ae', '%at', '%cn', '%ct', '%s'].join('%x1f') + '%x1e'
-  const out = await git(cwd, [
-    'log',
-    '--exclude=refs/stash',
-    '--all',
-    '--date-order',
-    `-n${limit}`,
-    `--format=${format}`
-  ])
-  const commits: Commit[] = []
-  for (const rec of out.split(RS)) {
-    const r = rec.replace(/^\n/, '')
-    if (!r) continue
-    const [hash, parents, authorName, authorEmail, at, committerName, ct, subject] = r.split(FS)
-    commits.push({
-      hash,
-      parents: parents ? parents.split(' ') : [],
-      authorName,
-      authorEmail,
-      authorTime: Number(at),
-      committerName,
-      commitTime: Number(ct),
-      subject
-    })
+  const parse = (out: string): Commit[] =>
+    out
+      .split(RS)
+      .map((rec) => rec.replace(/^\n/, ''))
+      .filter(Boolean)
+      .map((r) => {
+        const [hash, parents, authorName, authorEmail, at, committerName, ct, subject] = r.split(FS)
+        return {
+          hash,
+          parents: parents ? parents.split(' ') : [],
+          authorName,
+          authorEmail,
+          authorTime: Number(at),
+          committerName,
+          commitTime: Number(ct),
+          subject
+        }
+      })
+  // Stashes show like Fork: one row each, hanging off the commit it was made on. Git stores a stash
+  // as a merge of that commit with helper commits for the index (and untracked files); those stay
+  // hidden, and the commit it was made on is listed even when no branch holds it any more.
+  const stashes = parse(
+    await git(cwd, ['stash', 'list', `--format=${format.replace('%s', '%gs')}`], [0, 1])
+  ).map((s) => ({ ...s, parents: s.parents.slice(0, 1), subject: stashTitle(s.subject) }))
+  // A brand-new repo (no refs at all) just prints nothing.
+  const commits = parse(
+    await git(cwd, [
+      'log',
+      '--exclude=refs/stash',
+      '--all',
+      ...new Set(stashes.map((s) => s.parents[0]).filter(Boolean)),
+      '--date-order',
+      `-n${limit}`,
+      `--format=${format}`
+    ])
+  )
+  for (const s of stashes) {
+    // Above the commit it was made on, among the commits of its time.
+    const byTime = commits.findIndex((c) => c.commitTime < s.commitTime)
+    const base = commits.findIndex((c) => c.hash === s.parents[0])
+    const at = [byTime, base].filter((i) => i >= 0)
+    commits.splice(at.length ? Math.min(...at) : commits.length, 0, s)
   }
   return commits
+}
+
+const assertStash = (name: string): void => {
+  if (!/^stash@\{\d+\}$/.test(name)) throw new Error(`Not a stash: ${name}`)
+}
+
+/** Applies a stash to the working tree; pop also deletes it (git keeps it if the apply conflicts). */
+export function stashApply(cwd: string, name: string, pop: boolean): Promise<void> {
+  assertStash(name)
+  return exclusive(cwd, async () => void (await git(cwd, ['stash', pop ? 'pop' : 'apply', name])))
+}
+
+export function stashDrop(cwd: string, name: string): Promise<void> {
+  assertStash(name)
+  return exclusive(cwd, async () => void (await git(cwd, ['stash', 'drop', name])))
 }
 
 export async function commitDetails(cwd: string, hash: string): Promise<CommitDetails> {
@@ -406,7 +442,10 @@ export async function commitDetails(cwd: string, hash: string): Promise<CommitDe
   const format = ['%H', '%P', '%an', '%ae', '%at', '%cn', '%ce', '%ct', '%B'].join('%x1f')
   const out = await git(cwd, ['show', '-s', `--format=${format}`, hash])
   const [h, parents, an, ae, at, cn, ce, ct, ...rest] = out.split(FS)
-  const parentList = parents ? parents.split(' ') : []
+  let parentList = parents ? parents.split(' ') : []
+  // A stash: only the commit it was made on counts, not git's helper commits for the index.
+  if (parentList.length > 1 && (await git(cwd, ['stash', 'list', '--format=%H'], [0, 1])).split('\n').includes(h))
+    parentList = parentList.slice(0, 1)
   const base = parentList[0] ?? EMPTY_TREE
   const files = parseNameStatus(
     await git(cwd, ['diff-tree', '-r', '-M', '--no-commit-id', '--name-status', '-z', base, h])
@@ -887,6 +926,18 @@ async function updateSubmoduleNow(cwd: string, submodulePath: string, backupBran
 }
 
 // ---------- branch cleanup ----------
+
+/**
+ * Moves local branches that are only behind their upstream up to it, without checking them out.
+ * Refuses (and changes nothing for) any that have commits of their own.
+ */
+export function fastForwardBranches(cwd: string, names: string[]): Promise<void> {
+  return exclusive(cwd, async () => {
+    names.forEach((n) => assertArg(n, 'branch'))
+    const upstreams = (await git(cwd, ['rev-parse', '--symbolic-full-name', ...names.map((n) => `${n}@{upstream}`)])).split('\n')
+    await git(cwd, ['fetch', '--quiet', '--no-write-fetch-head', '.', ...names.map((n, i) => `${upstreams[i]}:refs/heads/${n}`)])
+  })
+}
 
 /**
  * Deletes local branches. Without force, a branch is only deleted when its tip is also reachable

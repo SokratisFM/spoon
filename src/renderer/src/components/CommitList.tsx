@@ -5,7 +5,8 @@ import { LANE_COLORS, spotlightAt, type Graph, type GraphRow } from '../graph'
 import { hueFor, initials, shortDate } from '../format'
 import { authorColorMap, reservedPrefixes, rowHeight, useSettings } from '../settings'
 import { jiraConfig, jiraUrl, splitByTickets, ticketKeys, type JiraConfig } from '../jira'
-import { CheckoutIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, TagIcon } from './Icons'
+import { CheckoutIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, StashIcon, TagIcon } from './Icons'
+import { stashMenu } from './stashMenu'
 import type { Ops } from './RepoView'
 import { contextMenu } from '../menus'
 import { isMac } from '../platform'
@@ -36,7 +37,7 @@ interface Badge {
   shown: string
   /** For a remote-only branch, its remote. */
   remote?: string
-  kind: 'head' | 'remote' | 'tag'
+  kind: 'head' | 'remote' | 'tag' | 'stash'
   remotes: string[] // remotes whose branch points at the same commit as this local branch
   current: boolean
   /** A local branch whose upstream was deleted on the remote (seen after a fetch with prune). */
@@ -88,6 +89,8 @@ function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
     badges.sort((a, b) => Number(b.current) - Number(a.current))
     map.set(hash, badges)
   }
+  for (const s of repo.stashes)
+    map.set(s.hash, [{ key: s.name, label: s.name, shown: 'Stash', kind: 'stash', remotes: [], current: false }])
   return map
 }
 
@@ -215,7 +218,7 @@ export const CommitList = memo(function CommitList({
   const onDoubleClick = useCallback(
     async (c: Commit) => {
       const here = badges.get(c.hash) ?? []
-      if (here.some((b) => b.current)) return // already checked out
+      if (here.some((b) => b.current || b.kind === 'stash')) return // already checked out, or a stash
       const locals = here.filter((b) => b.kind === 'head')
       const remotes = here.filter((b) => b.kind === 'remote')
       if (locals.length === 1) return ops.checkout({ kind: 'branch', name: locals[0].label }, locals[0].label)
@@ -243,6 +246,8 @@ export const CommitList = memo(function CommitList({
   const onContextMenu = useCallback(
     async (c: Commit) => {
       onSelect(c.hash)
+      const stash = repo.stashes.find((s) => s.hash === c.hash)
+      if (stash) return stashMenu(stash, repo.path, ops)
       const branches = (badges.get(c.hash) ?? []).filter((b) => b.kind !== 'tag' && !b.current)
       const choice = await contextMenu([
         ...branches.map((b) => ({
@@ -505,7 +510,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
   const shown = p.tagMode === 'all' ? p.badges : p.badges?.filter((b) => b.kind !== 'tag')
   // Label color: a reserved prefix color wins; otherwise the graph line's color (when enabled).
   const badgeLane = (b: Badge): number | null => {
-    if (b.kind === 'tag') return null
+    if (b.kind === 'tag' || b.kind === 'stash') return null
     const reserved = p.reservedColorOf(b.label, b.kind)
     if (reserved !== null) return reserved
     return p.laneColors && p.row ? p.row.color : null
@@ -576,6 +581,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
               </span>
             )}
             {b.kind === 'tag' && <TagIcon />}
+            {b.kind === 'stash' && <StashIcon />}
             {b.kind === 'remote' &&
               (b.remote ? (
                 <span className="ref-remote" title={`On ${b.remote}`}>
