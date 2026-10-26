@@ -1558,6 +1558,10 @@ input[type='range'] {
   align-items: start;
   padding-top: 8vh;
 }
+/* Opened centred, then held at that top edge (Modal sets the margin): growth goes downward. */
+.modal-backdrop.pinned {
+  align-items: start;
+}
 .modal.wide {
   width: min(44rem, calc(100vw - 2rem));
 }
@@ -5679,4 +5683,68 @@ input[type='checkbox']:focus-visible {
 }
 .ml-desktop-note {
   align-self: center;
+}
+
+/* Create pull request: Details → Claude review → Create */
+.pr-steps {
+  margin-bottom: 0.8rem;
+}
+.pr-step-note {
+  margin-left: auto;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.pr-review-lead {
+  margin: 0;
+}
+.pr-review-lead b {
+  color: var(--text);
+  font-weight: 600;
+}
+.pr-sent {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+.pr-sent > svg {
+  flex: none;
+  margin-top: 0.15rem;
+  color: var(--accent);
+}
+.pr-sent div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.pr-sent span {
+  color: var(--text-muted);
+  font-size: 0.92em;
+}
+.pr-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.pr-summary-title {
+  font-size: 1.08em;
+  font-weight: 600;
+}
+.pr-summary dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.35rem 1rem;
+  margin: 0.2rem 0 0;
+}
+.pr-summary dt {
+  color: var(--text-muted);
+}
+.pr-summary dd {
+  margin: 0;
+}
+.pr-new {
+  color: var(--accent);
 }

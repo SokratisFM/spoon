@@ -7,17 +7,17 @@ import { Modal } from './Modal'
 import { ChevronIcon } from './Icons'
 
 type Scope = 'staged' | 'local' | 'commit' | 'branch'
-type Where = 'terminal' | 'desktop'
-type Focus = 'bugs' | 'performance' | 'unity' | 'security' | 'style'
+export type Where = 'terminal' | 'desktop'
+export type Focus = 'bugs' | 'performance' | 'unity' | 'security' | 'style'
 
-const MODELS: [string, string][] = [
+export const MODELS: [string, string][] = [
   ['haiku', 'Haiku'],
   ['sonnet', 'Sonnet'],
   ['opus', 'Opus'],
   ['claude-fable-5-1', 'Fable']
 ]
-const EFFORTS = ['medium', 'high', 'xhigh']
-const FOCUS: [Focus, string, string][] = [
+export const EFFORTS = ['medium', 'high', 'xhigh']
+export const FOCUS: [Focus, string, string][] = [
   ['bugs', 'Bugs', 'bugs and logic errors'],
   ['performance', 'Performance', 'performance problems'],
   ['unity', 'Unity pitfalls', 'Unity pitfalls (work on the main thread, allocations in Update or other hot paths, serialization and .meta issues)'],
@@ -25,14 +25,14 @@ const FOCUS: [Focus, string, string][] = [
   ['style', 'Naming and style', 'unclear naming and style inconsistencies']
 ]
 
-interface Prefs {
+export interface Prefs {
   where: Where
   model: string
   effort: string
   focus: Focus[]
   skill: boolean
 }
-const DEFAULT_PREFS: Prefs = { where: 'desktop', model: 'sonnet', effort: 'high', focus: ['bugs', 'performance'], skill: false }
+export const DEFAULT_PREFS: Prefs = { where: 'desktop', model: 'sonnet', effort: 'high', focus: ['bugs', 'performance'], skill: false }
 
 interface Props {
   path: string

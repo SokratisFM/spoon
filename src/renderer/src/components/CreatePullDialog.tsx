@@ -1,13 +1,15 @@
-// Create Pull Request: title, description, target branch, assignee and reviewers, pre-filled from
-// the branch (Jira key on the description's first line, you as assignee, the branch it started from
-// as target). Pushes the branch first when the remote doesn't have it yet.
+// Create Pull Request, in three steps. Details: title, description, target branch, assignee and
+// reviewers, pre-filled from the branch (Jira key on the description's first line, you as assignee,
+// the branch it started from as target). Review: hand the branch to Claude for a review first (or
+// skip it). Create: push the branch if needed and open the pull request.
 import { useEffect, useMemo, useState } from 'react'
 import type { CreatedPull, GhUser, PullDraftInfo } from '../../../shared/types'
 import { useAsync, usePersistentState } from '../hooks'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { useSettings } from '../settings'
 import { Modal } from './Modal'
-import { CloseIcon } from './Icons'
+import { CheckIcon, CloseIcon } from './Icons'
+import { DEFAULT_PREFS, EFFORTS, FOCUS, MODELS, type Prefs } from './ReviewDialog'
 import type { Ops } from './RepoView'
 
 interface Props {
@@ -28,6 +30,11 @@ function titleFromBranch(branch: string, key: string | undefined): string {
   return key ? (rest ? `${key}: ${rest}` : key) : rest
 }
 
+type Step = 'details' | 'review' | 'create'
+
+// Branches already sent for review this session (repo|branch → when), so reopening the dialog says so.
+const reviewedAt = new Map<string, number>()
+
 const BASE_REASON: Record<PullDraftInfo['baseReason'], string> = {
   'created-from': 'the branch was created from it',
   nearest: 'the branch forked from it most recently',
@@ -36,7 +43,18 @@ const BASE_REASON: Record<PullDraftInfo['baseReason'], string> = {
 
 export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: Props) {
   const settings = useSettings()
-  const { data: info, error } = useAsync(() => window.spoon.pullDraftInfo(path, branch), [path, branch])
+  const { data: firstInfo, error } = useAsync(() => window.spoon.pullDraftInfo(path, branch), [path, branch])
+  // Re-read when reaching the last step: fixes committed after the review belong in the PR too.
+  const [latestInfo, setLatestInfo] = useState<PullDraftInfo | null>(null)
+  const info = latestInfo ?? firstInfo
+  const withReview = settings.claudeEnabled
+  const [step, setStep] = useState<Step>('details')
+  const [prefs, setPrefs] = usePersistentState<Prefs>('spoon.review.prefs', DEFAULT_PREFS)
+  const p = { ...DEFAULT_PREFS, ...prefs }
+  const { data: avail } = useAsync(() => window.spoon.claudeAvailability(), [])
+  const [sentAt, setSentAt] = useState<number | null>(reviewedAt.get(`${path}|${branch}`) ?? null)
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
   const { data: users } = useAsync(() => window.spoon.ghAssignable(path).catch(() => [] as GhUser[]), [path])
   const [lastReviewers, setLastReviewers] = usePersistentState<string[]>(`spoon.pr.reviewers.${path}`, [])
 
@@ -48,8 +66,10 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
   const [draft, setDraft] = useState(false)
   const [query, setQuery] = useState('')
 
-  // Fill everything in once Spoon has looked at the branch.
+  // Fill everything in once Spoon has looked at the branch (only the first time: the re-read on the
+  // last step mustn't undo edits).
   useEffect(() => {
+    const info = firstInfo
     if (!info) return
     const jira = jiraConfig(settings)
     const key = ticketKeys(branch, jira)[0] ?? /\b([A-Z][A-Z0-9]{1,9}-\d{1,7})\b/.exec(branch)?.[1]
@@ -60,7 +80,7 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
     setBase(info.base)
     setReviewers(lastReviewers.filter((r) => r !== me))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info])
+  }, [firstInfo])
 
   const candidates = useMemo(
     () =>
@@ -73,6 +93,46 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
   const avatar = (login: string): string | undefined => users?.find((u) => u.login === login)?.avatarUrl
 
   const canCreate = !!info && !!title.trim() && !!base
+  const goCreate = (): void => {
+    setStep('create')
+    window.spoon.pullDraftInfo(path, branch).then(setLatestInfo, () => undefined)
+  }
+
+  const reviewPrompt = (): string => {
+    const focus = FOCUS.filter(([id]) => p.focus.includes(id)).map(([, , text]) => text)
+    return [
+      `Review the changes on the branch ${branch} since it left ${info?.remote ?? 'origin'}/${base}, before I open a pull request for it, and report what you find.`,
+      focus.length ? `Look for: ${focus.join('; ')}.` : ''
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+  const setPref = (patch: Partial<Prefs>): void => setPrefs({ ...p, ...patch })
+  const claudeOk = !!avail && (p.where === 'desktop' ? avail.desktop : !!avail.cli)
+  const sendReview = (): void => {
+    if (!claudeOk || sending) return
+    setSending(true)
+    setReviewError(null)
+    window.spoon
+      .claudeLaunch({
+        where: p.where,
+        cwd: path,
+        model: p.model,
+        effort: p.effort,
+        name: `Review: ${branch} (PR into ${base})`,
+        prompt: reviewPrompt()
+      })
+      .then(
+        () => {
+          const now = Date.now()
+          reviewedAt.set(`${path}|${branch}`, now)
+          setSentAt(now)
+        },
+        (err: Error) => setReviewError(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      )
+      .finally(() => setSending(false))
+  }
+
   const create = (): void => {
     if (!info || !canCreate) return
     onClose()
@@ -106,30 +166,106 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
       .then((ok) => ok && created && onCreated(created))
   }
 
+  const steps: [Step, string][] = [
+    ['details', 'Details'],
+    ['review', 'Claude review'],
+    ['create', 'Create']
+  ]
+  const at = steps.findIndex(([id]) => id === step)
+  const draftToggle = (
+    <label className="check" style={{ marginRight: 'auto' }}>
+      <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />
+      Draft
+    </label>
+  )
+  const createButton = (
+    <button className="btn primary" onClick={create} disabled={!canCreate}>
+      {draft ? 'Create draft' : 'Create pull request'}
+    </button>
+  )
+  const submit = !withReview
+    ? create
+    : step === 'details'
+      ? () => canCreate && setStep('review')
+      : step === 'review'
+        ? () => (sentAt ? goCreate() : sendReview())
+        : create
+
   return (
     <Modal
       title="Create pull request"
       onClose={onClose}
-      onSubmit={create}
+      onSubmit={submit}
       wide
+      pending={!info && !error}
       footer={
-        <>
-          <label className="check" style={{ marginRight: 'auto' }}>
-            <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />
-            Draft
-          </label>
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn primary" onClick={create} disabled={!canCreate}>
-            {draft ? 'Create draft' : 'Create pull request'}
-          </button>
-        </>
+        !withReview ? (
+          <>
+            {draftToggle}
+            <button className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            {createButton}
+          </>
+        ) : step === 'details' ? (
+          <>
+            <button className="btn" style={{ marginLeft: 'auto' }} onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn primary" onClick={() => setStep('review')} disabled={!canCreate}>
+              Continue
+            </button>
+          </>
+        ) : step === 'review' ? (
+          <>
+            <button className="btn" style={{ marginRight: 'auto' }} onClick={() => setStep('details')}>
+              Back
+            </button>
+            {sentAt ? (
+              <>
+                <button className="btn" onClick={sendReview} disabled={!claudeOk || sending}>
+                  Send again
+                </button>
+                <button className="btn primary" onClick={goCreate}>
+                  Continue
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="btn" onClick={goCreate}>
+                  Skip review
+                </button>
+                <button className="btn primary claude" onClick={sendReview} disabled={!claudeOk || sending}>
+                  {sending ? 'Sending…' : 'Send for review'}
+                </button>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {draftToggle}
+            <button className="btn" onClick={() => setStep('review')}>
+              Back
+            </button>
+            {createButton}
+          </>
+        )
       }
     >
+      {withReview && info && (
+        <div className="ml-steps pr-steps">
+          {steps.map(([id, label], i) => (
+            <span key={id} className={`ml-step ${i === at ? 'on' : ''} ${i < at ? 'done' : ''}`}>
+              <i>{i >= at ? i + 1 : id === 'review' && !sentAt ? '–' : <CheckIcon />}</i>
+              {label}
+              {id === 'review' && i < at && !sentAt && <span className="pr-step-note">skipped</span>}
+            </span>
+          ))}
+        </div>
+      )}
       {error && <p className="error-text">{error}</p>}
       {!info && !error && <p className="muted">Looking at {branch}…</p>}
-      {info && (
+      {info && (!withReview || step === 'details') && (
         <div className="pr-form">
           <div className="pr-route">
             <span className="ref-badge head">{branch}</span>
@@ -223,6 +359,125 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
             {info.needsPush ? ` · ${branch} is pushed to ${info.remote}/${info.headRef} first` : ''}
             {!info.needsPush && info.headRef !== branch ? ` · from ${info.remote}/${info.headRef}` : ''}
           </span>
+        </div>
+      )}
+
+      {info && withReview && step === 'review' && (
+        <div className="review-form pr-review">
+          <p className="muted pr-review-lead">
+            Have Claude look over <b>{branch}</b> before the pull request goes up. Spoon opens the session; read what it finds,
+            fix and commit, then come back and continue.
+          </p>
+          {sentAt ? (
+            <div className="pr-sent">
+              <CheckIcon />
+              <div>
+                <b>
+                  Sent to Claude at {new Date(sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </b>
+                <span>Address what it finds and commit, then continue. New commits are included in the pull request.</span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="field">
+                <span className="field-label">Where</span>
+                <div className="review-dest">
+                  <button className={p.where === 'desktop' ? 'on' : ''} disabled={!avail?.desktop} onClick={() => setPref({ where: 'desktop' })}>
+                    <b>Claude desktop</b>
+                    <span>
+                      {avail && !avail.desktop
+                        ? 'The Claude app isn’t installed.'
+                        : 'Opens a new Code session in this repo with the prompt filled in.'}
+                    </span>
+                  </button>
+                  <button className={p.where === 'terminal' ? 'on' : ''} disabled={!avail?.cli} onClick={() => setPref({ where: 'terminal' })}>
+                    <b>Terminal</b>
+                    <span>
+                      {avail && !avail.cli ? 'Claude Code isn’t installed.' : 'Opens Terminal in this repo with an interactive Claude Code session.'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+              {p.where === 'terminal' ? (
+                <div className="review-model">
+                  <div className="field">
+                    <span className="field-label">Model</span>
+                    <div className="segmented">
+                      {MODELS.map(([id, label]) => (
+                        <button key={id} className={p.model === id ? 'on' : ''} onClick={() => setPref({ model: id })}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <span className="field-label">Effort</span>
+                    <div className="segmented">
+                      {EFFORTS.map((e) => (
+                        <button key={e} className={p.effort === e ? 'on' : ''} onClick={() => setPref({ effort: e })}>
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <span className="hint">Model and effort are chosen in the Claude app.</span>
+              )}
+              <div className="field">
+                <span className="field-label">Look for</span>
+                <div className="review-chips">
+                  {FOCUS.map(([id, label]) => (
+                    <button
+                      key={id}
+                      className={p.focus.includes(id) ? 'on' : ''}
+                      onClick={() => setPref({ focus: p.focus.includes(id) ? p.focus.filter((f) => f !== id) : [...p.focus, id] })}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          {reviewError && <p className="error-text">{reviewError}</p>}
+        </div>
+      )}
+
+      {info && withReview && step === 'create' && (
+        <div className="pr-summary">
+          <div className="pr-summary-title">{title.trim()}</div>
+          <div className="pr-route">
+            <span className="ref-badge head">{branch}</span>
+            <span className="muted">into</span>
+            <span className="ref-badge remote">{base}</span>
+          </div>
+          <dl>
+            <dt>Commits</dt>
+            <dd>
+              {base === info.base
+                ? `${info.commits.length} commit${info.commits.length === 1 ? '' : 's'}`
+                : `Everything since it left ${base}`}
+              {latestInfo && firstInfo && latestInfo.commits.length > firstInfo.commits.length && (
+                <span className="pr-new"> · {latestInfo.commits.length - firstInfo.commits.length} new since the review</span>
+              )}
+            </dd>
+            <dt>Claude review</dt>
+            <dd>{sentAt ? `Sent at ${new Date(sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Skipped'}</dd>
+            <dt>Assignee</dt>
+            <dd>{assignee || 'No one'}</dd>
+            <dt>Reviewers</dt>
+            <dd>{reviewers.length ? reviewers.join(', ') : 'None'}</dd>
+            {info.needsPush && (
+              <>
+                <dt>Push</dt>
+                <dd>
+                  {branch} is pushed to {info.remote}/{info.headRef} first
+                </dd>
+              </>
+            )}
+          </dl>
         </div>
       )}
     </Modal>

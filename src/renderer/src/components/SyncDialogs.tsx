@@ -27,6 +27,7 @@ export function PullDialog({ path, onClose, onPull }: PullProps) {
     <Modal
       title="Pull"
       onClose={onClose}
+      pending={!info && !error}
       onSubmit={submit}
       footer={
         <>
@@ -101,6 +102,7 @@ export function PushDialog({ path, remoteOnly, onClose, onPush }: PushProps) {
     <Modal
       title="Push"
       onClose={onClose}
+      pending={!info && !error}
       onSubmit={submit}
       footer={
         <>

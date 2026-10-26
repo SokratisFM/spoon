@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { mod } from '../platform'
 
 // Open modals, oldest first: only the topmost answers Escape and Enter.
@@ -20,12 +20,44 @@ interface Props {
   wide?: boolean
   /** Pin to the top of the window instead of centering, so the dialog doesn't jump as its content grows. */
   top?: boolean
+  /** Still loading what it shows: stays centred until it's in, then keeps that top edge. */
+  pending?: boolean
   /** Leave Escape/Enter to the caller (the in-app dialogs handle their own keys). */
   ownKeys?: boolean
 }
 
-export function Modal({ title, children, onClose, onSubmit, footer, wide, top, ownKeys }: Props) {
+export function Modal({ title, children, onClose, onSubmit, footer, wide, top, pending, ownKeys }: Props) {
   const id = useRef(0)
+  // Opens centred, then keeps that top edge: content that appears later (an error, a list, another
+  // option) makes the dialog grow downward instead of jumping up and down around its middle. It only
+  // moves up when it would otherwise run off the bottom of the window, and then only as far as needed.
+  const box = useRef<HTMLDivElement>(null)
+  const [pinnedTop, setPinnedTop] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    if (!top && !pending && box.current) setPinnedTop((t) => t ?? Math.max(16, box.current!.getBoundingClientRect().top))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending])
+  const fit = (): void => {
+    const el = box.current
+    const body = el?.querySelector<HTMLElement>(':scope > .modal-body')
+    if (!el || !body) return
+    const need = el.offsetHeight + body.scrollHeight - body.clientHeight
+    setPinnedTop((t) => (t === null ? t : Math.max(16, Math.min(t, window.innerHeight - 16 - need))))
+  }
+  useLayoutEffect(() => {
+    if (!top) fit()
+  })
+  useEffect(() => {
+    if (top || !box.current) return
+    const watch = new MutationObserver(fit)
+    watch.observe(box.current, { childList: true, subtree: true, attributes: true, characterData: true })
+    window.addEventListener('resize', fit)
+    return () => {
+      watch.disconnect()
+      window.removeEventListener('resize', fit)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [top])
   useEffect(() => {
     id.current = ++nextId
     stack.push(id.current)
@@ -55,8 +87,17 @@ export function Modal({ title, children, onClose, onSubmit, footer, wide, top, o
   }, [onClose, onSubmit, ownKeys])
 
   return (
-    <div className={`modal-backdrop ${top ? 'top' : ''}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-label={title}>
+    <div
+      className={`modal-backdrop ${top ? 'top' : pinnedTop !== null ? 'pinned' : ''}`}
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        ref={box}
+        className={`modal ${wide ? 'wide' : ''}`}
+        role="dialog"
+        aria-label={title}
+        style={pinnedTop !== null ? { marginTop: pinnedTop, maxHeight: `calc(100vh - ${pinnedTop}px - 1rem)` } : undefined}
+      >
         <h3>{title}</h3>
         <div className="modal-body">{children}</div>
         <div className="modal-footer">{footer}</div>
