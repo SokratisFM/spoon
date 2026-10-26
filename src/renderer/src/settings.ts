@@ -1,5 +1,6 @@
 // User-adjustable appearance. The whole UI is sized in rem, so changing the root font size
 // (uiScale) scales every element; row heights are derived from the same numbers.
+import type { SyntaxPalette } from '../../shared/types'
 import { useSyncExternalStore } from 'react'
 import { resolveTheme, type BaseThemeChoice, type ColorKey, type ThemeChoice, type ThemeDef } from './themes'
 import * as storage from './storage'
@@ -37,6 +38,8 @@ export const MAINLIB_DEFAULTS = {
   instructions: 'https://fm-games.atlassian.net/wiki/spaces/DEV/pages/4827578369/Mainlib+update+agent+instructions'
 }
 
+/** Syntax colors in diffs: every token, only keywords, strings and comments (softly), or none. */
+export type DiffSyntax = 'full' | 'subtle' | 'off'
 /** Where dialogs open: centred in the window (then growing downward), or near its top. */
 export type DialogPosition = 'center' | 'top'
 /** Squish branches: a fold row in place of the hidden commits, or a "+N" bead on the graph line. */
@@ -69,6 +72,17 @@ export interface Settings {
   tagDisplay: TagDisplay
   headHighlight: HeadHighlight
   dialogPosition: DialogPosition
+  diffSyntax: DiffSyntax
+  /** Syntax colors taken from an IDE scheme (null: from Spoon's theme). */
+  syntaxPalette: SyntaxPalette | null
+  /** When the IDE switches scheme, follow it. */
+  syntaxFollowIde: boolean
+  /** Diffs take the IDE scheme's background and text color too. */
+  syntaxIdeBackground: boolean
+  /** IDE schemes Spoon offered in a diff and you turned down ("Not now"). */
+  syntaxOffersDismissed: string[]
+  /** Within a changed line, highlight the words that changed. */
+  diffWordChanges: boolean
   /** Each straight run of commits in the history shows only its first and latest commit. */
   squishBranches: boolean
   /** What stands in for the hidden commits: a fold row, or a "+N" bead on the graph line. */
@@ -120,6 +134,12 @@ const DEFAULTS: Settings = {
   tagDisplay: 'diamond',
   headHighlight: 'band',
   dialogPosition: 'center',
+  diffSyntax: 'full',
+  syntaxPalette: null,
+  syntaxFollowIde: true,
+  syntaxIdeBackground: false,
+  syntaxOffersDismissed: [],
+  diffWordChanges: true,
   squishBranches: false,
   squishStyle: 'fold',
   showRemoteName: false,

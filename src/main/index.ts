@@ -9,6 +9,7 @@ import * as gh from './github'
 import * as claude from './claude'
 import * as history from './history'
 import * as atlassian from './atlassian'
+import * as ide from './ide'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
@@ -266,6 +267,16 @@ function registerIpc(): void {
   ipcMain.handle('repo:rebaseContinue', (_e, path: string, action: 'continue' | 'skip' | 'abort') =>
     git.rebaseContinue(path, action)
   )
+  ipcMain.handle('ide:schemes', () => ide.detect())
+  ipcMain.handle('ide:import', async () => {
+    const res = await dialog.showOpenDialog(win!, {
+      title: 'Import syntax colors',
+      properties: ['openFile'],
+      filters: [{ name: 'Rider scheme or VS Code theme', extensions: ['icls', 'xml', 'json', 'jsonc'] }]
+    })
+    return res.canceled || !res.filePaths[0] ? null : ide.importFile(res.filePaths[0])
+  })
+  ipcMain.handle('repo:diffFile', (_e, path: string, target: DiffTarget) => git.diffFile(path, target))
   ipcMain.handle('repo:tagTarget', (_e, path: string, hash: string) => git.tagTarget(path, hash))
   ipcMain.handle('repo:createTag', (_e, path: string, opts: NewTagOptions) => git.createTag(path, opts))
   ipcMain.handle('repo:stashApply', (_e, path: string, name: string, pop: boolean) => git.stashApply(path, name, pop))

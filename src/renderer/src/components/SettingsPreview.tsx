@@ -11,6 +11,7 @@ import {
   type LaneSpotlight,
   type SquishStyle,
   type DialogPosition,
+  type DiffSyntax,
   type Settings,
   type SidebarSection,
   type SubmoduleTabs,
@@ -20,6 +21,8 @@ import { hueFor, initials } from '../format'
 import { BoxIcon, BranchIcon, BroomIcon, ChildIcon, CloudIcon, PinIcon, StashIcon, TagIcon } from './Icons'
 import { MovingGlyph, type NetKind } from './NetButton'
 import { PlayfulScene } from './PlayfulNet'
+import { CodeText } from './DiffView'
+import { paletteVars, type Token } from '../syntax'
 
 export interface SectionState {
   id: SidebarSection
@@ -39,6 +42,7 @@ export type PreviewSpec =
   | { kind: 'spotlight'; from: LaneSpotlight; to: LaneSpotlight }
   | { kind: 'squish'; from: SquishStyle | 'off'; to: SquishStyle | 'off' }
   | { kind: 'dialogs'; from: DialogPosition; to: DialogPosition }
+  | { kind: 'syntax'; from: DiffSyntax; to: DiffSyntax; words: boolean; wordsFrom?: boolean }
   | { kind: 'head'; from: HeadHighlight; to: HeadHighlight }
   | { kind: 'subtabs'; from: SubmoduleTabs; to: SubmoduleTabs }
   /** Lane indexes for the branch's label and graph line, before and after. */
@@ -280,6 +284,42 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
     }
     case 'density':
       return <MiniRows s={{ ...s, density: phase ? spec.to : spec.from }} n={8} />
+    case 'syntax': {
+      const mode = phase ? spec.to : spec.from
+      const words = phase ? spec.words : (spec.wordsFrom ?? spec.words)
+      const t = (text: string, kind: Token['kind'] = null): Token => ({ text, kind })
+      const rows: Array<{ kind: 'ctx' | 'del' | 'add'; tokens: Token[]; words?: Array<[number, number]> }> = [
+        { kind: 'ctx', tokens: [t('// no frame spent on a wait', 'com')] },
+        {
+          kind: 'del',
+          tokens: [t('yield return new', 'kw'), t(' '), t('WaitForSeconds', 'type'), t('('), t('0.25f', 'num'), t(');')],
+          words: [[32, 37]]
+        },
+        {
+          kind: 'add',
+          tokens: [t('yield return new', 'kw'), t(' '), t('WaitForSeconds', 'type'), t('(frameDelay);')],
+          words: [[32, 42]]
+        },
+        { kind: 'ctx', tokens: [t('Debug', 'type'), t('.'), t('Log', 'fn'), t('('), t('"replay done"', 'str'), t(');')] }
+      ]
+      return (
+        <div className="pv-center">
+          <div className={`diff-lines syntax-${mode} pv-syn`} style={paletteVars(s.syntaxPalette, s.syntaxIdeBackground)}>
+            {rows.map((r, i) => {
+              const text = r.tokens.map((x) => x.text).join('')
+              return (
+                <div key={i} className={`diff-line ${r.kind} pv-syn-line`}>
+                  <span className="sign">{r.kind === 'add' ? '+' : r.kind === 'del' ? '−' : ''}</span>
+                  <span className="code">
+                    <CodeText text={text} tokens={mode === 'off' ? undefined : r.tokens} words={words ? r.words : undefined} />
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
     case 'layout': {
       const split = (phase ? spec.to : spec.from) === 'split'
       return (

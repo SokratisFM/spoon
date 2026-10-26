@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
 import { getSettings, resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
+import { ideSchemes } from './syntax'
 import { RepoView } from './components/RepoView'
 import { GitHistoryDialog } from './components/GitHistoryDialog'
 import { warmTabs } from './repoCache'
@@ -327,6 +328,32 @@ export function App() {
       {u.node}
     </div>
   ))
+
+  // Follow the IDE: when Spoon comes to the front, pick up a scheme switch (or edit) made in the IDE.
+  useEffect(() => {
+    const follow = (): void => {
+      const s = getSettings()
+      const chosen = s.syntaxPalette
+      if (!s.syntaxFollowIde || !chosen || chosen.source === 'file') return
+      ideSchemes(true).then((list) => {
+        const now = list.find((p) => p.source === chosen.source && p.active)
+        if (!now) return
+        // The same scheme keeps the colors picked by hand; another scheme starts fresh.
+        const next =
+          now.id === chosen.id
+            ? {
+                ...now,
+                colors: { ...now.colors, ...Object.fromEntries(Object.entries(chosen.origin).filter(([, o]) => o?.picked).map(([k]) => [k, chosen.colors[k as keyof typeof chosen.colors]])) },
+                origin: { ...now.origin, ...Object.fromEntries(Object.entries(chosen.origin).filter(([, o]) => o?.picked)) }
+              }
+            : now
+        if (JSON.stringify(next) !== JSON.stringify(chosen)) updateSettings({ syntaxPalette: next })
+      })
+    }
+    follow()
+    window.addEventListener('focus', follow)
+    return () => window.removeEventListener('focus', follow)
+  }, [])
 
   useEffect(
     () =>

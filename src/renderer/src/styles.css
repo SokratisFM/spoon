@@ -3778,7 +3778,7 @@ kbd.soft {
 .diff-lines.side-by-side .diff-line.hunk {
   padding-left: 1em;
 }
-.split-row .code {
+.diff-line.split-row .code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   min-width: 0;
@@ -6029,4 +6029,218 @@ kbd.setting-key {
   height: 0.7rem;
   border-radius: 0.25rem;
   background: var(--accent);
+}
+
+/* Syntax colors in diffs, from the theme's lane colors so they follow every theme. */
+/* An IDE scheme, when one is chosen, sets --ide-<slot> on the diff and wins. */
+.diff-lines {
+  --syn-kw: var(--ide-kw, color-mix(in srgb, var(--lane-4) 88%, var(--text)));
+  --syn-str: var(--ide-str, color-mix(in srgb, var(--lane-2) 85%, var(--text)));
+  --syn-com: var(--ide-com, var(--text-faint));
+  --syn-type: var(--ide-type, color-mix(in srgb, var(--lane-5) 85%, var(--text)));
+  --syn-num: var(--ide-num, color-mix(in srgb, var(--lane-1) 88%, var(--text)));
+  --syn-fn: var(--ide-fn, color-mix(in srgb, var(--lane-3) 85%, var(--text)));
+  --syn-prop: var(--ide-prop, color-mix(in srgb, var(--lane-0) 85%, var(--text)));
+  --syn-tag: var(--ide-tag, color-mix(in srgb, var(--lane-6) 85%, var(--text)));
+}
+.diff-scroll,
+.pv-syn {
+  background-color: var(--ide-bg, transparent);
+  color: var(--ide-fg, inherit);
+}
+.t-kw { color: var(--syn-kw); }
+.t-str { color: var(--syn-str); }
+.t-com { color: var(--syn-com); font-style: italic; }
+.t-type { color: var(--syn-type); }
+.t-num { color: var(--syn-num); }
+.t-fn { color: var(--syn-fn); }
+.t-prop { color: var(--syn-prop); }
+.t-tag { color: var(--syn-tag); }
+/* Subtle: only keywords, strings and comments, and softer. */
+.diff-lines.syntax-subtle {
+  --syn-kw: color-mix(in srgb, var(--ide-kw, var(--lane-4)) 60%, var(--ide-fg, var(--text)));
+  --syn-str: color-mix(in srgb, var(--ide-str, var(--lane-2)) 55%, var(--ide-fg, var(--text)));
+  --syn-type: inherit;
+  --syn-num: inherit;
+  --syn-fn: inherit;
+  --syn-prop: inherit;
+  --syn-tag: inherit;
+}
+/* The words that changed within a changed line. */
+.diff-line.add .w-changed,
+.half.add .w-changed {
+  background: color-mix(in srgb, var(--add) 32%, transparent);
+  border-radius: 2px;
+}
+.diff-line.del .w-changed,
+.half.del .w-changed {
+  background: color-mix(in srgb, var(--del) 32%, transparent);
+  border-radius: 2px;
+}
+/* Unity YAML: object ids and GUIDs fade back; the hunk header names the GameObject and component. */
+.u-id {
+  opacity: 0.45;
+}
+.hunk-place {
+  margin-left: 0.5em;
+  color: var(--text);
+  font-family: var(--font-ui);
+}
+.lang-chip {
+  flex: none;
+  padding: 0.05rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8em;
+  cursor: pointer;
+}
+.lang-chip:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+.pv-syn {
+  width: 22rem;
+  padding: 0.3rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--ide-bg, var(--bg-list));
+  font-size: 0.82em;
+}
+.pv-syn .pv-syn-line {
+  position: static;
+  display: flex;
+  height: 1.5em;
+  line-height: 1.5em;
+  white-space: pre;
+}
+
+/* Settings: where diff syntax colors come from. */
+.syn-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.6rem;
+}
+.syn-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.syn-card:hover {
+  border-color: var(--text-faint);
+}
+.syn-card.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.syn-card.import {
+  justify-content: center;
+  align-items: center;
+  border-style: dashed;
+  min-height: 6rem;
+}
+.syn-sample {
+  position: static;
+  margin-bottom: 0.3rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.3rem;
+  background: var(--ide-bg, var(--bg-list));
+  color: var(--ide-fg, var(--text));
+  font-size: 0.78em;
+  line-height: 1.55;
+  white-space: pre;
+  overflow: hidden;
+}
+.syn-name {
+  font-weight: 600;
+  font-size: 0.92em;
+}
+.syn-sub {
+  color: var(--text-muted);
+  font-size: 0.8em;
+}
+.syn-pill {
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--add) 20%, transparent);
+  color: var(--add);
+  font-size: 0.75em;
+  font-weight: 600;
+}
+.syn-pill.exact {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+.syn-pill.close {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+.syn-map summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  margin: 0.2rem 0 0.4rem;
+}
+.syn-map-row {
+  display: grid;
+  grid-template-columns: 10rem 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9em;
+  text-align: left;
+  cursor: pointer;
+}
+.syn-map-row:hover {
+  background: var(--bg-hover);
+}
+.syn-map-row .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9em;
+}
+.syn-swatch {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 0.2rem;
+  border: 1px solid var(--border);
+}
+.syn-offer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.45rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-panel));
+  font-size: 0.92em;
+}
+.syn-offer > span {
+  flex: 1;
+  min-width: 14rem;
+}
+.syn-offer b {
+  font-weight: 600;
+}
+.syn-offer .btn {
+  padding: 0.2rem 0.7rem;
 }

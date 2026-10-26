@@ -4,7 +4,10 @@ import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
 import { cleanError, useSlidingIndicator, useAsync } from '../hooks'
 import { hoverPreview, PreviewCard, PreviewEye, type Preview, type PreviewSpec, type SectionState } from './SettingsPreview'
-import type { DeviceCode, AtlassianAccount } from '../../../shared/types'
+import type { DeviceCode, AtlassianAccount, SyntaxPalette, SyntaxSlot } from '../../../shared/types'
+import { ideSchemes, paletteVars, SAMPLE, SLOT_LABELS } from '../syntax'
+import { CodeText } from './DiffView'
+import { contextMenu } from '../menus'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
 import { knownAuthors } from '../authors'
 import {
@@ -23,6 +26,7 @@ import {
   type LaneSpotlight,
   type SquishStyle,
   type DialogPosition,
+  type DiffSyntax,
   MAINLIB_DEFAULTS
 } from '../settings'
 import {
@@ -223,6 +227,47 @@ function AppearanceTab() {
           onChange={(diffLayout) => updateSettings({ diffLayout })}
         />
         <span className="hint">Also switchable from any diff’s header.</span>
+      </div>
+      <div className="field">
+        <span className="field-label">
+          Syntax colors in diffs
+          <PreviewEye label={'Syntax colors in diffs'} make={() => choicePreviews<DiffSyntax>('Syntax colors in diffs', s.diffSyntax, [
+            ['full', 'Full'],
+            ['subtle', 'Subtle'],
+            ['off', 'Off']
+          ], (from, to) => ({ kind: 'syntax', from, to, words: s.diffWordChanges }))} />
+        </span>
+        <Segmented<DiffSyntax>
+          value={s.diffSyntax}
+          options={[
+            ['full', 'Full'],
+            ['subtle', 'Subtle'],
+            ['off', 'Off']
+          ]}
+          onChange={(diffSyntax) => updateSettings({ diffSyntax })}
+        />
+        <span className="hint">
+          The language comes from the file’s extension; click it in a diff’s header to pick another. Unity scenes,
+          prefabs and assets fade object ids and name the GameObject a change is in.
+        </span>
+      </div>
+      <SyntaxSourceField />
+      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
+      <div className="check">
+        <input
+          id="set-diff-word-changes"
+          type="checkbox"
+          checked={s.diffWordChanges}
+          onChange={(e) => updateSettings({ diffWordChanges: e.target.checked })}
+        />
+        <span>
+          <label htmlFor="set-diff-word-changes">Highlight the words that changed within a line</label>{' '}
+          <ToggleEye
+            title={'Changed words'}
+            on={s.diffWordChanges}
+            spec={(from, to) => ({ kind: 'syntax', from: s.diffSyntax, to: s.diffSyntax, words: to, wordsFrom: from })}
+          />
+        </span>
       </div>
       <div className="field">
         <span className="field-label">
@@ -1451,6 +1496,135 @@ function AuthorInput({ value, authors, onChange }: { value: string; authors: str
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+/** A few lines of code in a palette's colors (or the Spoon theme's), on its background. */
+function SyntaxSample({ palette }: { palette: SyntaxPalette | null }) {
+  return (
+    <div className="diff-lines syntax-full syn-sample" style={paletteVars(palette, true)}>
+      {SAMPLE.map((tokens, i) => (
+        <div key={i}>
+          <CodeText text={tokens.map((t) => t.text).join('')} tokens={tokens} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const SOURCE_LABEL: Record<SyntaxPalette['source'], string> = { rider: 'Rider', vscode: 'VS Code', cursor: 'Cursor', file: 'File' }
+
+/**
+ * Where diff syntax colors come from: the Spoon theme, a scheme an IDE on this Mac is using, or a
+ * scheme file. Below it, how the chosen IDE scheme's colors map onto Spoon's, each one changeable.
+ */
+function SyntaxSourceField() {
+  const s = useSettings()
+  const { data: found } = useAsync(() => ideSchemes(true), [])
+  const [error, setError] = useState<string | null>(null)
+  const current = s.syntaxPalette
+  const options = [...(found ?? [])]
+  if (current && !options.some((o) => o.id === current.id)) options.push(current)
+  const isCurrent = (p: SyntaxPalette): boolean => current?.id === p.id
+  // A detected scheme that's chosen shows the chosen copy, with any colors picked by hand.
+  const shown = (p: SyntaxPalette): SyntaxPalette => (isCurrent(p) && current ? current : p)
+
+  const importFile = (): void => {
+    setError(null)
+    window.spoon.importSyntaxColors().then(
+      (p) => p && updateSettings({ syntaxPalette: p }),
+      (err: Error) => setError(cleanError(err.message))
+    )
+  }
+  const pickColor = async (slot: SyntaxSlot): Promise<void> => {
+    if (!current) return
+    const choice = await contextMenu([
+      { label: `${SLOT_LABELS[slot]} take the color of…`, enabled: false },
+      ...current.choices.slice(0, 40).map(([name, c]) => ({
+        id: `${name}|${c}`,
+        label: `${name}  ${c}`,
+        kind: 'checkbox' as const,
+        checked: current.colors[slot] === c
+      }))
+    ])
+    if (!choice) return
+    const [name, c] = choice.split('|')
+    updateSettings({
+      syntaxPalette: {
+        ...current,
+        colors: { ...current.colors, [slot]: c },
+        origin: { ...current.origin, [slot]: { from: name, exact: true, picked: true } }
+      }
+    })
+  }
+
+  return (
+    <div className="field">
+      <span className="field-label">Syntax colors from</span>
+      <div className="syn-cards">
+        <button className={`syn-card ${current ? '' : 'on'}`} onClick={() => updateSettings({ syntaxPalette: null })}>
+          <SyntaxSample palette={null} />
+          <span className="syn-name">Spoon theme</span>
+          <span className="syn-sub">Follows Spoon’s theme</span>
+        </button>
+        {options.map((p) => (
+          <button key={p.id} className={`syn-card ${isCurrent(p) ? 'on' : ''}`} onClick={() => updateSettings({ syntaxPalette: p })}>
+            <SyntaxSample palette={shown(p)} />
+            <span className="syn-name">
+              {p.source === 'file' ? p.name : `${SOURCE_LABEL[p.source]} · ${p.name}`}
+              {p.active && <span className="syn-pill">in use</span>}
+            </span>
+            <span className="syn-sub">{p.source === 'file' ? p.app : `Detected in ${p.app}`}</span>
+          </button>
+        ))}
+        <button className="syn-card import" onClick={importFile}>
+          <span className="syn-name">Import file…</span>
+          <span className="syn-sub">Rider .icls · VS Code theme .json</span>
+        </button>
+      </div>
+      {error && <span className="error-text hint">{error}</span>}
+      {found && found.length === 0 && (
+        <span className="hint">No Rider, VS Code or Cursor color scheme found on this Mac; a scheme file can still be imported.</span>
+      )}
+      <div className="check">
+        <input
+          id="set-syntax-follow"
+          type="checkbox"
+          checked={s.syntaxFollowIde}
+          disabled={!current || current.source === 'file'}
+          onChange={(e) => updateSettings({ syntaxFollowIde: e.target.checked })}
+        />
+        <label htmlFor="set-syntax-follow">Follow the IDE: when it switches scheme, switch too</label>
+      </div>
+      <div className="check">
+        <input
+          id="set-syntax-background"
+          type="checkbox"
+          checked={s.syntaxIdeBackground}
+          disabled={!current?.bg}
+          onChange={(e) => updateSettings({ syntaxIdeBackground: e.target.checked })}
+        />
+        <label htmlFor="set-syntax-background">Also use the scheme’s background in diffs</label>
+      </div>
+      {current && (
+        <details className="syn-map">
+          <summary>How {current.source === 'file' ? current.name : SOURCE_LABEL[current.source]}’s colors were translated</summary>
+          {(Object.keys(SLOT_LABELS) as SyntaxSlot[]).map((slot) => {
+            const o = current.origin[slot]
+            return (
+              <button key={slot} className="syn-map-row" onClick={() => pickColor(slot)} title="Click to pick another color">
+                <span>{SLOT_LABELS[slot]}</span>
+                <span className="syn-swatch" style={{ background: current.colors[slot] ?? 'transparent' }} />
+                <span className="muted mono">{o?.from ?? 'not in this scheme: Spoon’s color'}</span>
+                <span className={`syn-pill ${o?.picked ? '' : o?.exact ? 'exact' : 'close'}`}>
+                  {o?.picked ? 'picked' : o?.exact ? 'exact' : o ? 'close' : 'none'}
+                </span>
+              </button>
+            )
+          })}
+        </details>
       )}
     </div>
   )

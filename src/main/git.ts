@@ -1,7 +1,7 @@
 // Thin wrapper over the git CLI. Every call shells out to `git` with machine-readable
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { cp, lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
@@ -536,6 +536,36 @@ async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number): Prom
   if (file.status === '?') return diffOf(['--no-index', '--', '/dev/null', file.path], [0, 1])
   return diffOf(['--', ...paths])
 }
+
+/**
+ * The whole file a diff is about, for context the diff itself doesn't carry (where in a Unity scene a
+ * change is): the version its new line numbers count in, or the old one for a deleted file.
+ */
+export async function diffFile(cwd: string, target: DiffTarget): Promise<{ text: string; side: 'new' | 'old' } | null> {
+  const { file } = target
+  const deleted = file.status === 'D'
+  const show = async (spec: string): Promise<string | null> => {
+    const { out, truncated } = await exec(cwd, ['show', spec], { okCodes: [0, 128], maxBytes: MAX_FILE_BYTES })
+    return truncated ? null : out
+  }
+  let text: string | null
+  if (target.kind === 'commit') {
+    assertHash(target.hash)
+    text = deleted ? await show(`${target.hash}^:${file.oldPath ?? file.path}`) : await show(`${target.hash}:${file.path}`)
+  } else if (target.kind === 'staged') text = await show(deleted ? `HEAD:${file.path}` : `:${file.path}`)
+  else if (deleted) text = await show(`:${file.path}`)
+  else {
+    const abs = resolve(cwd, file.path)
+    if (!abs.startsWith(resolve(cwd) + sep)) return null
+    try {
+      text = statSync(abs).size > MAX_FILE_BYTES ? null : readFileSync(abs, 'utf8')
+    } catch {
+      text = null
+    }
+  }
+  return text === null ? null : { text, side: deleted ? 'old' : 'new' }
+}
+const MAX_FILE_BYTES = 40 * 1024 * 1024
 
 export async function diff(cwd: string, target: DiffTarget): Promise<DiffResult> {
   const { out: text, truncated } = await rawDiff(cwd, target, MAX_DIFF_BYTES)

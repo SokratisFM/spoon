@@ -29,6 +29,28 @@ export interface Ref {
   gone?: boolean
 }
 
+/** Spoon's syntax color slots (see the renderer's syntax.ts). */
+export type SyntaxSlot = 'kw' | 'str' | 'com' | 'type' | 'num' | 'fn' | 'prop' | 'tag'
+
+/** Syntax colors taken from an IDE scheme (or a scheme file), in Spoon's slots. */
+export interface SyntaxPalette {
+  id: string
+  name: string
+  source: 'rider' | 'vscode' | 'cursor' | 'file'
+  /** Where it came from, e.g. "Rider 2025.3". */
+  app: string
+  /** The scheme that IDE is using right now. */
+  active: boolean
+  dark: boolean
+  bg?: string
+  fg?: string
+  colors: Partial<Record<SyntaxSlot, string>>
+  /** Which IDE color each slot took; exact when it's the IDE's own color for that kind of token. */
+  origin: Partial<Record<SyntaxSlot, { from: string; exact: boolean; picked?: boolean }>>
+  /** The scheme's distinct colors, [name, color], for picking another for a slot. */
+  choices: [string, string][]
+}
+
 /** Where a new tag would go: the branches its commit is on, nearest first. */
 export interface TagTarget {
   /** ahead: commits between it and the branch's tip (0 = it is the tip). */
@@ -514,7 +536,13 @@ export interface SpoonApi {
   updateSubmodule(path: string, submodulePath: string, backupBranch?: string): Promise<void>
   submoduleUpdatePreview(path: string, submodulePath: string): Promise<SubmoduleUpdatePreview>
   deleteBranches(path: string, names: string[], force: boolean): Promise<DeleteResult>
+  /** The whole file a diff is about (new version, or old for a deleted file); null when too big. */
+  diffFile(path: string, target: DiffTarget): Promise<{ text: string; side: 'new' | 'old' } | null>
   tagTarget(path: string, hash: string): Promise<TagTarget>
+  /** The syntax color schemes the IDEs on this Mac are using. */
+  ideSchemes(): Promise<SyntaxPalette[]>
+  /** Asks for a Rider scheme or VS Code theme file and reads its syntax colors (null if cancelled). */
+  importSyntaxColors(): Promise<SyntaxPalette | null>
   createTag(path: string, opts: NewTagOptions): Promise<void>
   /** Applies a stash ("stash@{0}"); pop also deletes it. */
   stashApply(path: string, name: string, pop: boolean): Promise<void>
