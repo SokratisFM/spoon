@@ -40,6 +40,7 @@ export type PreviewSpec =
   | { kind: 'remoteName'; from: boolean; to: boolean }
   | { kind: 'playful'; from: boolean; to: boolean }
   | { kind: 'spotlight'; from: LaneSpotlight; to: LaneSpotlight }
+  | { kind: 'spotFade'; from: boolean; to: boolean }
   | { kind: 'squish'; from: SquishStyle | 'off'; to: SquishStyle | 'off' }
   | { kind: 'dialogs'; from: DialogPosition; to: DialogPosition }
   | { kind: 'syntax'; from: DiffSyntax; to: DiffSyntax; words: boolean; wordsFrom?: boolean }
@@ -623,6 +624,26 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
           <span className="pv-caption">
             {v === 'off' ? 'every commit' : v === 'fold' ? 'a fold row stands in for them' : 'a bead on the line stands in for them'}
           </span>
+        </div>
+      )
+    }
+    case 'spotFade': {
+      // Commits on three branches with the orange one lit; with fading on, the others' rows fade too.
+      const on = phase ? spec.to : spec.from
+      const lanes = [0, 1, 0, 1, 2, 1, 0]
+      return (
+        <div className="pv-center">
+          <div className="pv-sq" style={{ width: '18rem' }}>
+            {lanes.map((l, i) => (
+              <div key={i} className="pv-sq-row" style={{ maxHeight: '1.3rem', opacity: 1 }}>
+                <span className="pv-node" style={{ marginLeft: `${l * 0.9}rem` }}>
+                  <span className="pv-node-dot" style={{ background: laneColor(l), opacity: l === 1 ? 1 : 0.3 }} />
+                </span>
+                <span className="pv-bar" style={{ width: `${6 - ((i * 5) % 4)}rem`, opacity: l === 1 || !on ? 0.55 : 0.15, transition: 'opacity 0.3s' }} />
+              </div>
+            ))}
+          </div>
+          <span className="pv-caption">{on ? 'other branches’ commits fade' : 'only the lines dim'}</span>
         </div>
       )
     }

@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { FileChange } from '../../../shared/types'
+import type { FileChange, FileStatus } from '../../../shared/types'
 import { splitPath } from '../format'
 import { rowHeight, useSettings } from '../settings'
 import { isMac } from '../platform'
+import { usePersistentState } from '../hooks'
+import { ChevronIcon, FolderIcon } from './Icons'
 
 const STATUS_LABEL: Record<string, string> = {
   A: 'Added',
@@ -14,6 +16,58 @@ const STATUS_LABEL: Record<string, string> = {
   T: 'Type changed',
   U: 'Conflicted',
   '?': 'Untracked'
+}
+
+/** Like Fork: + for added (and untracked), − for deleted, M for modified; the rest by letter. */
+export function statusSymbol(status: FileStatus): string {
+  return status === 'A' || status === '?' ? '+' : status === 'D' ? '−' : status === 'U' ? '!' : status
+}
+
+type Row =
+  | { kind: 'dir'; path: string; label: string; depth: number; files: FileChange[] }
+  | { kind: 'file'; file: FileChange; depth: number }
+
+/**
+ * Files as a folder tree: folders first, then files, each by name; a folder holding only one folder
+ * shows as one row ("Assets/Scripts"). Collapsed folders hide what's in them.
+ */
+function treeRows(files: FileChange[], collapsed: Set<string>): Row[] {
+  interface Node {
+    dirs: Map<string, Node>
+    files: FileChange[]
+    all: FileChange[]
+  }
+  const root: Node = { dirs: new Map(), files: [], all: [] }
+  for (const f of files) {
+    const parts = f.path.split('/')
+    let n = root
+    for (const part of parts.slice(0, -1)) {
+      let next = n.dirs.get(part)
+      if (!next) n.dirs.set(part, (next = { dirs: new Map(), files: [], all: [] }))
+      next.all.push(f)
+      n = next
+    }
+    n.files.push(f)
+  }
+  const rows: Row[] = []
+  const walk = (n: Node, prefix: string, depth: number): void => {
+    for (const name of [...n.dirs.keys()].sort((a, b) => a.localeCompare(b))) {
+      let child = n.dirs.get(name)!
+      let label = name
+      while (child.files.length === 0 && child.dirs.size === 1) {
+        const [[only, next]] = [...child.dirs.entries()]
+        label += `/${only}`
+        child = next
+      }
+      const path = prefix + label
+      rows.push({ kind: 'dir', path, label, depth, files: child.all })
+      if (!collapsed.has(path)) walk(child, `${path}/`, depth + 1)
+    }
+    const name = (f: FileChange): string => f.path.slice(f.path.lastIndexOf('/') + 1)
+    for (const f of [...n.files].sort((a, b) => name(a).localeCompare(name(b)))) rows.push({ kind: 'file', file: f, depth })
+  }
+  walk(root, '', 0)
+  return rows
 }
 
 interface Props {
@@ -29,15 +83,29 @@ interface Props {
   emptyText: string
   /** Names the list for animations that move rows between lists. */
   area?: string
+  /** Show the files as a folder tree. */
+  tree?: boolean
 }
 
-export function FileList({ files, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area }: Props) {
+export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree }: Props) {
   const settings = useSettings()
   const rowH = Math.round(rowHeight(settings) * 0.92)
   const parentRef = useRef<HTMLDivElement>(null)
   const anchor = useRef<number>(0)
+  // In the tree, collapsed folders (remembered per list) and the rows as shown; `files` is then the
+  // visible files in tree order, which is what ranges and the arrow keys go by.
+  const [collapsedList, setCollapsed] = usePersistentState<string[]>(`spoon.files.collapsed.${area ?? 'list'}`, [])
+  const collapsed = useMemo(() => new Set(collapsedList), [collapsedList])
+  const rows = useMemo<Row[]>(
+    () => (tree ? treeRows(allFiles, collapsed) : allFiles.map((file) => ({ kind: 'file' as const, file, depth: 0 }))),
+    [tree, allFiles, collapsed]
+  )
+  const files = useMemo(() => rows.flatMap((r) => (r.kind === 'file' ? [r.file] : [])), [rows])
+  const indexOf = useMemo(() => new Map(files.map((f, i) => [f.path, i])), [files])
+  const toggle = (dir: string): void =>
+    setCollapsed(collapsed.has(dir) ? collapsedList.filter((d) => d !== dir) : [...collapsedList, dir])
   const virtualizer = useVirtualizer({
-    count: files.length,
+    count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowH,
     overscan: 10
@@ -47,7 +115,7 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
     virtualizer.measure()
   }, [rowH, virtualizer])
 
-  const selectedFiles = (): FileChange[] => files.filter((f) => selected.has(f.path))
+  const selectedFiles = (): FileChange[] => allFiles.filter((f) => selected.has(f.path))
 
   const click = (index: number, e: React.MouseEvent): void => {
     // ⌃-click on a Mac is a right-click; the context menu decides what it applies to.
@@ -76,9 +144,9 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
       if (sel.length) onActivate(sel)
       return
     }
-    if (e.key === 'a' && (e.metaKey || e.ctrlKey) && files.length) {
+    if (e.key === 'a' && (e.metaKey || e.ctrlKey) && allFiles.length) {
       e.preventDefault()
-      onSelect(new Set(files.map((f) => f.path)), files.find((f) => f.path === focused) ?? files[0])
+      onSelect(new Set(allFiles.map((f) => f.path)), allFiles.find((f) => f.path === focused) ?? allFiles[0])
       return
     }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
@@ -88,25 +156,64 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
     if (!files[next]) return
     anchor.current = next
     onSelect(new Set([files[next].path]), files[next])
-    virtualizer.scrollToIndex(next)
+    const row = rows.findIndex((r) => r.kind === 'file' && r.file.path === files[next].path)
+    if (row >= 0) virtualizer.scrollToIndex(row)
   }
 
-  if (files.length === 0) return <div className="empty-state small muted">{emptyText}</div>
+  if (allFiles.length === 0) return <div className="empty-state small muted">{emptyText}</div>
 
   return (
     <div className="file-list" ref={parentRef} tabIndex={0} onKeyDown={onKeyDown} data-area={area}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualizer.getVirtualItems().map((v) => {
-          const f = files[v.index]
+          const r = rows[v.index]
+          const indent = tree ? { paddingLeft: `calc(0.6rem + ${r.depth * 1.1}rem)` } : undefined
+          if (r.kind === 'dir') {
+            const inside = new Set(r.files.map((f) => f.path))
+            const all = r.files.every((f) => selected.has(f.path))
+            return (
+              <div
+                key={`dir:${r.path}`}
+                className={`file-row dir ${all ? 'selected' : ''}`}
+                style={{ transform: `translateY(${v.start}px)`, height: rowH, ...indent }}
+                // A folder selects everything in it (so Stage, Discard and the menu act on all of it).
+                onMouseDown={(e) => {
+                  if (isMac && e.ctrlKey && e.button === 0) return
+                  if (e.button === 2 && all) return
+                  onSelect(inside, r.files[0])
+                }}
+                onDoubleClick={() => onActivate?.(r.files)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  onContextMenu?.(r.files)
+                }}
+                title={`${r.path}/ · ${r.files.length} file${r.files.length === 1 ? '' : 's'}`}
+              >
+                <button
+                  className="dir-toggle"
+                  aria-label={collapsed.has(r.path) ? 'Expand' : 'Collapse'}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => toggle(r.path)}
+                >
+                  <ChevronIcon className={`icon chevron ${collapsed.has(r.path) ? '' : 'open'}`} />
+                </button>
+                <FolderIcon className="icon dir-icon" />
+                <span className="file-name">{r.label}</span>
+                <span className="file-dir">{r.files.length}</span>
+              </div>
+            )
+          }
+          const f = r.file
           const { dir, name } = splitPath(f.path)
           const status = f.status === '?' ? 'A' : f.status
+          const index = indexOf.get(f.path)!
           return (
             <div
               key={`${f.status}:${f.path}`}
               data-path={f.path}
               className={`file-row ${selected.has(f.path) ? 'selected' : ''} ${f.path === focused ? 'focused' : ''}`}
-              style={{ transform: `translateY(${v.start}px)`, height: rowH }}
-              onMouseDown={(e) => click(v.index, e)}
+              style={{ transform: `translateY(${v.start}px)`, height: rowH, ...(tree ? { paddingLeft: `calc(0.6rem + ${r.depth * 1.1}rem + 1.25rem)` } : {}) }}
+              onMouseDown={(e) => click(index, e)}
               onDoubleClick={() => onActivate?.([f])}
               onContextMenu={(e) => {
                 e.preventDefault()
@@ -115,10 +222,10 @@ export function FileList({ files, selected, focused, onSelect, onActivate, onCon
               title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}
             >
               <span className={`status status-${status}`} title={STATUS_LABEL[f.status]}>
-                {f.status === '?' ? '+' : f.status}
+                {statusSymbol(f.status)}
               </span>
               <span className="file-name">{name}</span>
-              <span className="file-dir">{dir.replace(/\/$/, '')}</span>
+              {!tree && <span className="file-dir">{dir.replace(/\/$/, '')}</span>}
             </div>
           )
         })}

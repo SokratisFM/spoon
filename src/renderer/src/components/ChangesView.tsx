@@ -5,6 +5,8 @@ import { confirm } from '../dialogs'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FileList } from './FileList'
+import { ListViewIcon, TreeViewIcon } from './Icons'
+import { updateSettings, useSettings } from '../settings'
 import { DiffView, type HunkAction } from './DiffView'
 import { keys, mod, revealLabel } from '../platform'
 import { contextMenu as showMenu } from '../menus'
@@ -47,6 +49,7 @@ export function ChangesView({
   discardRequest,
   onDiscardHandled
 }: Props) {
+  const settings = useSettings()
   const [sel, setSel] = useState<Selection | null>(null)
 
   // After a refresh, keep what still exists; if the focused file moved away, focus the
@@ -212,6 +215,14 @@ export function ChangesView({
       <div className="section-title with-actions">
         {title} <span className="count">{files.length}</span>
         <span className="spacer" />
+        <span className="view-toggle" role="group" aria-label="Show files as">
+          <button className={settings.fileTree ? '' : 'on'} title="As a list" onClick={() => updateSettings({ fileTree: false })}>
+            <ListViewIcon />
+          </button>
+          <button className={settings.fileTree ? 'on' : ''} title="As folders" onClick={() => updateSettings({ fileTree: true })}>
+            <TreeViewIcon />
+          </button>
+        </span>
         <button
           className="mini-btn"
           disabled={!selected.length}
@@ -246,6 +257,7 @@ export function ChangesView({
       onContextMenu={contextMenu(area)}
       emptyText={emptyText}
       area={area}
+      tree={settings.fileTree}
     />
   )
 

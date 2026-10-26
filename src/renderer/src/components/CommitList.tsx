@@ -382,6 +382,7 @@ export const CommitList = memo(function CommitList({
                 spotCol={showGraph && spot ? spot.col : -1}
                 spotSpan={!!spot && i >= spot.top && i <= spot.bottom}
                 spotNode={!!spot?.nodes.has(i)}
+                spotDim={settings.spotlightFadeCommits && showGraph && !!spot && !spot.nodes.has(i)}
                 onLabelHover={settings.laneSpotlight === 'hover' ? onLabelHover : undefined}
                 badges={badges.get(c.hash)}
                 tagMode={tagMode}
@@ -503,6 +504,8 @@ interface RowProps {
   spotCol: number
   spotSpan: boolean
   spotNode: boolean
+  /** Faded: the spotlight is on another branch and fading commits is on. */
+  spotDim: boolean
   onLabelHover?: (hash: string | null) => void
   badges: Badge[] | undefined
   tagMode: 'diamond' | 'badge' | 'chip' | 'all'
@@ -546,7 +549,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
   }
   return (
     <div
-      className={`commit-row ${bead ? 'has-bead' : ''} ${p.fresh ? 'fresh' : ''} ${p.selected ? 'selected' : ''} ${p.isHead ? `is-head head-hl-${p.headStyle}` : ''} ${p.authorColor ? 'authored' : ''}`}
+      className={`commit-row ${p.spotDim ? 'spot-dim' : ''} ${bead ? 'has-bead' : ''} ${p.fresh ? 'fresh' : ''} ${p.selected ? 'selected' : ''} ${p.isHead ? `is-head head-hl-${p.headStyle}` : ''} ${p.authorColor ? 'authored' : ''}`}
       style={
         {
           transform: `translateY(${p.top}px)`,

@@ -72,6 +72,8 @@ export interface Settings {
   tagDisplay: TagDisplay
   headHighlight: HeadHighlight
   dialogPosition: DialogPosition
+  /** Local changes as a folder tree instead of a flat list. */
+  fileTree: boolean
   diffSyntax: DiffSyntax
   /** Syntax colors taken from an IDE scheme (null: from Spoon's theme). */
   syntaxPalette: SyntaxPalette | null
@@ -95,6 +97,8 @@ export interface Settings {
   playfulNet: boolean
   /** Light up one branch's line in the graph: the selected commit's, the hovered label's, or none. */
   laneSpotlight: LaneSpotlight
+  /** With the spotlight on, commits that aren't on the lit branch fade too, not just its lines. */
+  spotlightFadeCommits: boolean
   /** Review with Claude: the toolbar button, ⇧⌘R, the commit box button and right-click items. */
   claudeEnabled: boolean
   /** MainLib updates: which submodule, its version branches, and the two Confluence pages. */
@@ -134,6 +138,7 @@ const DEFAULTS: Settings = {
   tagDisplay: 'diamond',
   headHighlight: 'band',
   dialogPosition: 'center',
+  fileTree: false,
   diffSyntax: 'full',
   syntaxPalette: null,
   syntaxFollowIde: true,
@@ -146,6 +151,7 @@ const DEFAULTS: Settings = {
   laneColoredBranches: true,
   playfulNet: false,
   laneSpotlight: 'selected',
+  spotlightFadeCommits: false,
   claudeEnabled: true,
   mainlibName: MAINLIB_DEFAULTS.name,
   mainlibPrefix: MAINLIB_DEFAULTS.prefix,

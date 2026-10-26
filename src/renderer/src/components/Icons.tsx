@@ -61,6 +61,16 @@ export const HistoryIcon = (p: P) => (
     <path d="M12 7.2v9.6" />
   </Icon>
 )
+export const ListViewIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+  </Icon>
+)
+export const TreeViewIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 5h6M7 5v12a2 2 0 0 0 2 2h3M7 11h5M15 11h5M15 19h5" />
+  </Icon>
+)
 export const FolderIcon = (p: P) => (
   <Icon {...p}>
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />

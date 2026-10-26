@@ -378,6 +378,20 @@ function AppearanceTab() {
         />
         <span className="hint">Lights up one branch’s line through the graph and dims the rest.</span>
       </div>
+      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
+      <div className="check">
+        <input
+          id="set-spotlight-fade"
+          type="checkbox"
+          checked={s.spotlightFadeCommits}
+          disabled={s.laneSpotlight === 'off'}
+          onChange={(e) => updateSettings({ spotlightFadeCommits: e.target.checked })}
+        />
+        <span>
+          <label htmlFor="set-spotlight-fade">Also fade the commits of other branches, not just their lines</label>{' '}
+          <ToggleEye title={'Fade other branches’ commits'} on={s.spotlightFadeCommits} spec={(from, to) => ({ kind: 'spotFade', from, to })} />
+        </span>
+      </div>
       <div className="field">
         <span className="field-label">
           Checked-out commit

@@ -1084,8 +1084,8 @@ button.branch-chip:hover:not(:disabled) {
 }
 .status-M,
 .status-T {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  color: var(--accent-fg);
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
 }
 .status-D {
   background: var(--del-bg-strong);
@@ -1097,8 +1097,11 @@ button.branch-chip:hover:not(:disabled) {
   color: var(--rename);
 }
 .status-U {
-  background: var(--warn-bg);
-  color: var(--warn);
+  background: color-mix(in srgb, var(--lane-1) 24%, transparent);
+  color: var(--lane-1);
+}
+.status {
+  font-size: 0.8em;
 }
 
 /* ---------- local changes ---------- */
@@ -2418,6 +2421,15 @@ input[type='color']::-webkit-color-swatch {
 .graph.spotlit:not(.spot-node) circle,
 .graph.spotlit:not(.spot-node) rect {
   opacity: 0.22;
+}
+/* "Also fade commits on other branches": everything in those rows but the graph. */
+.commit-row.spot-dim > .cell:not(.subject),
+.commit-row.spot-dim > .subject > :not(.graph) {
+  opacity: 0.35;
+}
+.spot-fade .commit-row > .cell:not(.subject),
+.spot-fade .commit-row > .subject > :not(.graph) {
+  transition: opacity 0.18s ease;
 }
 
 /* ---------- interactive rebase ---------- */
@@ -6272,4 +6284,64 @@ kbd.setting-key {
   display: block;
   font-size: 0.88em;
   margin-top: 0.15rem;
+}
+
+/* Local changes as a folder tree. */
+.file-row.dir {
+  gap: 0.4rem;
+  color: var(--text-muted);
+}
+.file-row.dir .file-name {
+  color: var(--text);
+  font-weight: 550;
+}
+.dir-toggle {
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.dir-toggle .chevron {
+  width: 0.8rem;
+  height: 0.8rem;
+  transition: transform 0.12s;
+}
+.dir-toggle .chevron.open {
+  transform: rotate(90deg);
+}
+.dir-icon {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: var(--text-faint);
+}
+.view-toggle {
+  display: inline-flex;
+  padding: 0.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.view-toggle button {
+  display: grid;
+  place-items: center;
+  padding: 0.1rem 0.3rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.view-toggle button.on {
+  background: var(--bg-elev);
+  color: var(--text);
+}
+.view-toggle .icon {
+  width: 0.95rem;
+  height: 0.95rem;
 }

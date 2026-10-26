@@ -216,7 +216,7 @@ export function PullRequestView({ path, number, ops, onJump }: Props) {
                     onChange={() => toggleViewed(f)}
                   />
                   <span className={`status status-${f.status[0].toUpperCase() === 'R' ? 'R' : f.status === 'added' ? 'A' : f.status === 'removed' ? 'D' : 'M'}`}>
-                    {f.status === 'added' ? 'A' : f.status === 'removed' ? 'D' : f.status === 'renamed' ? 'R' : 'M'}
+                    {f.status === 'added' ? '+' : f.status === 'removed' ? '−' : f.status === 'renamed' ? 'R' : 'M'}
                   </span>
                   <span className="pr-file-text">
                     <span className="file-name">{name}</span>
