@@ -127,7 +127,11 @@ export function MainLibDialog({
     setTasks(list)
     setStep('progress')
     const work: (() => Promise<unknown>)[] = [
-      () => window.spoon.mainlibSwitch(path, sub.path, target.ref),
+      async () => {
+        const { backup } = await window.spoon.mainlibSwitch(path, sub.path, target.ref)
+        if (backup)
+          setTasks((t) => t.map((x, k) => (k === 0 ? { ...x, label: `${x.label} (commits on no branch kept on ${backup})` } : x)))
+      },
       () => window.spoon.stage(path, [sub.path]),
       () =>
         window.spoon.claudeLaunch({
@@ -335,6 +339,18 @@ export function MainLibDialog({
               <span>
                 <b>Switch {sub.name} to {target.branch}</b>
                 <span className="mono muted">checks out the branch in {sub.path}</span>
+                {doSwitch && state && state.orphaned > 0 && (
+                  <span className="warn-text ml-note">
+                    {sub.name}’s HEAD has {state.orphaned} commit{state.orphaned === 1 ? '' : 's'} on no branch; a backup branch
+                    keeps {state.orphaned === 1 ? 'it' : 'them'} first.
+                  </span>
+                )}
+                {doSwitch && state && state.dirtyFiles > 0 && (
+                  <span className="warn-text ml-note">
+                    {state.dirtyFiles} uncommitted change{state.dirtyFiles === 1 ? '' : 's'} in {sub.name} carr{state.dirtyFiles === 1 ? 'ies' : 'y'} over; git
+                    stops if the switch would overwrite {state.dirtyFiles === 1 ? 'it' : 'them'}.
+                  </span>
+                )}
               </span>
             </label>
             <label className="ml-task">

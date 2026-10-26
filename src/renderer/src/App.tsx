@@ -330,12 +330,17 @@ export function App() {
   ))
 
   // Follow the IDE: when Spoon comes to the front, pick up a scheme switch (or edit) made in the IDE.
+  // Only a scheme that was the IDE's own when chosen follows it (one picked on purpose stays), and
+  // only the newest reply counts when focus comes and goes quickly.
   useEffect(() => {
+    let asked = 0
     const follow = (): void => {
       const s = getSettings()
       const chosen = s.syntaxPalette
-      if (!s.syntaxFollowIde || !chosen || chosen.source === 'file') return
+      if (!s.syntaxFollowIde || !chosen || chosen.source === 'file' || !chosen.active) return
+      const id = ++asked
       ideSchemes(true).then((list) => {
+        if (id !== asked || getSettings().syntaxPalette?.id !== chosen.id) return
         const now = list.find((p) => p.source === chosen.source && p.active)
         if (!now) return
         // The same scheme keeps the colors picked by hand; another scheme starts fresh.

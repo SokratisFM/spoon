@@ -23,6 +23,11 @@ import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
 import { FOLD, groupOf, squishCommits } from '../squish'
+import type { Graph } from '../graph'
+
+const NO_GROUPS = new Set<string>()
+/** Per repository: the last squished history and its graph, reused while nothing they depend on changed. */
+const squishCache = new Map<string, { commits: Commit[]; graphKey: string; style: string; opened: string; shown: Commit[]; graph: Graph | null }>()
 import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
 import { ErrorModal, overlayOpen } from './Modal'
@@ -108,6 +113,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
   const [prFor, setPrFor] = useState<string | null>(null)
   const [tagging, setTagging] = useState<Commit | null>(null)
+  // New Tag for a commit: never a stash (its work in progress is private) or a fold row, and with
+  // the commit as it really is (squishing rewrites the parents of the rows it shows).
+  const openTag = useCallback((c: Commit): void => {
+    if (c.hash.startsWith(FOLD) || repoRef.current?.stashes.some((s) => s.hash === c.hash)) return
+    setTagging(lastLog.current.find((x) => x.hash === c.hash) ?? c)
+  }, [])
   const [reviewing, setReviewing] = useState<{ commit?: { hash: string; subject: string } } | null>(null)
   // Interactive rebase being planned: the commit list turns into its editor.
   const [rebasing, setRebasing] = useState<{ onto: string; branch: string; plan: RebasePlan } | null>(null)
@@ -363,7 +374,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       rebase,
       push: () => quickPushRef.current(),
       createPull: canCreatePull ? setPrFor : null,
-      tag: setTagging,
+      tag: openTag,
       review: claudeEnabled ? (commit) => setReviewing({ commit }) : null
     }),
     [run, checkout, rebase, canCreatePull, claudeEnabled]
@@ -446,7 +457,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       // The selected commit in the history, else the checked-out one.
       const hash = view === 'history' && selected ? selected : repo?.headHash
       const c = commits.find((x) => x.hash === hash)
-      if (c) setTagging(c)
+      if (c) openTag(c)
     } else if (command.name === 'review') {
       if (settings.claudeEnabled) setReviewing({})
     } else if (command.name === 'commit' || command.name === 'commit-push') {
@@ -461,14 +472,29 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   // switches reuse the built graph instead of laying out 5000 rows again.
   const graphKey = graphKeyOf(repo, settings)
   // Squish branches: the history as drawn (not while filtering), and the groups opened again.
-  const [unsquished, setUnsquished] = useState<Set<string>>(new Set())
-  useEffect(() => setUnsquished(new Set()), [settings.squishBranches, settings.squishStyle])
+  const [unsquished, setUnsquished] = useState<Set<string>>(NO_GROUPS)
+  // Turning squishing off and on (or changing its style) closes the opened groups again; only on a
+  // change, so opening the tab doesn't squish the history twice.
+  const squishSetting = `${settings.squishBranches}|${settings.squishStyle}`
+  const lastSquishSetting = useRef(squishSetting)
+  if (lastSquishSetting.current !== squishSetting) {
+    lastSquishSetting.current = squishSetting
+    if (unsquished.size) setUnsquished(NO_GROUPS)
+  }
   const squishing = settings.squishBranches && !filter.trim()
-  const shown = useMemo(
-    () => (squishing && repoRef.current ? squishCommits(commits, repoRef.current, settings.squishStyle, unsquished) : commits),
+  // The squished history and its graph are kept per repository, so switching tabs reuses them.
+  const squished = useMemo(() => {
+    if (!squishing || !repoRef.current) return null
+    const opened = [...unsquished].sort().join(',')
+    const hit = squishCache.get(path)
+    if (hit && hit.commits === commits && hit.graphKey === graphKey && hit.style === settings.squishStyle && hit.opened === opened)
+      return hit
+    const next = { commits, graphKey, style: settings.squishStyle, opened, shown: squishCommits(commits, repoRef.current, settings.squishStyle, unsquished), graph: null as Graph | null }
+    squishCache.set(path, next)
+    return next
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [commits, graphKey, squishing, settings.squishStyle, unsquished]
-  )
+  }, [path, commits, graphKey, squishing, settings.squishStyle, unsquished])
+  const shown = squished?.shown ?? commits
   const unsquishedRef = useRef(unsquished)
   unsquishedRef.current = unsquished
   const unsquish = useCallback((key: string) => setUnsquished((s) => new Set(s).add(key)), [])
@@ -478,7 +504,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     [unsquish]
   )
   const graph = useMemo(
-    () => cachedGraph(path, shown, repoRef.current, settings),
+    () => (squished ? (squished.graph ??= cachedGraph(path, shown, repoRef.current, settings)) : cachedGraph(path, shown, repoRef.current, settings)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [path, shown, graphKey]
   )

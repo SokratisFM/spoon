@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
@@ -1061,10 +1061,10 @@ function AccountsTab() {
             </div>
             <div className="form-row">
               {!builtInClientId && (
-                <input
+                <SettingInput
                   placeholder="OAuth app Client ID"
                   value={s.githubClientId}
-                  onChange={(e) => updateSettings({ githubClientId: e.target.value.trim() })}
+                  onCommit={(v) => updateSettings({ githubClientId: v.trim() })}
                   spellCheck={false}
                   className="mono"
                 />
@@ -1147,19 +1147,19 @@ function AccountsTab() {
           needed; your browser handles that.
         </span>
         <div className="form-row">
-          <input
+          <SettingInput
             placeholder="https://your-company.atlassian.net"
             value={s.jiraSite}
-            onChange={(e) => updateSettings({ jiraSite: e.target.value.trim() })}
+            onCommit={(v) => updateSettings({ jiraSite: v.trim() })}
             spellCheck={false}
             className="mono"
           />
         </div>
         <div className="form-row">
-          <input
+          <SettingInput
             placeholder="Only these projects (optional): MAINLIB, CANFA"
             value={s.jiraProjects}
-            onChange={(e) => updateSettings({ jiraProjects: e.target.value })}
+            onCommit={(v) => updateSettings({ jiraProjects: v })}
             spellCheck={false}
           />
         </div>
@@ -1214,7 +1214,7 @@ function MainLibField() {
           </button>
         )}
       </span>
-      <input className="mono" value={s[key]} spellCheck={false} onChange={(e) => updateSettings({ [key]: e.target.value.trim() })} />
+      <SettingInput className="mono" value={s[key]} spellCheck={false} onCommit={(v) => updateSettings({ [key]: v.trim() })} />
       <span className="hint">{hint}</span>
     </div>
   )
@@ -1247,11 +1247,11 @@ function MainLibField() {
       <div className="form-row">
         <label className="field">
           <span className="field-label">Submodule name</span>
-          <input value={s.mainlibName} spellCheck={false} onChange={(e) => updateSettings({ mainlibName: e.target.value.trim() })} />
+          <SettingInput value={s.mainlibName} spellCheck={false} onCommit={(v) => updateSettings({ mainlibName: v.trim() })} />
         </label>
         <label className="field">
           <span className="field-label">Version branches</span>
-          <input className="mono" value={s.mainlibPrefix} spellCheck={false} onChange={(e) => updateSettings({ mainlibPrefix: e.target.value.trim() })} />
+          <SettingInput className="mono" value={s.mainlibPrefix} spellCheck={false} onCommit={(v) => updateSettings({ mainlibPrefix: v.trim() })} />
         </label>
       </div>
       <div className="field">
@@ -1383,9 +1383,9 @@ function ProjectsTab() {
       <div className="field">
         <span className="field-label">Search for repositories in</span>
         <div className="form-row">
-          <input
+          <SettingInput
             value={s.scanFolder}
-            onChange={(e) => updateSettings({ scanFolder: e.target.value })}
+            onCommit={(v) => updateSettings({ scanFolder: v })}
             spellCheck={false}
             className="mono"
           />
@@ -1526,7 +1526,8 @@ function SyntaxSourceField() {
   const [error, setError] = useState<string | null>(null)
   const current = s.syntaxPalette
   const options = [...(found ?? [])]
-  if (current && !options.some((o) => o.id === current.id)) options.push(current)
+  // The chosen scheme when the IDE no longer uses it: picking it is then on purpose, and stays put.
+  if (current && !options.some((o) => o.id === current.id)) options.push({ ...current, active: false })
   const isCurrent = (p: SyntaxPalette): boolean => current?.id === p.id
   // A detected scheme that's chosen shows the chosen copy, with any colors picked by hand.
   const shown = (p: SyntaxPalette): SyntaxPalette => (isCurrent(p) && current ? current : p)
@@ -1550,7 +1551,8 @@ function SyntaxSourceField() {
       }))
     ])
     if (!choice) return
-    const [name, c] = choice.split('|')
+    const cut = choice.lastIndexOf('|') // a color never has one; a name might
+    const [name, c] = [choice.slice(0, cut), choice.slice(cut + 1)]
     updateSettings({
       syntaxPalette: {
         ...current,
@@ -1627,6 +1629,43 @@ function SyntaxSourceField() {
         </details>
       )}
     </div>
+  )
+}
+
+/**
+ * A text setting that's saved when typing pauses, on Enter or on leaving the field, not on every
+ * keystroke (each save redraws the whole window behind Settings).
+ */
+function SettingInput({ value, onCommit, ...rest }: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & { value: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value)
+  const editing = useRef(false)
+  useEffect(() => {
+    if (!editing.current) setDraft(value)
+  }, [value])
+  useEffect(() => {
+    if (draft === value) return
+    const t = setTimeout(() => onCommit(draft), 600)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft])
+  const commit = (): void => {
+    if (draft !== value) onCommit(draft)
+  }
+  return (
+    <input
+      {...rest}
+      value={draft}
+      onFocus={() => (editing.current = true)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        editing.current = false
+        commit()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit()
+        rest.onKeyDown?.(e)
+      }}
+    />
   )
 }
 

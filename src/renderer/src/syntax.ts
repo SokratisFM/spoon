@@ -1,7 +1,7 @@
 // Syntax colors for diffs. Shiki (TextMate grammars, the ones VS Code uses) splits each line into
 // tokens; a theme of placeholder colors sorts them into a few kinds (keyword, string, type…), and
 // CSS paints each kind from the current Spoon theme, so the colors follow whatever theme is on.
-import { createHighlighterCore, type HighlighterCore, type ThemeRegistration } from 'shiki/core'
+import { createHighlighterCore, type GrammarState, type HighlighterCore, type ThemeRegistration } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import type { CSSProperties } from 'react'
 import type { SyntaxPalette, SyntaxSlot } from '../../shared/types'
@@ -142,17 +142,51 @@ async function ready(lang: string): Promise<HighlighterCore> {
   return h
 }
 
-/** Splits lines of code into colored tokens; lines too long to be worth it come back uncolored. */
-export async function tokenize(lines: string[], lang: string): Promise<Token[][]> {
-  if (!GRAMMARS[lang === 'unity' ? 'yaml' : lang]) return lines.map((text) => [{ text, kind: null }])
-  const h = await ready(lang)
+const CHUNK = 250
+const MAX_LINE = 1000
+const pause = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
+/**
+ * Colors runs of lines (each hunk's old or new side), each run on its own so an unclosed comment or
+ * string in one hunk can't color the next. A run goes a couple of hundred lines at a time, carrying
+ * the grammar's state across, with a pause in between, so even a huge diff never holds up the
+ * window. onRun gets each run's tokens as soon as it's done.
+ */
+export async function colorRuns(
+  runs: string[][],
+  lang: string,
+  onRun: (run: number, tokens: Token[][]) => void,
+  cancelled: () => boolean
+): Promise<void> {
   const grammar = lang === 'unity' ? 'yaml' : lang
-  const rows = h.codeToTokensBase(lines.map((l) => (l.length > 2000 ? '' : l)).join('\n'), { lang: grammar, theme: 'spoon-kinds' })
-  return lines.map((text, i) =>
-    text.length > 2000 || !rows[i]
-      ? [{ text, kind: null }]
-      : rows[i].map((t) => ({ text: t.content, kind: KIND_BY_COLOR.get((t.color ?? '').toLowerCase()) ?? null }))
-  )
+  if (!GRAMMARS[grammar]) return
+  const h = await ready(lang)
+  for (let r = 0; r < runs.length; r++) {
+    const lines = runs[r]
+    const out: Token[][] = []
+    let state: GrammarState | undefined
+    for (let i = 0; i < lines.length; i += CHUNK) {
+      if (cancelled()) return
+      const part = lines.slice(i, i + CHUNK)
+      const rows = h.codeToTokensBase(part.map((l) => (l.length > MAX_LINE ? '' : l)).join('\n'), {
+        lang: grammar,
+        theme: 'spoon-kinds',
+        grammarState: state,
+        tokenizeMaxLineLength: MAX_LINE,
+        tokenizeTimeLimit: 50
+      })
+      state = h.getLastGrammarState(rows)
+      part.forEach((text, k) =>
+        out.push(
+          text.length > MAX_LINE || !rows[k]
+            ? [{ text, kind: null }]
+            : rows[k].map((t) => ({ text: t.content, kind: KIND_BY_COLOR.get((t.color ?? '').toLowerCase()) ?? null }))
+        )
+      )
+      if (lines.length > CHUNK || r % 8 === 7) await pause()
+    }
+    onRun(r, out)
+  }
 }
 
 /**
@@ -201,7 +235,7 @@ export function changedWords(a: string, b: string): [Array<[number, number]>, Ar
   const split = (s: string): string[] => s.match(/\w+|\s+|[^\w\s]/g) ?? []
   const x = split(a)
   const y = split(b)
-  if (x.length * y.length > 250_000) return [[], []]
+  if (x.length * y.length > 40_000) return [[], []]
   // Longest common subsequence of the words; whatever isn't in it changed.
   const dp = Array.from({ length: x.length + 1 }, () => new Uint16Array(y.length + 1))
   for (let i = x.length - 1; i >= 0; i--)
@@ -248,42 +282,61 @@ export function unityIds(text: string): Array<[number, number]> {
 const UNITY_CLASSES: Record<string, string> = { '1': 'GameObject', '4': 'Transform', '224': 'RectTransform', '1001': 'PrefabInstance', '114': 'MonoBehaviour' }
 
 /**
- * Names where in a scene or prefab a line is: the GameObject that owns the component the line is in,
- * and the component ("GameObject “ReplayPanel” › RectTransform"). lineNo is 1-based.
+ * Reads a scene or prefab once and answers where a line is: the GameObject that owns the component
+ * the line is in, and the component ("GameObject “ReplayPanel” › RectTransform"). lineNo is 1-based.
  */
-export function unityPlace(file: string[], lineNo: number): string | null {
-  let start = -1
-  for (let i = Math.min(lineNo - 1, file.length - 1); i >= 0; i--)
-    if (file[i].startsWith('--- !u!')) {
-      start = i
-      break
+export function unityPlaces(text: string): (lineNo: number) => string | null {
+  interface Doc {
+    start: number
+    type: string
+    name?: string
+    owner?: string
+  }
+  const docs: Doc[] = []
+  const names = new Map<string, string>() // GameObject file id → its name
+  const ids: string[] = []
+  let at = 0
+  let line = 0
+  let doc: Doc | null = null
+  let id = ''
+  while (at <= text.length) {
+    const end = text.indexOf('\n', at)
+    const l = text.slice(at, end < 0 ? text.length : end)
+    if (l.startsWith('--- !u!')) {
+      const head = /^--- !u!(\d+) &(-?\d+)/.exec(l)
+      id = head?.[2] ?? ''
+      doc = { start: line, type: head ? (UNITY_CLASSES[head[1]] ?? '') : '' }
+      docs.push(doc)
+      ids.push(id)
+    } else if (doc) {
+      if (line === doc.start + 1 && /^\w/.test(l)) doc.type = l.replace(/:\s*$/, '')
+      else if (doc.name === undefined && l.startsWith('  m_Name: ')) {
+        doc.name = l.slice(10)
+        if (doc.type === 'GameObject') names.set(id, doc.name)
+      } else if (doc.owner === undefined && l.startsWith('  m_GameObject: ')) doc.owner = /fileID: (-?\d+)/.exec(l)?.[1]
     }
-  if (start < 0) return null
-  const head = /^--- !u!(\d+) &(-?\d+)/.exec(file[start])
-  const type = (file[start + 1] ?? '').replace(/:\s*$/, '') || (head ? UNITY_CLASSES[head[1]] : '') || 'Object'
-  const docEnd = (from: number): number => {
-    let i = from + 1
-    while (i < file.length && !file[i].startsWith('--- !u!')) i++
-    return i
+    if (end < 0) break
+    at = end + 1
+    line++
   }
-  const field = (from: number, name: string): string | undefined => {
-    const end = docEnd(from)
-    for (let i = from + 1; i < end; i++) {
-      const m = new RegExp(`^\\s+${name}: (.*)$`).exec(file[i])
-      if (m) return m[1]
+  return (lineNo) => {
+    // The last document starting at or before the line.
+    let lo = 0
+    let hi = docs.length - 1
+    let found = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (docs[mid].start <= lineNo - 1) {
+        found = mid
+        lo = mid + 1
+      } else hi = mid - 1
     }
-    return undefined
+    if (found < 0) return null
+    const d = docs[found]
+    const type = d.type || 'Object'
+    if (type === 'GameObject') return d.name ? `GameObject “${d.name}”` : 'GameObject'
+    const owner = d.owner && d.owner !== '0' ? names.get(d.owner) : undefined
+    if (owner) return `GameObject “${owner}” › ${type}`
+    return d.name ? `${type} “${d.name}”` : type
   }
-  if (type === 'GameObject') {
-    const name = field(start, 'm_Name')
-    return name ? `GameObject “${name}”` : 'GameObject'
-  }
-  const owner = /fileID: (-?\d+)/.exec(field(start, 'm_GameObject') ?? '')?.[1]
-  if (owner && owner !== '0') {
-    const at = file.findIndex((l) => l.startsWith('--- !u!1 ') && l.endsWith(`&${owner}`))
-    const name = at >= 0 ? field(at, 'm_Name') : undefined
-    if (name) return `GameObject “${name}” › ${type}`
-  }
-  const own = field(start, 'm_Name')
-  return own ? `${type} “${own}”` : type
 }

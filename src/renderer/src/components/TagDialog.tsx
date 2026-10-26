@@ -2,7 +2,7 @@
 // the tag already on it (as typed), and the branch it's on, so it's clear where the tag lands before
 // it's created (and, optionally, pushed). With a GitHub remote, the same press can also publish a
 // GitHub release for the tag, with notes GitHub writes from what was merged since the last release.
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { choose } from '../dialogs'
 import type { Commit, RepoState } from '../../../shared/types'
 import { useAsync, usePersistentState } from '../hooks'
@@ -37,7 +37,13 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
 
   // The GitHub release: on or off is remembered per repository.
   const [releaseOn, setReleaseOn] = usePersistentState(`spoon.tag.release.${path}`, false)
-  const release = github && !!remote && releaseOn
+  // The release goes to the GitHub repository; the tag has to be pushed to the remote that points there.
+  const { data: ghRemote } = useAsync(
+    () => (github ? window.spoon.ghRepoRemote(path).catch(() => null) : Promise.resolve(null)),
+    [path, github]
+  )
+  const release = github && !!ghRemote && releaseOn
+  const pushRemote = release ? ghRemote!.remote : remote
   const [title, setTitle] = useState<string | null>(null) // null: follows the tag's name
   const [notes, setNotes] = useState<string | null>(null) // null: not generated or written yet
   const [notesEdited, setNotesEdited] = useState(false)
@@ -52,16 +58,23 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
     () => (release ? window.spoon.ghLatestRelease(path).catch(() => null) : Promise.resolve(null)),
     [path, release]
   )
+  // Only the newest request's reply counts, and none that comes back after the notes were edited.
+  const request = useRef(0)
+  const edits = useRef(0)
   const generate = (): void => {
     if (!trimmed || problem) return
+    const id = ++request.current
+    const editsBefore = edits.current
     setNotesState('loading')
+    const current = (): boolean => id === request.current && editsBefore === edits.current
     window.spoon.ghReleaseNotes(path, trimmed, commit.hash).then(
       (n) => {
+        if (!current()) return
         setNotes(n.body)
         setNotesEdited(false)
         setNotesState('idle')
       },
-      (err: Error) => setNotesState(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      (err: Error) => current() && setNotesState(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     )
   }
   // Notes follow the name (once typing pauses) until they're edited by hand.
@@ -72,11 +85,12 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [release, trimmed, !!problem])
 
+  const notesLoading = release && notesState === 'loading'
   const create = (): void => {
-    if (!canCreate) return
+    if (!canCreate || notesLoading) return
     onClose()
     // A release needs the tag on GitHub, so it's always pushed then.
-    const pushTo = (push || release) && remote ? remote : undefined
+    const pushTo = (push || release) && pushRemote ? pushRemote : undefined
     let url = ''
     ops
       .run(
@@ -161,16 +175,16 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
       wide
       footer={
         <>
-          {remote && (
+          {pushRemote && (
             <label className="check" style={{ marginRight: 'auto' }} title={release ? 'A release needs the tag on GitHub' : undefined}>
               <input type="checkbox" checked={push || release} disabled={release} onChange={(e) => setPush(e.target.checked)} />
-              Push to {remote}
+              Push to {pushRemote}
             </label>
           )}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" onClick={create} disabled={!canCreate}>
+          <button className="btn primary" onClick={create} disabled={!canCreate || notesLoading} title={notesLoading ? 'Waiting for the release notes' : undefined}>
             {trimmed && !problem ? (release ? `Create ${trimmed} and release` : `Create ${trimmed}`) : 'Create tag'}
           </button>
         </>
@@ -240,6 +254,11 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
         {target && repo.headBranch && !onHead && (
           <span className="hint warn-text tag-warn">Not on the checked-out branch, {repo.headBranch}.</span>
         )}
+        {target && pushRemote && (push || release) && !target.branches.some((b) => b.remote) && (
+          <span className="hint warn-text tag-warn">
+            This commit is only on your machine: pushing the tag uploads it (and the commits before it) to {pushRemote}.
+          </span>
+        )}
 
         <label className="field">
           <span className="field-label">Name</span>
@@ -256,7 +275,7 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
           <textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} />
         </label>
 
-        {github && remote && (
+        {github && ghRemote && (
           <div className="check">
             <input id="tag-release" type="checkbox" checked={releaseOn} onChange={(e) => setReleaseOn(e.target.checked)} />
             <label htmlFor="tag-release">Publish a GitHub release for it</label>
@@ -281,8 +300,11 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
                 value={notes ?? ''}
                 placeholder={trimmed ? 'GitHub writes these from what was merged since the last release.' : 'Name the tag first.'}
                 onChange={(e) => {
+                  edits.current++
+                  request.current++ // a reply still on its way no longer applies
                   setNotes(e.target.value)
                   setNotesEdited(true)
+                  if (notesState === 'loading') setNotesState('idle')
                 }}
                 onKeyDown={(e) => e.stopPropagation()}
               />

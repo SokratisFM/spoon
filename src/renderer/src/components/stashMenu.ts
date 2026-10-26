@@ -20,7 +20,7 @@ export async function stashMenu(stash: Stash, path: string, ops: Ops, onShow?: (
   if (choice === 'apply' || choice === 'pop')
     ops.run(
       choice === 'pop' ? 'Applying and deleting stash…' : 'Applying stash…',
-      () => window.spoon.stashApply(path, stash.name, choice === 'pop'),
+      () => window.spoon.stashApply(path, stash.name, choice === 'pop', stash.hash),
       'Couldn’t apply the stash'
     )
   else if (choice === 'show') onShow?.()
@@ -32,6 +32,6 @@ export async function stashMenu(stash: Stash, path: string, ops: Ops, onShow?: (
       confirmLabel: 'Delete',
       risky: true
     })
-    if (ok) ops.run('Deleting stash…', () => window.spoon.stashDrop(path, stash.name), 'Couldn’t delete the stash')
+    if (ok) ops.run('Deleting stash…', () => window.spoon.stashDrop(path, stash.name, stash.hash), 'Couldn’t delete the stash')
   }
 }

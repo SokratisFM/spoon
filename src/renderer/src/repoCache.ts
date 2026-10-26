@@ -18,9 +18,9 @@ export interface Snapshot {
 }
 export const snapshots = new Map<string, Snapshot>()
 
-/** Changes when HEAD or any ref moves: the history needs re-reading. */
+/** Changes when HEAD, any ref or the stashes move: the history (which shows stashes) needs re-reading. */
 export const refsSignatureOf = (r: RepoState): string =>
-  `${r.headHash}|${r.refs.map((x) => x.fullName + x.target).join(',')}`
+  `${r.headHash}|${r.refs.map((x) => x.fullName + x.target).join(',')}|${r.stashes.map((s) => s.hash).join(',')}`
 
 /** Everything the graph's layout and colors depend on besides the commits. */
 export function graphKeyOf(repo: RepoState | null, s: Settings): string {

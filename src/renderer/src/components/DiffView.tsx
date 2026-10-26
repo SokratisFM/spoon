@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { DiffResult, DiffTarget } from '../../../shared/types'
 import { useAsync, useCachedAsync, usePersistentState } from '../hooks'
 import { contextMenu } from '../menus'
-import { changedWords, detectLanguage, extensionOf, ideSchemes, LANGUAGES, paletteVars, tokenize, unityIds, unityPlace, type Token } from '../syntax'
+import { changedWords, colorRuns, detectLanguage, extensionOf, ideSchemes, LANGUAGES, paletteVars, unityIds, unityPlaces, type Token } from '../syntax'
 import type { SyntaxPalette } from '../../../shared/types'
 import { commitDiffCache } from '../repoCache'
 import { codeLineHeight, getSettings, updateSettings, useSettings } from '../settings'
@@ -216,6 +216,103 @@ interface Props {
   hunkAction?: HunkAction
 }
 
+// Syntax tokens per parsed diff and language (filled in as coloring goes), so showing a diff again
+// doesn't color it again.
+const coloredDiffs = new WeakMap<Parsed, Map<string, { tokens: (Token[] | undefined)[]; done: boolean }>>()
+
+const sign = (l: Line): string => (l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : '')
+
+/** A hunk header: git's line, or the place in a Unity file the hunk is in. */
+function HunkText({ text, place }: { text: string; place?: string }) {
+  if (!place) return <>{text}</>
+  return (
+    <>
+      {/^@@[^@]*@@/.exec(text)?.[0] ?? text} <span className="hunk-place">{place}</span>
+    </>
+  )
+}
+
+interface LineLook {
+  tokens?: Token[]
+  words?: Range[]
+  faded?: Range[]
+}
+
+/** One row of the unified view. Memoized: scrolling and coloring only redraw rows that changed. */
+const UnifiedRow = memo(function UnifiedRow(p: {
+  line: Line
+  top: number
+  lineH: number
+  tokens?: Token[]
+  words?: Range[]
+  faded?: Range[]
+  place?: string
+  actionLabel?: string
+  onAction?: (hunk: number, header: string) => void
+}) {
+  const l = p.line
+  return (
+    <div className={`diff-line ${l.kind}`} style={{ transform: `translateY(${p.top}px)`, height: p.lineH, lineHeight: `${p.lineH}px` }}>
+      <span className="ln">{l.oldNo ?? ''}</span>
+      <span className="ln">{l.newNo ?? ''}</span>
+      <span className="sign">{sign(l)}</span>
+      <span className="code">
+        {l.kind === 'hunk' ? (
+          <HunkText text={l.text} place={p.place} />
+        ) : l.kind === 'note' ? (
+          l.text
+        ) : (
+          <CodeText text={l.text} tokens={p.tokens} words={p.words} faded={p.faded} />
+        )}
+      </span>
+      {l.kind === 'hunk' && p.onAction && (
+        <button className="hunk-btn" onClick={() => p.onAction!(l.hunk!, l.text)}>
+          {p.actionLabel}
+        </button>
+      )}
+    </div>
+  )
+})
+
+/** A full-width row of the split view (hunk headers and notes). */
+const SplitFullRow = memo(function SplitFullRow(p: {
+  line: Line
+  place?: string
+  actionLabel?: string
+  onAction?: (hunk: number, header: string) => void
+}) {
+  const l = p.line
+  return (
+    <div className={`diff-line ${l.kind}`}>
+      <span className="code">{l.kind === 'hunk' ? <HunkText text={l.text} place={p.place} /> : l.text}</span>
+      {l.kind === 'hunk' && p.onAction && (
+        <button className="hunk-btn" onClick={() => p.onAction!(l.hunk!, l.text)}>
+          {p.actionLabel}
+        </button>
+      )}
+    </div>
+  )
+})
+
+/** A two-sided row of the split view. Memoized like the unified rows. */
+const SplitPairRow = memo(function SplitPairRow(p: {
+  left?: Line
+  right?: Line
+  lt?: Token[]
+  lw?: Range[]
+  lf?: Range[]
+  rt?: Token[]
+  rw?: Range[]
+  rf?: Range[]
+}) {
+  return (
+    <div className="diff-line split-row">
+      <SplitHalf line={p.left} side="left" code={p.left ? <CodeText text={p.left.text} tokens={p.lt} words={p.lw} faded={p.lf} /> : undefined} />
+      <SplitHalf line={p.right} side="right" code={p.right ? <CodeText text={p.right.text} tokens={p.rt} words={p.rw} faded={p.rf} /> : undefined} />
+    </div>
+  )
+})
+
 // Parsed lines of cached diffs, so showing a commit's file again doesn't parse it again.
 const parsedDiffs = new WeakMap<DiffResult, ReturnType<typeof parseDiff>>()
 
@@ -263,46 +360,91 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
     else next[ext] = choice
     setLangChoice(next)
   }
-  // The tokens arrive a moment after the lines (a grammar loads on first use); until then lines are plain.
-  // Old and new lines are colored as two separate texts, so a line is read in the context around it.
-  const [colored, setColored] = useState<{ parsed: Parsed; lang: string; tokens: (Token[] | undefined)[] } | null>(null)
+  // Syntax colors arrive after the lines, hunk by hunk (a grammar loads on first use); until then
+  // lines are plain. Each hunk's old and new side is colored on its own.
+  const [, setColorTick] = useState(0)
   useEffect(() => {
     if (!parsed || !lang || !syntaxOn || parsed.lines.length > MAX_COLORED) return
-    let live = true
-    const oldSide: number[] = []
-    const newSide: number[] = []
+    const byLang = coloredDiffs.get(parsed) ?? new Map()
+    coloredDiffs.set(parsed, byLang)
+    if (byLang.get(lang)?.done) return
+    const entry = { tokens: [] as (Token[] | undefined)[], done: false }
+    byLang.set(lang, entry)
+    const runs: number[][] = []
+    let oldRun: number[] = []
+    let newRun: number[] = []
+    const flush = (): void => {
+      if (oldRun.length) runs.push(oldRun)
+      if (newRun.length) runs.push(newRun)
+      oldRun = []
+      newRun = []
+    }
     parsed.lines.forEach((l, i) => {
-      if (l.kind === 'ctx' || l.kind === 'del') oldSide.push(i)
-      if (l.kind === 'ctx' || l.kind === 'add') newSide.push(i)
+      if (l.kind === 'hunk') flush()
+      if (l.kind === 'ctx' || l.kind === 'del') oldRun.push(i)
+      if (l.kind === 'ctx' || l.kind === 'add') newRun.push(i)
     })
-    const text = (side: number[]): string[] => side.map((i) => parsed.lines[i].text)
-    Promise.all([tokenize(text(oldSide), lang), tokenize(text(newSide), lang)])
-      .then(([o, n]) => {
-        if (!live) return
-        const tokens: (Token[] | undefined)[] = []
-        oldSide.forEach((li, k) => (tokens[li] = o[k]))
-        newSide.forEach((li, k) => (tokens[li] = n[k]))
-        setColored({ parsed, lang, tokens })
+    flush()
+    let cancelled = false
+    let shown = 0
+    colorRuns(
+      runs.map((run) => run.map((i) => parsed.lines[i].text)),
+      lang,
+      (r, toks) => {
+        runs[r].forEach((li, k) => (entry.tokens[li] = toks[k]))
+        const now = performance.now()
+        if (now - shown > 80) {
+          shown = now
+          setColorTick((t) => t + 1)
+        }
+      },
+      () => cancelled
+    )
+      .then(() => {
+        if (cancelled) return
+        entry.done = true
+        setColorTick((t) => t + 1)
       })
       .catch(() => undefined)
     return () => {
-      live = false
+      cancelled = true
+      if (!entry.done) byLang.delete(lang)
     }
   }, [parsed, lang, syntaxOn])
-  const tokens = syntaxOn && colored && colored.parsed === parsed && colored.lang === lang ? colored.tokens : null
+  const tokens = parsed && lang && syntaxOn ? coloredDiffs.get(parsed)?.get(lang)?.tokens : undefined
 
-  // The words that changed between a removed line and the added line it pairs with.
-  const words = useMemo(() => {
-    if (!parsed || !settings.diffWordChanges || parsed.lines.length > MAX_COLORED) return null
-    const marks: (Range[] | undefined)[] = []
+  // The words that changed between a removed line and the added line it pairs with, worked out
+  // only for the rows being drawn, and kept.
+  const partner = useMemo(() => {
+    if (!parsed) return null
+    const map = new Map<number, number>()
     for (const row of pairLines(parsed.lines)) {
       if ('full' in row || row.left === undefined || row.right === undefined) continue
-      const [a, b] = [parsed.lines[row.left], parsed.lines[row.right]]
-      if (a.kind !== 'del' || b.kind !== 'add') continue
-      ;[marks[row.left], marks[row.right]] = changedWords(a.text, b.text)
+      if (parsed.lines[row.left].kind !== 'del' || parsed.lines[row.right].kind !== 'add') continue
+      map.set(row.left, row.right)
+      map.set(row.right, row.left)
     }
-    return marks
-  }, [parsed, settings.diffWordChanges])
+    return map
+  }, [parsed])
+  const looks = useMemo(() => ({ words: new Map<number, Range[]>(), faded: new Map<number, Range[]>() }), [parsed])
+  const wordsAt = (i: number): Range[] | undefined => {
+    if (!settings.diffWordChanges || !parsed || !partner?.has(i)) return undefined
+    const known = looks.words.get(i)
+    if (known) return known
+    const j = partner.get(i)!
+    const [del, add] = parsed.lines[i].kind === 'del' ? [i, j] : [j, i]
+    const [a, b] = changedWords(parsed.lines[del].text, parsed.lines[add].text)
+    looks.words.set(del, a)
+    looks.words.set(add, b)
+    return looks.words.get(i)
+  }
+  const fadedAt = (i: number): Range[] | undefined => {
+    if (lang !== 'unity' || !parsed) return undefined
+    let f = looks.faded.get(i)
+    if (!f) looks.faded.set(i, (f = unityIds(parsed.lines[i].text)))
+    return f.length ? f : undefined
+  }
+  const look = (i: number): LineLook => ({ tokens: tokens?.[i], words: wordsAt(i), faded: fadedAt(i) })
 
   // Unity scenes and prefabs: which GameObject and component each hunk is in, read from the whole file.
   const [places, setPlaces] = useState<{ parsed: Parsed; byHunk: Map<number, string> } | null>(null)
@@ -313,15 +455,14 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
       .diffFile(path, target)
       .then((f) => {
         if (!live || !f) return
-        const fileLines = f.text.split('\n')
+        const placeOfLine = unityPlaces(f.text)
         const byHunk = new Map<number, string>()
         let hunk = -1
         for (const l of parsed.lines) {
           if (l.kind === 'hunk') hunk = l.hunk!
           else if (hunk >= 0 && !byHunk.has(hunk) && (l.kind === 'add' || l.kind === 'del')) {
             const no = f.side === 'new' ? (l.newNo ?? l.oldNo) : l.oldNo
-            const place = no ? unityPlace(fileLines, no) : null
-            byHunk.set(hunk, place ?? '')
+            byHunk.set(hunk, (no ? placeOfLine(no) : null) ?? '')
           }
         }
         setPlaces({ parsed, byHunk })
@@ -334,6 +475,11 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   }, [parsed, lang, path, key])
   const placeOf = (l: Line): string | undefined =>
     places && places.parsed === parsed && l.hunk !== undefined ? places.byHunk.get(l.hunk) || undefined : undefined
+
+  // The hunk button's handler stays the same function, so memoized rows don't redraw for it.
+  const actionRef = useRef(hunkAction)
+  actionRef.current = hunkAction
+  const onAction = useCallback((hunk: number, header: string) => actionRef.current?.run(hunk, header), [])
 
   // An IDE scheme not chosen yet is offered once, on a colored diff: use it, try it here, or not now.
   const [offer, setOffer] = useState<SyntaxPalette | null>(null)
@@ -353,19 +499,6 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   const shownOffer = offering && offer && !settings.syntaxOffersDismissed.includes(offer.id) ? offer : null
   const palette = settings.syntaxPalette ?? (previewing && shownOffer ? shownOffer : null)
   const ideName = (p: SyntaxPalette): string => ({ rider: 'Rider', vscode: 'VS Code', cursor: 'Cursor', file: 'The file' })[p.source]
-
-  const code = (l: Line, i: number): ReactNode => (
-    <CodeText text={l.text} tokens={tokens?.[i]} words={words?.[i]} faded={lang === 'unity' ? unityIds(l.text) : undefined} />
-  )
-  const hunkText = (l: Line): ReactNode => {
-    const place = placeOf(l)
-    if (!place) return l.text
-    return (
-      <>
-        {/^@@[^@]*@@/.exec(l.text)?.[0] ?? l.text} <span className="hunk-place">{place}</span>
-      </>
-    )
-  }
 
   const virtualizer = useVirtualizer({
     count: split ? 0 : (parsed?.lines.length ?? 0),
@@ -418,29 +551,28 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
             if ('full' in row) {
               const l = parsed.lines[row.full]
               return (
-                <div key={i} className={`diff-line ${l.kind}`}>
-                  <span className="code">{l.kind === 'hunk' ? hunkText(l) : code(l, row.full)}</span>
-                  {l.kind === 'hunk' && hunkAction && !data.truncated && (
-                    <button className="hunk-btn" onClick={() => hunkAction.run(l.hunk!, l.text)}>
-                      {hunkAction.label}
-                    </button>
-                  )}
-                </div>
+                <SplitFullRow
+                  key={i}
+                  line={l}
+                  place={placeOf(l)}
+                  actionLabel={hunkAction?.label}
+                  onAction={hunkAction && !data.truncated ? onAction : undefined}
+                />
               )
             }
+            const [L, R] = [row.left !== undefined ? look(row.left) : null, row.right !== undefined ? look(row.right) : null]
             return (
-              <div key={i} className="diff-line split-row">
-                <SplitHalf
-                  line={row.left !== undefined ? parsed.lines[row.left] : undefined}
-                  side="left"
-                  code={row.left !== undefined ? code(parsed.lines[row.left], row.left) : undefined}
-                />
-                <SplitHalf
-                  line={row.right !== undefined ? parsed.lines[row.right] : undefined}
-                  side="right"
-                  code={row.right !== undefined ? code(parsed.lines[row.right], row.right) : undefined}
-                />
-              </div>
+              <SplitPairRow
+                key={i}
+                left={row.left !== undefined ? parsed.lines[row.left] : undefined}
+                right={row.right !== undefined ? parsed.lines[row.right] : undefined}
+                lt={L?.tokens}
+                lw={L?.words}
+                lf={L?.faded}
+                rt={R?.tokens}
+                rw={R?.words}
+                rf={R?.faded}
+              />
             )
           })}
         </div>
@@ -456,22 +588,20 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
         <div className={`diff-lines syntax-${settings.diffSyntax}`} style={{ height: virtualizer.getTotalSize(), minWidth: `calc(${parsed.maxLen + 2}ch + 12em)` }}>
           {virtualizer.getVirtualItems().map((v) => {
             const l = parsed.lines[v.index]
+            const lk = l.kind === 'hunk' || l.kind === 'note' ? null : look(v.index)
             return (
-              <div
+              <UnifiedRow
                 key={v.index}
-                className={`diff-line ${l.kind}`}
-                style={{ transform: `translateY(${v.start}px)`, height: lineH, lineHeight: `${lineH}px` }}
-              >
-                <span className="ln">{l.oldNo ?? ''}</span>
-                <span className="ln">{l.newNo ?? ''}</span>
-                <span className="sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ''}</span>
-                <span className="code">{l.kind === 'hunk' ? hunkText(l) : l.kind === 'note' ? l.text : code(l, v.index)}</span>
-                {l.kind === 'hunk' && hunkAction && !data.truncated && (
-                  <button className="hunk-btn" onClick={() => hunkAction.run(l.hunk!, l.text)}>
-                    {hunkAction.label}
-                  </button>
-                )}
-              </div>
+                line={l}
+                top={v.start}
+                lineH={lineH}
+                tokens={lk?.tokens}
+                words={lk?.words}
+                faded={lk?.faded}
+                place={l.kind === 'hunk' ? placeOf(l) : undefined}
+                actionLabel={hunkAction?.label}
+                onAction={hunkAction && !data.truncated ? onAction : undefined}
+              />
             )
           })}
         </div>

@@ -15,6 +15,8 @@ const secretFile = (): string => join(app.getPath('userData'), 'atlassian.bin')
 interface Creds {
   email: string
   token: string
+  /** The site the token was checked against when connecting; it's only ever sent there. */
+  origin?: string
 }
 let cache: Creds | null | undefined
 
@@ -104,8 +106,8 @@ export async function account(): Promise<AtlassianAccount | null> {
 
 /** Saves the credentials after checking that they can read `pageUrl` (the changelog). */
 export async function connect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount> {
-  const c = { email: email.trim(), token: token.trim() }
   const { origin, id } = parsePageUrl(pageUrl)
+  const c = { email: email.trim(), token: token.trim(), origin }
   await confluence(c, origin, `/api/v2/pages/${id}`)
   await writeCreds(c)
   return { email: c.email }
@@ -121,6 +123,13 @@ export async function page(url: string): Promise<ConfluencePage> {
   const c = await readCreds()
   if (!c) throw new Error('Connect your Atlassian account in Settings → Accounts to read the MainLib changelog.')
   const { origin, id } = parsePageUrl(url)
+  // The token goes only to the site it was connected with (or, for credentials saved before that was
+  // recorded, an Atlassian Cloud site), never to wherever a link happens to point.
+  const allowed = c.origin ? origin === c.origin : new URL(origin).hostname.endsWith('.atlassian.net')
+  if (!allowed)
+    throw new Error(
+      `The changelog link is on ${new URL(origin).hostname}, but your Atlassian token was connected for ${c.origin ? new URL(c.origin).hostname : 'an Atlassian Cloud site'}. Reconnect in Settings → Accounts with this link to use it.`
+    )
   const p = await confluence<{ title: string; body?: { storage?: { value?: string } } }>(
     c,
     origin,

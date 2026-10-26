@@ -92,10 +92,20 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
   )
   const avatar = (login: string): string | undefined => users?.find((u) => u.login === login)?.avatarUrl
 
-  const canCreate = !!info && !!title.trim() && !!base
+  // The last step re-reads the branch; Create waits for it, so commits made after the review are
+  // pushed and counted.
+  const [reread, setReread] = useState<'loading' | 'done' | { error: string }>('done')
+  const canCreate = !!info && !!title.trim() && !!base && (!withReview || step !== 'create' || reread === 'done')
   const goCreate = (): void => {
     setStep('create')
-    window.spoon.pullDraftInfo(path, branch).then(setLatestInfo, () => undefined)
+    setReread('loading')
+    window.spoon.pullDraftInfo(path, branch).then(
+      (next) => {
+        setLatestInfo(next)
+        setReread('done')
+      },
+      (err: Error) => setReread({ error: err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+    )
   }
 
   const reviewPrompt = (): string => {
@@ -447,6 +457,15 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
 
       {info && withReview && step === 'create' && (
         <div className="pr-summary">
+          {reread === 'loading' && <span className="muted">Checking {branch} again for new commits…</span>}
+          {typeof reread === 'object' && (
+            <span className="error-text">
+              Couldn’t check {branch} again: {reread.error}{' '}
+              <button className="link-btn" onClick={goCreate}>
+                Try again
+              </button>
+            </span>
+          )}
           <div className="pr-summary-title">{title.trim()}</div>
           <div className="pr-route">
             <span className="ref-badge head">{branch}</span>

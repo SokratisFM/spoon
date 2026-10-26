@@ -323,6 +323,10 @@ export interface MainLibState {
   branch: string | null
   /** Newest first. */
   versions: MainLibVersion[]
+  /** Files with uncommitted changes (switching carries them over, or fails if they'd be overwritten). */
+  dirtyFiles: number
+  /** Commits only the detached HEAD holds; switching keeps them on a backup branch. */
+  orphaned: number
 }
 
 /** One git command Spoon ran, for the Git Command History window. */
@@ -556,8 +560,9 @@ export interface SpoonApi {
   importSyntaxColors(): Promise<SyntaxPalette | null>
   createTag(path: string, opts: NewTagOptions): Promise<void>
   /** Applies a stash ("stash@{0}"); pop also deletes it. */
-  stashApply(path: string, name: string, pop: boolean): Promise<void>
-  stashDrop(path: string, name: string): Promise<void>
+  /** With the stash's hash, the stash is found again by it (its index may have shifted) or refused if gone. */
+  stashApply(path: string, name: string, pop: boolean, hash?: string): Promise<void>
+  stashDrop(path: string, name: string, hash?: string): Promise<void>
   /** Moves branches that are only behind their upstream up to it. */
   fastForwardBranches(path: string, names: string[]): Promise<void>
   deleteRemoteBranch(path: string, remote: string, branch: string): Promise<void>
@@ -599,6 +604,8 @@ export interface SpoonApi {
   ghDisconnect(): Promise<void>
   /** owner/name of the repo's GitHub remote, or null. */
   ghRepo(path: string): Promise<string | null>
+  /** The GitHub repo and the local remote that points at it (where releases and their tags go). */
+  ghRepoRemote(path: string): Promise<{ slug: string; remote: string } | null>
   ghPulls(path: string): Promise<PullSummary[]>
   pullDraftInfo(path: string, branch: string): Promise<PullDraftInfo>
   /** People who can be assigned or asked to review in this repository. */
@@ -614,6 +621,8 @@ export interface SpoonApi {
   clearGitHistory(): Promise<void>
   /** Called as each git command starts and again when it ends. */
   onGitCommand(handler: (entry: GitCommandEntry) => void): () => void
+  /** Commands are only sent to a window while it watches (the history window, while open). */
+  watchGitHistory(on: boolean): void
   claudeAvailability(): Promise<ClaudeAvailability>
   atlassianAccount(): Promise<AtlassianAccount | null>
   atlassianConnect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount>
@@ -622,7 +631,8 @@ export interface SpoonApi {
   /** Fetches the submodule and lists its version branches (prefix like "candidates/"). */
   mainlibState(path: string, submodulePath: string, prefix: string): Promise<MainLibState>
   /** Checks out the version branch in the submodule (fast-forwarding an existing local branch). */
-  mainlibSwitch(path: string, submodulePath: string, ref: string): Promise<void>
+  /** Returns the backup branch made for commits only the detached HEAD held, if any. */
+  mainlibSwitch(path: string, submodulePath: string, ref: string): Promise<{ backup: string | null }>
   claudeLaunch(launch: ClaudeLaunch): Promise<void>
   /** Shows or hides an item of the app's menu bar by id. */
   setMenuItemVisible(id: string, visible: boolean): void

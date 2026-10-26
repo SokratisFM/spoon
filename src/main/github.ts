@@ -259,11 +259,16 @@ const user = (u: { login: string; avatar_url: string } | null): GhUser =>
 
 /** owner/name from the repo's GitHub remote (origin first). */
 export async function repoSlug(path: string): Promise<string | null> {
+  return (await repoRemote(path))?.slug ?? null
+}
+
+/** The GitHub repo and the remote that points at it: origin when it's on GitHub, else the first one that is. */
+export async function repoRemote(path: string): Promise<{ slug: string; remote: string } | null> {
   const remotes = await git.remoteUrls(path)
-  const ordered = [remotes.origin, ...Object.values(remotes)].filter(Boolean)
-  for (const url of ordered) {
+  const ordered = Object.entries(remotes).sort(([a], [b]) => Number(b === 'origin') - Number(a === 'origin'))
+  for (const [remote, url] of ordered) {
     const m = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url)
-    if (m) return `${m[1]}/${m[2]}`
+    if (m) return { slug: `${m[1]}/${m[2]}`, remote }
   }
   return null
 }

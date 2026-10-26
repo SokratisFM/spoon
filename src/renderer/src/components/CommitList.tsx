@@ -209,8 +209,11 @@ export const CommitList = memo(function CommitList({
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     e.preventDefault()
     const pos = indices.findIndex((i) => commits[i].hash === selected)
-    const next = Math.max(0, Math.min(indices.length - 1, pos + (e.key === 'ArrowDown' ? 1 : -1)))
-    if (indices[next] === undefined) return
+    // Fold rows (squished commits) are stepped over; clicking one is what opens it.
+    const step = e.key === 'ArrowDown' ? 1 : -1
+    let next = pos + step
+    while (next >= 0 && next < indices.length && commits[indices[next]].hash.startsWith(FOLD)) next += step
+    if (next < 0 || next >= indices.length || indices[next] === undefined) return
     onSelect(commits[indices[next]].hash)
     virtualizer.scrollToIndex(next)
   }

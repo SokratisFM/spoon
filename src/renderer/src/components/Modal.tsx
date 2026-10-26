@@ -46,16 +46,26 @@ export function Modal({ title, children, onClose, onSubmit, footer, wide, pendin
     const need = el.offsetHeight + body.scrollHeight - body.clientHeight
     setPinnedTop((t) => (t === null ? t : Math.max(16, Math.min(t, window.innerHeight - 16 - need))))
   }
-  useLayoutEffect(() => {
-    if (!top) fit()
-  })
+  // Re-fit when the dialog or anything in its body changes size: ResizeObservers on the box and on
+  // each of the body's children (re-attached when children come and go), not on every render.
   useEffect(() => {
-    if (top || !box.current) return
-    const watch = new MutationObserver(fit)
-    watch.observe(box.current, { childList: true, subtree: true, attributes: true, characterData: true })
+    const el = box.current
+    const body = el?.querySelector<HTMLElement>(':scope > .modal-body')
+    if (top || !el || !body) return
+    fit()
+    const sizes = new ResizeObserver(fit)
+    const observeAll = (): void => {
+      sizes.disconnect()
+      sizes.observe(el)
+      for (const child of Array.from(body.children)) sizes.observe(child)
+    }
+    observeAll()
+    const children = new MutationObserver(observeAll)
+    children.observe(body, { childList: true })
     window.addEventListener('resize', fit)
     return () => {
-      watch.disconnect()
+      sizes.disconnect()
+      children.disconnect()
       window.removeEventListener('resize', fit)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

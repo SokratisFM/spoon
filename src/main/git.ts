@@ -1,8 +1,8 @@
 // Thin wrapper over the git CLI. Every call shells out to `git` with machine-readable
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { cp, lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cp, lstat, mkdir, readdir, readFile, rename, rm, rmdir, stat } from 'node:fs/promises'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   Commit,
@@ -363,7 +363,7 @@ async function readRefs(cwd: string): Promise<Ref[]> {
 }
 
 async function readStashes(cwd: string): Promise<Stash[]> {
-  const out = await git(cwd, ['stash', 'list', `--format=%gd${FS}%H${FS}%P${FS}%gs`], [0, 1])
+  const out = await stashList(cwd, `%gd${FS}%H${FS}%P${FS}%gs`)
   return out
     .split('\n')
     .filter(Boolean)
@@ -371,6 +371,29 @@ async function readStashes(cwd: string): Promise<Stash[]> {
       const [name, hash, parents, message] = line.split(FS)
       return { index, name, hash, base: parents.split(' ')[0], message }
     })
+}
+
+// History loads, refreshes and commit details all list the stashes; the answer is reused until the
+// stash reflog changes (every stash, pop and drop rewrites it). It lives in the common git dir, which
+// linked worktrees share.
+const commonDirs = new Map<string, string>()
+const stashCache = new Map<string, { stamp: string; out: string }>()
+
+async function stashList(cwd: string, format: string): Promise<string> {
+  const root = repoKey(cwd)
+  let common = commonDirs.get(root)
+  if (!common) {
+    common = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim()
+    commonDirs.set(root, common)
+  }
+  const st = await stat(join(common, 'logs', 'refs', 'stash')).catch(() => null)
+  const stamp = st ? `${st.mtimeMs}:${st.size}` : 'none'
+  const key = `${root}\0${format}`
+  const hit = stashCache.get(key)
+  if (hit && hit.stamp === stamp) return hit.out
+  const out = await git(cwd, ['stash', 'list', `--format=${format}`], [0, 1])
+  stashCache.set(key, { stamp, out })
+  return out
 }
 
 /** "On feature/x: tidy up" → "tidy up"; git's own "WIP on …" messages are kept as they are. */
@@ -400,7 +423,7 @@ export async function log(cwd: string, limit: number): Promise<Commit[]> {
   // as a merge of that commit with helper commits for the index (and untracked files); those stay
   // hidden, and the commit it was made on is listed even when no branch holds it any more.
   const stashes = parse(
-    await git(cwd, ['stash', 'list', `--format=${format.replace('%s', '%gs')}`], [0, 1])
+    await stashList(cwd, format.replace('%s', '%gs'))
   ).map((s) => ({ ...s, parents: s.parents.slice(0, 1), subject: stashTitle(s.subject) }))
   // A brand-new repo (no refs at all) just prints nothing.
   const commits = parse(
@@ -428,15 +451,32 @@ const assertStash = (name: string): void => {
   if (!/^stash@\{\d+\}$/.test(name)) throw new Error(`Not a stash: ${name}`)
 }
 
-/** Applies a stash to the working tree; pop also deletes it (git keeps it if the apply conflicts). */
-export function stashApply(cwd: string, name: string, pop: boolean): Promise<void> {
+/**
+ * The stash's name right now. Indexes shift as stashes come and go (an earlier drop still queued
+ * behind a push renumbers the rest), so with its hash the stash is looked up again inside the lock.
+ */
+async function currentStash(cwd: string, name: string, hash?: string): Promise<string> {
   assertStash(name)
-  return exclusive(cwd, async () => void (await git(cwd, ['stash', pop ? 'pop' : 'apply', name])))
+  if (!hash) return name
+  assertHash(hash)
+  const out = await git(cwd, ['stash', 'list', `--format=%gd${FS}%H`], [0, 1])
+  const hit = out
+    .split('\n')
+    .map((l) => l.split(FS))
+    .find(([, h]) => h === hash)
+  if (!hit) throw new Error('That stash is gone: it was already applied or dropped.')
+  return hit[0]
 }
 
-export function stashDrop(cwd: string, name: string): Promise<void> {
+/** Applies a stash to the working tree; pop also deletes it (git keeps it if the apply conflicts). */
+export function stashApply(cwd: string, name: string, pop: boolean, hash?: string): Promise<void> {
   assertStash(name)
-  return exclusive(cwd, async () => void (await git(cwd, ['stash', 'drop', name])))
+  return exclusive(cwd, async () => void (await git(cwd, ['stash', pop ? 'pop' : 'apply', await currentStash(cwd, name, hash)])))
+}
+
+export function stashDrop(cwd: string, name: string, hash?: string): Promise<void> {
+  assertStash(name)
+  return exclusive(cwd, async () => void (await git(cwd, ['stash', 'drop', await currentStash(cwd, name, hash)])))
 }
 
 export async function commitDetails(cwd: string, hash: string): Promise<CommitDetails> {
@@ -446,7 +486,7 @@ export async function commitDetails(cwd: string, hash: string): Promise<CommitDe
   const [h, parents, an, ae, at, cn, ce, ct, ...rest] = out.split(FS)
   let parentList = parents ? parents.split(' ') : []
   // A stash: only the commit it was made on counts, not git's helper commits for the index.
-  if (parentList.length > 1 && (await git(cwd, ['stash', 'list', '--format=%H'], [0, 1])).split('\n').includes(h))
+  if (parentList.length > 1 && (await stashList(cwd, '%H')).split('\n').includes(h))
     parentList = parentList.slice(0, 1)
   const base = parentList[0] ?? EMPTY_TREE
   const files = parseNameStatus(
@@ -557,8 +597,9 @@ export async function diffFile(cwd: string, target: DiffTarget): Promise<{ text:
   else {
     const abs = resolve(cwd, file.path)
     if (!abs.startsWith(resolve(cwd) + sep)) return null
+    // Async: a 40 MB scene read synchronously would hold up every other request to the main process.
     try {
-      text = statSync(abs).size > MAX_FILE_BYTES ? null : readFileSync(abs, 'utf8')
+      text = (await stat(abs)).size > MAX_FILE_BYTES ? null : await readFile(abs, 'utf8')
     } catch {
       text = null
     }
@@ -1084,13 +1125,11 @@ export async function tagTarget(cwd: string, hash: string): Promise<TagTarget> {
   // Every local branch, but only the first remote branches: an old commit is on nearly all of them.
   const local = refs.filter((r) => r.startsWith('refs/heads/'))
   const checked = [...local, ...refs.filter((r) => r.startsWith('refs/remotes/')).slice(0, 30)]
-  const branches = await Promise.all(
-    checked.map(async (ref) => ({
-      name: ref.replace(/^refs\/(heads|remotes)\//, ''),
-      remote: ref.startsWith('refs/remotes/'),
-      ahead: Number((await git(cwd, ['rev-list', '--count', `${hash}..${ref}`])).trim())
-    }))
-  )
+  const branches = await mapLimit(checked, 8, async (ref) => ({
+    name: ref.replace(/^refs\/(heads|remotes)\//, ''),
+    remote: ref.startsWith('refs/remotes/'),
+    ahead: Number((await git(cwd, ['rev-list', '--count', `${hash}..${ref}`])).trim())
+  }))
   branches.sort((a, b) => a.ahead - b.ahead || Number(a.remote) - Number(b.remote))
   return { branches, total: refs.length }
 }
@@ -1397,11 +1436,13 @@ export async function mainlibState(cwd: string, submodulePath: string, prefix: s
   if (!/^[\w./-]+$/.test(prefix)) throw new Error(`Invalid branch prefix: ${prefix}`)
   // New version branches only show up after a fetch.
   await exclusive(dir, () => run(dir, ['fetch', '--prune', '--quiet', 'origin'], { cancellable: true }))
-  const [describe, hash, branch, refs] = await Promise.all([
+  const [describe, hash, branch, refs, status, orphanCount] = await Promise.all([
     git(dir, ['describe', '--tags', '--always'], [0, 128]).then((s) => s.trim()),
     git(dir, ['rev-parse', '--short', 'HEAD']).then((s) => s.trim()),
     git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).then((s) => s.trim() || null),
-    git(dir, ['for-each-ref', `--format=%(refname:short)${FS}%(committerdate:unix)${FS}%(objectname:short)`, `refs/remotes/origin/${prefix}`])
+    git(dir, ['for-each-ref', `--format=%(refname:short)${FS}%(committerdate:unix)${FS}%(objectname:short)`, `refs/remotes/origin/${prefix}`]),
+    git(dir, ['status', '--porcelain', '--untracked-files=no']),
+    orphanedCommits(dir)
   ])
   const versions: MainLibVersion[] = refs
     .split('\n')
@@ -1413,16 +1454,37 @@ export async function mainlibState(cwd: string, submodulePath: string, prefix: s
     })
     .filter((v) => /^\d/.test(v.version))
     .sort((a, b) => compareVersions(b.version, a.version))
-  return { path: submodulePath, describe: describe || hash, hash, branch, versions }
+  const dirtyFiles = status.split('\n').filter(Boolean).length
+  return { path: submodulePath, describe: describe || hash, hash, branch, versions, dirtyFiles, orphaned: orphanCount }
 }
 
-/** Checks out a version branch in the submodule: an existing local branch is fast-forwarded to it. */
-export function mainlibSwitch(cwd: string, submodulePath: string, ref: string): Promise<void> {
+/** Commits only a detached HEAD holds: no branch, remote branch or tag has them, so switching away loses them. */
+async function orphanedCommits(dir: string): Promise<number> {
+  if ((await git(dir, ['symbolic-ref', '-q', 'HEAD'], [0, 1])).trim()) return 0
+  return Number((await git(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--remotes', '--tags'])).trim()) || 0
+}
+
+/**
+ * Checks out a version branch in the submodule: an existing local branch is fast-forwarded to it.
+ * Commits that only the current (detached) HEAD holds are kept on a backup branch first, whose name
+ * is returned; uncommitted changes are carried over, or git refuses when they'd be overwritten.
+ */
+export function mainlibSwitch(cwd: string, submodulePath: string, ref: string): Promise<{ backup: string | null }> {
   const dir = join(cwd, submodulePath)
   return exclusive(dir, async () => {
     if (!ref.startsWith('origin/')) throw new Error(`Not a remote branch: ${ref}`)
     const local = ref.slice('origin/'.length)
     await assertBranchName(dir, local)
+    let backup: string | null = null
+    if ((await orphanedCommits(dir)) > 0) {
+      const d = new Date()
+      const two = (n: number): string => String(n).padStart(2, '0')
+      const short = (await git(dir, ['rev-parse', '--short', 'HEAD'])).trim()
+      backup = `spoon-backup/${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}-${short}`
+      for (let n = 2; (await git(dir, ['rev-parse', '-q', '--verify', `refs/heads/${backup}`], [0, 1])).trim(); n++)
+        backup = `spoon-backup/${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}-${short}-${n}`
+      await git(dir, ['branch', '--', backup, 'HEAD'])
+    }
     const exists = !!(await git(dir, ['rev-parse', '-q', '--verify', `refs/heads/${local}`], [0, 1])).trim()
     if (exists) {
       await git(dir, ['switch', '--quiet', local])
@@ -1430,5 +1492,6 @@ export function mainlibSwitch(cwd: string, submodulePath: string, ref: string): 
     } else {
       await git(dir, ['switch', '--quiet', '-c', local, '--track', `refs/remotes/${ref}`])
     }
+    return { backup }
   })
 }

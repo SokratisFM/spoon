@@ -205,6 +205,7 @@ function registerIpc(): void {
   ipcMain.handle('gh:deviceCancel', () => gh.deviceCancel())
   ipcMain.handle('gh:disconnect', () => gh.disconnect())
   ipcMain.handle('gh:repo', (_e, path: string) => gh.repoSlug(path))
+  ipcMain.handle('gh:repoRemote', (_e, path: string) => gh.repoRemote(path))
   ipcMain.handle('gh:pulls', (_e, path: string) => gh.pulls(path))
   ipcMain.handle('repo:pullDraftInfo', (_e, path: string, branch: string) => git.pullDraftInfo(path, branch))
   ipcMain.handle('gh:assignable', (_e, path: string) => gh.assignable(path))
@@ -223,8 +224,15 @@ function registerIpc(): void {
   ipcMain.handle('mainlib:switch', (_e, path: string, sub: string, ref: string) => git.mainlibSwitch(path, sub, ref))
   ipcMain.handle('git:history', () => history.list())
   ipcMain.handle('git:clearHistory', () => history.clear())
+  // Only windows showing the history get each command (two messages per git command otherwise).
+  const watching = new Set<Electron.WebContents>()
+  ipcMain.on('git:watchHistory', (e, on: boolean) => {
+    if (!on) return void watching.delete(e.sender)
+    watching.add(e.sender)
+    e.sender.once('destroyed', () => watching.delete(e.sender))
+  })
   history.onCommand((entry) => {
-    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('git:command', entry)
+    for (const wc of watching) if (!wc.isDestroyed()) wc.send('git:command', entry)
   })
   ipcMain.handle('claude:launch', (_e, launch: ClaudeLaunch) => claude.launch(launch))
   ipcMain.handle('gh:pull', (_e, path: string, n: number) => gh.pull(path, n))
@@ -282,8 +290,10 @@ function registerIpc(): void {
   ipcMain.handle('repo:diffFile', (_e, path: string, target: DiffTarget) => git.diffFile(path, target))
   ipcMain.handle('repo:tagTarget', (_e, path: string, hash: string) => git.tagTarget(path, hash))
   ipcMain.handle('repo:createTag', (_e, path: string, opts: NewTagOptions) => git.createTag(path, opts))
-  ipcMain.handle('repo:stashApply', (_e, path: string, name: string, pop: boolean) => git.stashApply(path, name, pop))
-  ipcMain.handle('repo:stashDrop', (_e, path: string, name: string) => git.stashDrop(path, name))
+  ipcMain.handle('repo:stashApply', (_e, path: string, name: string, pop: boolean, hash?: string) =>
+    git.stashApply(path, name, pop, hash)
+  )
+  ipcMain.handle('repo:stashDrop', (_e, path: string, name: string, hash?: string) => git.stashDrop(path, name, hash))
   ipcMain.handle('repo:fastForwardBranches', (_e, path: string, names: string[]) => git.fastForwardBranches(path, names))
   ipcMain.handle('repo:deleteBranches', (_e, path: string, names: string[], force: boolean) =>
     git.deleteBranches(path, names, force)

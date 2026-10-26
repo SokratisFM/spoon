@@ -1,11 +1,13 @@
 // Git Command History: every git command Spoon has run since it opened, newest first, updating live.
 // Click a command to copy it (ready to paste into a terminal).
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import type { GitCommandEntry } from '../../../shared/types'
 import { Modal } from './Modal'
 import { CheckIcon } from './Icons'
 
 const SHOWN = 500
+/** Entries kept in the window, like main's own list. */
+const KEPT = 1000
 
 /** Shell-style quoting, with git's invisible separators shown as \x1f etc. */
 function shellArg(a: string): string {
@@ -24,27 +26,44 @@ export function GitHistoryDialog({ current, onClose }: { current: string | null;
   const [onlyHere, setOnlyHere] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
 
-  // The list so far, then each start and finish as it happens.
+  // The list so far, then each start and finish as it happens: gathered and applied every 50 ms (a
+  // timer, not animation frames, which stop while the window is in the background), and capped like
+  // main's list.
   useEffect(() => {
-    let live = true
-    const pending: GitCommandEntry[] = []
+    let ready = false
+    let queue: GitCommandEntry[] = []
+    let timer: ReturnType<typeof setTimeout> | null = null
     const upsert = (list: GitCommandEntry[], e: GitCommandEntry): GitCommandEntry[] => {
-      const i = list.findIndex((x) => x.id === e.id)
-      if (i < 0) return [...list, e]
-      const next = list.slice()
-      next[i] = e
+      let i = list.length - 1
+      while (i >= 0 && list[i].id !== e.id) i--
+      const next = i < 0 ? [...list, e] : list.slice()
+      if (i >= 0) next[i] = e
       return next
     }
+    const apply = (base?: GitCommandEntry[]): void => {
+      const q = queue
+      queue = []
+      setEntries((list) => q.reduce(upsert, base ?? list).slice(-KEPT))
+    }
+    // Main only sends live commands while a history window is watching.
+    window.spoon.watchGitHistory(true)
     const off = window.spoon.onGitCommand((e) => {
-      if (live) setEntries((list) => upsert(list, e))
-      else pending.push(e)
+      queue.push(e)
+      if (ready && !timer)
+        timer = setTimeout(() => {
+          timer = null
+          apply()
+        }, 50)
     })
-    live = false
     window.spoon.gitHistory().then((list) => {
-      live = true
-      setEntries(pending.reduce(upsert, list))
+      ready = true
+      apply(list)
     })
-    return off
+    return () => {
+      off()
+      window.spoon.watchGitHistory(false)
+      if (timer) clearTimeout(timer)
+    }
   }, [])
 
   const shown = useMemo(() => {
@@ -62,11 +81,11 @@ export function GitHistoryDialog({ current, onClose }: { current: string | null;
   const running = entries.filter((e) => e.running).length
   const failed = entries.filter((e) => !e.running && e.code !== 0).length
 
-  const copy = (e: GitCommandEntry): void => {
+  const copy = useCallback((e: GitCommandEntry): void => {
     navigator.clipboard.writeText(`cd ${shellArg(e.cwd)} && ${commandLine(e)}`)
     setCopied(e.id)
     setTimeout(() => setCopied((c) => (c === e.id ? null : c)), 1200)
-  }
+  }, [])
 
   return (
     <Modal
@@ -102,36 +121,41 @@ export function GitHistoryDialog({ current, onClose }: { current: string | null;
       </div>
       <div className="history-list" role="list">
         {shown.length === 0 && <div className="muted history-empty">{entries.length ? 'No commands match.' : 'No git commands yet.'}</div>}
-        {shown.map((e) => {
-          const status = e.running ? 'running' : e.code === 0 ? 'ok' : 'failed'
-          return (
-            <button
-              key={e.id}
-              role="listitem"
-              className={`history-row ${status}`}
-              onClick={() => copy(e)}
-              title={`${e.cwd}\n${commandLine(e)}${e.error ? `\n\n${e.error}` : ''}\n\nClick to copy`}
-            >
-              <span className="history-time mono">{time(e.startedAt)}</span>
-              <span className="history-repo">{repoName(e.cwd)}</span>
-              <span className="history-cmd mono">
-                {copied === e.id ? (
-                  <span className="history-copied">
-                    <CheckIcon /> Copied
-                  </span>
-                ) : (
-                  commandLine(e)
-                )}
-                {e.error && <span className="history-error">{e.error}</span>}
-              </span>
-              <span className="history-ms mono">{e.ms !== undefined ? duration(e.ms) : ''}</span>
-              <span className={`history-status ${status}`} aria-label={status}>
-                {status === 'running' ? <span className="spinner" /> : status === 'ok' ? '✓' : e.code === null ? '–' : e.code}
-              </span>
-            </button>
-          )
-        })}
+        {shown.map((e) => (
+          <HistoryRow key={e.id} e={e} copied={copied === e.id} onCopy={copy} />
+        ))}
       </div>
     </Modal>
   )
 }
+
+/** One command. Memoized: a new command doesn't redraw the hundreds already listed. */
+const HistoryRow = memo(function HistoryRow({ e, copied, onCopy }: { e: GitCommandEntry; copied: boolean; onCopy: (e: GitCommandEntry) => void }) {
+  const status = e.running ? 'running' : e.code === 0 ? 'ok' : 'failed'
+  const line = commandLine(e)
+  return (
+    <button
+      role="listitem"
+      className={`history-row ${status}`}
+      onClick={() => onCopy(e)}
+      title={`${e.cwd}\n${line}${e.error ? `\n\n${e.error}` : ''}\n\nClick to copy`}
+    >
+      <span className="history-time mono">{time(e.startedAt)}</span>
+      <span className="history-repo">{repoName(e.cwd)}</span>
+      <span className="history-cmd mono">
+        {copied ? (
+          <span className="history-copied">
+            <CheckIcon /> Copied
+          </span>
+        ) : (
+          line
+        )}
+        {e.error && <span className="history-error">{e.error}</span>}
+      </span>
+      <span className="history-ms mono">{e.ms !== undefined ? duration(e.ms) : ''}</span>
+      <span className={`history-status ${status}`} aria-label={status}>
+        {status === 'running' ? <span className="spinner" /> : status === 'ok' ? '✓' : e.code === null ? '–' : e.code}
+      </span>
+    </button>
+  )
+})
