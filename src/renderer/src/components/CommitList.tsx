@@ -3,13 +3,14 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Commit, Ref, RepoState } from '../../../shared/types'
 import { LANE_COLORS, spotlightAt, type Graph, type GraphRow } from '../graph'
 import { hueFor, initials, shortDate } from '../format'
-import { authorColorMap, reservedPrefixes, rowHeight, useSettings } from '../settings'
+import { authorColorMap, reservedPrefixes, rowHeight, updateSettings, useSettings } from '../settings'
+import { FOLD } from '../squish'
 import { jiraConfig, jiraUrl, splitByTickets, ticketKeys, type JiraConfig } from '../jira'
-import { CheckoutIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, StashIcon, TagIcon } from './Icons'
+import { CheckoutIcon, ChevronIcon, CloseIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, StashIcon, TagIcon } from './Icons'
 import { stashMenu } from './stashMenu'
 import type { Ops } from './RepoView'
 import { contextMenu } from '../menus'
-import { isMac } from '../platform'
+import { isMac, keys } from '../platform'
 
 const MAX_GRAPH_LANES = 14
 
@@ -27,6 +28,8 @@ interface Props {
   fresh?: { hashes: Set<string>; n: number } | null
   /** Backspace/Delete on a commit that carries a local branch asks to delete that branch. */
   onDeleteBranch: (ref: Ref) => void
+  /** Squish branches: shows a squished group's commits again. */
+  onExpand: (key: string) => void
 }
 
 interface Badge {
@@ -106,7 +109,8 @@ export const CommitList = memo(function CommitList({
   truncated,
   ops,
   fresh,
-  onDeleteBranch
+  onDeleteBranch,
+  onExpand
 }: Props) {
   const settings = useSettings()
   const rowH = rowHeight(settings)
@@ -336,7 +340,18 @@ export const CommitList = memo(function CommitList({
   return (
     <div className={`commit-list ${settings.laneSpotlight === 'hover' ? 'spot-fade' : ''}`}>
       <div className="list-header" style={{ gridTemplateColumns: gridTemplate }}>
-        <span className="header-desc">Description</span>
+        <span className="header-desc">
+          Description
+          {settings.squishBranches && !q && (
+            <button
+              className="squish-chip"
+              title={`Each branch shows only its first and latest commit. Turn off (${keys('⇧⌘S')})`}
+              onClick={() => updateSettings({ squishBranches: false })}
+            >
+              Squished <CloseIcon />
+            </button>
+          )}
+        </span>
         <span>Author</span>
         <span>Date</span>
         <span>Commit</span>
@@ -379,6 +394,7 @@ export const CommitList = memo(function CommitList({
                 onSelect={onSelect}
                 onContextMenu={onContextMenu}
                 onDoubleClick={onDoubleClick}
+                onExpand={onExpand}
                 top={v.start}
                 rowH={rowH}
                 laneW={laneW}
@@ -498,6 +514,7 @@ interface RowProps {
   onSelect: (hash: string) => void
   onContextMenu: (c: Commit) => void
   onDoubleClick: (c: Commit) => void
+  onExpand: (key: string) => void
   top: number
   rowH: number
   laneW: number
@@ -506,6 +523,8 @@ interface RowProps {
 
 const CommitRow = memo(function CommitRow(p: RowProps) {
   const { commit: c } = p
+  if (c.hash.startsWith(FOLD) && c.squish) return <FoldRow {...p} />
+  const bead = c.squish
   const tags = p.badges?.filter((b) => b.kind === 'tag') ?? []
   const shown = p.tagMode === 'all' ? p.badges : p.badges?.filter((b) => b.kind !== 'tag')
   // Label color: a reserved prefix color wins; otherwise the graph line's color (when enabled).
@@ -521,7 +540,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
   }
   return (
     <div
-      className={`commit-row ${p.fresh ? 'fresh' : ''} ${p.selected ? 'selected' : ''} ${p.isHead ? `is-head head-hl-${p.headStyle}` : ''} ${p.authorColor ? 'authored' : ''}`}
+      className={`commit-row ${bead ? 'has-bead' : ''} ${p.fresh ? 'fresh' : ''} ${p.selected ? 'selected' : ''} ${p.isHead ? `is-head head-hl-${p.headStyle}` : ''} ${p.authorColor ? 'authored' : ''}`}
       style={
         {
           transform: `translateY(${p.top}px)`,
@@ -635,9 +654,59 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
       </span>
       <span className="cell date">{shortDate(c.authorTime)}</span>
       <HashCell hash={c.hash} />
+      {bead && p.row && (
+        // On the graph line between this commit and the first of its branch, where the hidden ones were.
+        <button
+          className="squish-bead"
+          style={{ left: p.laneW * p.row.col + p.laneW * 0.75 }}
+          title={`${bead.count} commits squished, ${shortDate(bead.oldest)} to ${shortDate(bead.newest)}. Click to show them.`}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            p.onExpand(bead.key)
+          }}
+        >
+          +{bead.count}
+        </button>
+      )}
     </div>
   )
 })
+
+/** Squish branches, fold style: the row standing in for a branch's hidden commits. Click to open. */
+function FoldRow(p: RowProps) {
+  const s = p.commit.squish!
+  return (
+    <div
+      className="commit-row fold-row"
+      style={{ transform: `translateY(${p.top}px)`, height: p.rowH, gridTemplateColumns: p.gridTemplate }}
+      onMouseDown={() => p.onExpand(s.key)}
+      title="Click to show them"
+    >
+      <span className="cell subject">
+        {p.row && (
+          <GraphCell
+            row={p.row}
+            spotCol={p.spotCol}
+            spotSpan={p.spotSpan}
+            spotNode={false}
+            rowH={p.rowH}
+            laneW={p.laneW}
+            isHead={false}
+            tagCount={0}
+            tagStyle="diamond"
+            onTagsClick={() => undefined}
+            fold
+          />
+        )}
+        <ChevronIcon className="icon fold-chevron" />
+        <span className="subject-text">
+          {s.count} commits squished · {shortDate(s.oldest)} – {shortDate(s.newest)}
+        </span>
+      </span>
+    </div>
+  )
+}
 
 function GraphCell({
   row,
@@ -651,7 +720,8 @@ function GraphCell({
   nodeColor,
   tagCount,
   tagStyle,
-  onTagsClick
+  onTagsClick,
+  fold
 }: {
   row: GraphRow
   spotCol: number
@@ -668,6 +738,8 @@ function GraphCell({
   tagCount: number
   tagStyle: 'diamond' | 'badge'
   onTagsClick: (e: React.MouseEvent) => void
+  /** A fold row: no dot, and its own line dashed. */
+  fold?: boolean
 }) {
   // Each row is only as wide as its own lanes, so the text starts right after the graph (like Fork).
   const width = laneW * Math.min(row.width, MAX_GRAPH_LANES) + laneW * 0.5
@@ -696,6 +768,7 @@ function GraphCell({
             d={d}
             stroke={color(s.color)}
             strokeWidth={lit && segLit(s) ? stroke * 1.35 : stroke}
+            strokeDasharray={fold && s.from === row.col && s.to === row.col ? `${stroke * 1.6} ${stroke * 1.6}` : undefined}
             fill="none"
           />
         )
@@ -711,7 +784,7 @@ function GraphCell({
           strokeWidth={stroke}
         />
       )}
-      {tagCount > 0 && tagStyle === 'diamond' ? (
+      {fold ? null : tagCount > 0 && tagStyle === 'diamond' ? (
         // Tagged commit: a diamond in the tag color, hollow when it's HEAD.
         <rect
           x={x(row.col) - r * (row.isMerge ? 0.65 : 0.85)}

@@ -9,6 +9,7 @@ import {
   type DiffLayout,
   type HeadHighlight,
   type LaneSpotlight,
+  type SquishStyle,
   type Settings,
   type SidebarSection,
   type SubmoduleTabs,
@@ -35,6 +36,7 @@ export type PreviewSpec =
   | { kind: 'remoteName'; from: boolean; to: boolean }
   | { kind: 'playful'; from: boolean; to: boolean }
   | { kind: 'spotlight'; from: LaneSpotlight; to: LaneSpotlight }
+  | { kind: 'squish'; from: SquishStyle | 'off'; to: SquishStyle | 'off' }
   | { kind: 'head'; from: HeadHighlight; to: HeadHighlight }
   | { kind: 'subtabs'; from: SubmoduleTabs; to: SubmoduleTabs }
   /** Lane indexes for the branch's label and graph line, before and after. */
@@ -512,6 +514,55 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
               {mode === 'selected' ? '← selected commit' : mode === 'hover' ? '← pointer on label' : ''}
             </text>
           </svg>
+        </div>
+      )
+    }
+    case 'squish': {
+      // A branch of five commits; squished, only its latest and first stay, with a fold row or a bead.
+      const v = phase ? spec.to : spec.from
+      const row = (key: string, show: boolean, body: ReactNode, cls = ''): ReactNode => (
+        <div key={key} className={`pv-sq-row ${cls}`} style={{ maxHeight: show ? '1.3rem' : 0, opacity: show ? 1 : 0 }}>
+          {body}
+        </div>
+      )
+      const commit = (width: string, label?: string, bead?: boolean): ReactNode => (
+        <>
+          <span className="pv-node">
+            <span className="pv-node-dot" style={{ background: laneColor(1) }} />
+            {bead !== undefined && (
+              <span className="pv-sq-bead" style={{ opacity: bead ? 1 : 0, transform: `translate(-50%, -50%) scale(${bead ? 1 : 0.4})` }}>
+                +3
+              </span>
+            )}
+          </span>
+          {label && (
+            <span className="ref-badge head laned" style={lane(1)}>
+              {label}
+            </span>
+          )}
+          <span className="pv-bar" style={{ width }} />
+        </>
+      )
+      return (
+        <div className="pv-center">
+          <div className="pv-sq">
+            <span className="pv-sq-line" style={{ background: laneColor(1) }} />
+            {row('tip', true, commit('6rem', 'feature/replay'))}
+            {[0, 1, 2].map((i) => row(`m${i}`, v === 'off', commit(`${7 - ((i * 3) % 4)}rem`)))}
+            {row(
+              'fold',
+              v === 'fold',
+              <>
+                <span className="pv-node" />
+                <span className="pv-caption">3 commits squished</span>
+              </>,
+              'fold'
+            )}
+            {row('first', true, commit('5rem', undefined, v === 'bead'))}
+          </div>
+          <span className="pv-caption">
+            {v === 'off' ? 'every commit' : v === 'fold' ? 'a fold row stands in for them' : 'a bead on the line stands in for them'}
+          </span>
         </div>
       )
     }

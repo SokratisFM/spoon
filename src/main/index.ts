@@ -96,6 +96,7 @@ function buildMenu(): void {
           { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: () => send('refresh') },
           { label: 'Git Command History', accelerator: 'CmdOrCtrl+Shift+H', click: () => send('git-history') },
           { label: 'Filter Commits', accelerator: 'CmdOrCtrl+F', click: () => send('filter-commits') },
+          { label: 'Squish Branches', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('squish') },
           { type: 'separator' },
           // UI scaling is done by the renderer (CSS), not Electron's page zoom, so layout
           // and row heights stay crisp and consistent at every size.

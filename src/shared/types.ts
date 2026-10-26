@@ -9,6 +9,11 @@ export interface Commit {
   committerName: string
   commitTime: number
   subject: string
+  /**
+   * Squish branches (renderer only): on a fold row, the hidden commits it stands for; on a kept
+   * commit (bead style), the hidden commits right under it.
+   */
+  squish?: { key: string; count: number; newest: number; oldest: number }
 }
 
 export type RefKind = 'head' | 'remote' | 'tag' | 'stash'
@@ -585,3 +590,4 @@ export type MenuCommand =
   | 'commit-push'
   | 'review'
   | 'git-history'
+  | 'squish'

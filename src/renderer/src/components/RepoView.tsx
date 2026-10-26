@@ -12,7 +12,7 @@ import type {
 } from '../../../shared/types'
 import { useGitHubAccount } from '../github'
 import { PullRequestView } from './PullRequestView'
-import { useSettings } from '../settings'
+import { getSettings, useSettings } from '../settings'
 import { cachedGraph, graphKeyOf, LOG_LIMIT, markLoaded, prStateOf, refsSignatureOf, snapshots } from '../repoCache'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { cleanError, usePersistentState } from '../hooks'
@@ -21,6 +21,7 @@ import { setKnownAuthors } from '../authors'
 import { Split } from './Split'
 import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
+import { FOLD, groupOf, squishCommits } from '../squish'
 import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
 import { ErrorModal, overlayOpen } from './Modal'
@@ -449,10 +450,27 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   // Keyed on what the graph depends on, not the repo object: status-only refreshes and tab
   // switches reuse the built graph instead of laying out 5000 rows again.
   const graphKey = graphKeyOf(repo, settings)
-  const graph = useMemo(
-    () => cachedGraph(path, commits, repoRef.current, settings),
+  // Squish branches: the history as drawn (not while filtering), and the groups opened again.
+  const [unsquished, setUnsquished] = useState<Set<string>>(new Set())
+  useEffect(() => setUnsquished(new Set()), [settings.squishBranches, settings.squishStyle])
+  const squishing = settings.squishBranches && !filter.trim()
+  const shown = useMemo(
+    () => (squishing && repoRef.current ? squishCommits(commits, repoRef.current, settings.squishStyle, unsquished) : commits),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [path, commits, graphKey]
+    [commits, graphKey, squishing, settings.squishStyle, unsquished]
+  )
+  const unsquishedRef = useRef(unsquished)
+  unsquishedRef.current = unsquished
+  const unsquish = useCallback((key: string) => setUnsquished((s) => new Set(s).add(key)), [])
+  // A fold row opens instead of being selected.
+  const select = useCallback(
+    (hash: string) => (hash.startsWith(FOLD) ? unsquish(hash.slice(FOLD.length)) : setSelected(hash)),
+    [unsquish]
+  )
+  const graph = useMemo(
+    () => cachedGraph(path, shown, repoRef.current, settings),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [path, shown, graphKey]
   )
 
   /** Commits on a remote branch that HEAD doesn't contain, newest first (from the loaded history). */
@@ -480,6 +498,13 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     (hash: string): void => {
       setView('history')
       setFilter('')
+      // A commit hidden by squishing comes back into view.
+      const s = getSettings()
+      const key =
+        s.squishBranches && repoRef.current
+          ? groupOf(hash, lastLog.current, squishCommits(lastLog.current, repoRef.current, s.squishStyle, unsquishedRef.current))
+          : null
+      if (key) setUnsquished((u) => new Set(u).add(key))
       setSelected(hash)
       setScrollTo({ hash, n: Date.now() })
     },
@@ -708,11 +733,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               />
             ) : (
               <CommitList
-                commits={commits}
+                commits={shown}
                 graph={graph}
                 repo={repo}
                 selected={selected}
-                onSelect={setSelected}
+                onSelect={select}
+                onExpand={unsquish}
                 scrollTo={scrollTo}
                 filter={filter}
                 truncated={commits.length >= LOG_LIMIT}

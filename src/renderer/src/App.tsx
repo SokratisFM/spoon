@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
-import { resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
+import { getSettings, resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
 import { RepoView } from './components/RepoView'
 import { GitHistoryDialog } from './components/GitHistoryDialog'
 import { warmTabs } from './repoCache'
@@ -337,6 +337,7 @@ export function App() {
         else if (cmd === 'open-repo') pickRepo()
         else if (cmd === 'find-project') setPalette(true)
         else if (cmd === 'git-history') setGitHistory((open) => !open)
+        else if (cmd === 'squish') updateSettings({ squishBranches: !getSettings().squishBranches })
         else if (cmd === 'settings') setSettingsWindow('appearance')
         else if (cmd === 'close-tab') closeRef.current() // latest tabs, not the ones this effect saw
         else setCommand({ name: cmd, n: Date.now() }) // repo-level commands go to the active RepoView

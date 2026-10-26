@@ -37,6 +37,8 @@ export const MAINLIB_DEFAULTS = {
   instructions: 'https://fm-games.atlassian.net/wiki/spaces/DEV/pages/4827578369/Mainlib+update+agent+instructions'
 }
 
+/** Squish branches: a fold row in place of the hidden commits, or a "+N" bead on the graph line. */
+export type SquishStyle = 'fold' | 'bead'
 export type LaneSpotlight = 'selected' | 'hover' | 'off'
 
 export interface Settings {
@@ -64,6 +66,10 @@ export interface Settings {
   submoduleTabs: SubmoduleTabs
   tagDisplay: TagDisplay
   headHighlight: HeadHighlight
+  /** Each straight run of commits in the history shows only its first and latest commit. */
+  squishBranches: boolean
+  /** What stands in for the hidden commits: a fold row, or a "+N" bead on the graph line. */
+  squishStyle: SquishStyle
   /** Branch labels show a cloud when the branch is also on a remote; this adds the remote's name. */
   showRemoteName: boolean
   /** Branch labels in their graph line's color (like Fork) instead of the accent color. */
@@ -110,6 +116,8 @@ const DEFAULTS: Settings = {
   submoduleTabs: 'grouped',
   tagDisplay: 'diamond',
   headHighlight: 'band',
+  squishBranches: false,
+  squishStyle: 'fold',
   showRemoteName: false,
   laneColoredBranches: true,
   playfulNet: false,

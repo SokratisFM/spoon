@@ -21,6 +21,7 @@ import {
   type TagDisplay,
   type HeadHighlight,
   type LaneSpotlight,
+  type SquishStyle,
   MAINLIB_DEFAULTS
 } from '../settings'
 import {
@@ -226,6 +227,44 @@ function AppearanceTab() {
           onChange={(tagDisplay) => updateSettings({ tagDisplay })}
         />
         <span className="hint">Collapsed tags open in a list when you click the dot or chip.</span>
+      </div>
+      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
+      <div className="check">
+        <input
+          id="set-squish-branches"
+          type="checkbox"
+          checked={s.squishBranches}
+          onChange={(e) => updateSettings({ squishBranches: e.target.checked })}
+        />
+        <span>
+          <label htmlFor="set-squish-branches">Squish branches: show only the first and latest commit of each branch</label>{' '}
+          <kbd className="setting-key" title="View → Squish Branches">{keys('⇧⌘S')}</kbd>{' '}
+          <ToggleEye
+            title={'Squish branches'}
+            on={s.squishBranches}
+            spec={(from, to) => ({ kind: 'squish', from: from ? s.squishStyle : 'off', to: to ? s.squishStyle : 'off' })}
+          />
+        </span>
+      </div>
+      <div className="field">
+        <span className="field-label">
+          Squished commits show as
+          <PreviewEye label={'Squished commits'} make={() => choicePreviews<SquishStyle>('Squished commits show as', s.squishStyle, [
+            ['fold', 'Fold row'],
+            ['bead', 'Bead on the line']
+          ], (from, to) => ({ kind: 'squish', from, to }))} />
+        </span>
+        <Segmented<SquishStyle>
+          value={s.squishStyle}
+          options={[
+            ['fold', 'Fold row'],
+            ['bead', 'Bead on the line']
+          ]}
+          onChange={(squishStyle) => updateSettings({ squishStyle })}
+        />
+        <span className="hint">
+          Click a fold row or bead to show those commits again. {keys('⇧⌘S')} turns squishing on and off from anywhere.
+        </span>
       </div>
       {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
       <div className="check">
