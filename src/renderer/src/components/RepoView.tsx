@@ -21,6 +21,7 @@ import { setKnownAuthors } from '../authors'
 import { Split } from './Split'
 import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
+import { TagDialog } from './TagDialog'
 import { FOLD, groupOf, squishCommits } from '../squish'
 import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
@@ -53,6 +54,8 @@ export interface Ops {
   push: () => void
   /** Open the Create Pull Request dialog for a local branch (null when GitHub isn't set up here). */
   createPull: ((branch: string) => void) | null
+  /** Open New Tag for a commit. */
+  tag: (commit: Commit) => void
   /** Open Review with Claude: local changes by default, or one commit (null when Claude is turned off). */
   review: ((commit?: { hash: string; subject: string }) => void) | null
 }
@@ -104,6 +107,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [deleting, setDeleting] = useState<Ref | null>(null)
   const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
   const [prFor, setPrFor] = useState<string | null>(null)
+  const [tagging, setTagging] = useState<Commit | null>(null)
   const [reviewing, setReviewing] = useState<{ commit?: { hash: string; subject: string } } | null>(null)
   // Interactive rebase being planned: the commit list turns into its editor.
   const [rebasing, setRebasing] = useState<{ onto: string; branch: string; plan: RebasePlan } | null>(null)
@@ -359,6 +363,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       rebase,
       push: () => quickPushRef.current(),
       createPull: canCreatePull ? setPrFor : null,
+      tag: setTagging,
       review: claudeEnabled ? (commit) => setReviewing({ commit }) : null
     }),
     [run, checkout, rebase, canCreatePull, claudeEnabled]
@@ -437,6 +442,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     else if (command.name === 'discard') {
       // Acts on the files selected in Local Changes, like Fork's ⇧⌘D.
       if (view === 'changes') setDiscardRequest(Date.now())
+    } else if (command.name === 'new-tag') {
+      // The selected commit in the history, else the checked-out one.
+      const hash = view === 'history' && selected ? selected : repo?.headHash
+      const c = commits.find((x) => x.hash === hash)
+      if (c) setTagging(c)
     } else if (command.name === 'review') {
       if (settings.claudeEnabled) setReviewing({})
     } else if (command.name === 'commit' || command.name === 'commit-push') {
@@ -795,6 +805,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           }}
         />
       )}
+      {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} onClose={() => setTagging(null)} />}
       {reviewing && repo && (
         <ReviewDialog
           path={path}

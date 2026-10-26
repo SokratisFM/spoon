@@ -10,6 +10,7 @@ import {
   type HeadHighlight,
   type LaneSpotlight,
   type SquishStyle,
+  type DialogPosition,
   type Settings,
   type SidebarSection,
   type SubmoduleTabs,
@@ -37,6 +38,7 @@ export type PreviewSpec =
   | { kind: 'playful'; from: boolean; to: boolean }
   | { kind: 'spotlight'; from: LaneSpotlight; to: LaneSpotlight }
   | { kind: 'squish'; from: SquishStyle | 'off'; to: SquishStyle | 'off' }
+  | { kind: 'dialogs'; from: DialogPosition; to: DialogPosition }
   | { kind: 'head'; from: HeadHighlight; to: HeadHighlight }
   | { kind: 'subtabs'; from: SubmoduleTabs; to: SubmoduleTabs }
   /** Lane indexes for the branch's label and graph line, before and after. */
@@ -514,6 +516,24 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
               {mode === 'selected' ? '← selected commit' : mode === 'hover' ? '← pointer on label' : ''}
             </text>
           </svg>
+        </div>
+      )
+    }
+    case 'dialogs': {
+      // A small window with a dialog in it, sitting where dialogs open.
+      const top = (phase ? spec.to : spec.from) === 'top'
+      return (
+        <div className="pv-center">
+          <div className="pv-win">
+            <MiniRows s={s} n={7} />
+            <div className="pv-win-dim" />
+            <div className="pv-dialog" style={{ top: top ? '12%' : '50%', transform: top ? 'translate(-50%, 0)' : 'translate(-50%, -50%)' }}>
+              <span className="pv-bar" style={{ width: '4rem', opacity: 0.8 }} />
+              <span className="pv-bar faint" style={{ width: '7rem' }} />
+              <span className="pv-bar faint" style={{ width: '6rem' }} />
+              <span className="pv-dialog-btn" />
+            </div>
+          </div>
         </div>
       )
     }

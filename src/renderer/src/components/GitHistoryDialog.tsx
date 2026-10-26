@@ -73,7 +73,6 @@ export function GitHistoryDialog({ current, onClose }: { current: string | null;
       title="Git command history"
       onClose={onClose}
       wide
-      top
       footer={
         <>
           <span className="muted history-stats">

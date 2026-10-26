@@ -29,6 +29,23 @@ export interface Ref {
   gone?: boolean
 }
 
+/** Where a new tag would go: the branches its commit is on, nearest first. */
+export interface TagTarget {
+  /** ahead: commits between it and the branch's tip (0 = it is the tip). */
+  branches: { name: string; remote: boolean; ahead: number }[]
+  /** Every branch holding the commit, including ones not listed. */
+  total: number
+}
+
+export interface NewTagOptions {
+  name: string
+  hash: string
+  /** Makes it an annotated tag. */
+  message?: string
+  /** Push the tag there right away. */
+  remote?: string
+}
+
 export interface Stash {
   index: number
   name: string // stash@{0}
@@ -497,6 +514,8 @@ export interface SpoonApi {
   updateSubmodule(path: string, submodulePath: string, backupBranch?: string): Promise<void>
   submoduleUpdatePreview(path: string, submodulePath: string): Promise<SubmoduleUpdatePreview>
   deleteBranches(path: string, names: string[], force: boolean): Promise<DeleteResult>
+  tagTarget(path: string, hash: string): Promise<TagTarget>
+  createTag(path: string, opts: NewTagOptions): Promise<void>
   /** Applies a stash ("stash@{0}"); pop also deletes it. */
   stashApply(path: string, name: string, pop: boolean): Promise<void>
   stashDrop(path: string, name: string): Promise<void>
@@ -591,3 +610,4 @@ export type MenuCommand =
   | 'review'
   | 'git-history'
   | 'squish'
+  | 'new-tag'

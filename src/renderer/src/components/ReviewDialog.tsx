@@ -131,7 +131,6 @@ export function ReviewDialog({ path, repo, stagedCount, changeCount, commit, onC
       onClose={onClose}
       onSubmit={send}
       wide
-      top
       footer={
         <>
           <label className="check" style={{ marginRight: 'auto' }}>

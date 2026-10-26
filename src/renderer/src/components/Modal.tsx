@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { mod } from '../platform'
+import { useSettings } from '../settings'
 
 // Open modals, oldest first: only the topmost answers Escape and Enter.
 const stack: number[] = []
@@ -18,16 +19,16 @@ interface Props {
   onSubmit?: () => void
   footer: ReactNode
   wide?: boolean
-  /** Pin to the top of the window instead of centering, so the dialog doesn't jump as its content grows. */
-  top?: boolean
   /** Still loading what it shows: stays centred until it's in, then keeps that top edge. */
   pending?: boolean
   /** Leave Escape/Enter to the caller (the in-app dialogs handle their own keys). */
   ownKeys?: boolean
 }
 
-export function Modal({ title, children, onClose, onSubmit, footer, wide, top, pending, ownKeys }: Props) {
+export function Modal({ title, children, onClose, onSubmit, footer, wide, pending, ownKeys }: Props) {
   const id = useRef(0)
+  // Every dialog opens in the same place, chosen in Settings: near the top, or centred.
+  const top = useSettings().dialogPosition === 'top'
   // Opens centred, then keeps that top edge: content that appears later (an error, a list, another
   // option) makes the dialog grow downward instead of jumping up and down around its middle. It only
   // moves up when it would otherwise run off the bottom of the window, and then only as far as needed.
@@ -96,7 +97,7 @@ export function Modal({ title, children, onClose, onSubmit, footer, wide, top, p
         className={`modal ${wide ? 'wide' : ''}`}
         role="dialog"
         aria-label={title}
-        style={pinnedTop !== null ? { marginTop: pinnedTop, maxHeight: `calc(100vh - ${pinnedTop}px - 1rem)` } : undefined}
+        style={!top && pinnedTop !== null ? { marginTop: pinnedTop, maxHeight: `calc(100vh - ${pinnedTop}px - 1rem)` } : undefined}
       >
         <h3>{title}</h3>
         <div className="modal-body">{children}</div>

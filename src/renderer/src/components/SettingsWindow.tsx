@@ -22,6 +22,7 @@ import {
   type HeadHighlight,
   type LaneSpotlight,
   type SquishStyle,
+  type DialogPosition,
   MAINLIB_DEFAULTS
 } from '../settings'
 import {
@@ -48,7 +49,6 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
       title="Settings"
       onClose={onClose}
       wide
-      top
       footer={
         <button className="btn primary" onClick={onClose}>
           Done
@@ -187,6 +187,24 @@ function AppearanceTab() {
           ]}
           onChange={(density) => updateSettings({ density })}
         />
+      </div>
+      <div className="field">
+        <span className="field-label">
+          Dialogs open
+          <PreviewEye label={'Dialogs open'} make={() => choicePreviews<DialogPosition>('Dialogs open', s.dialogPosition, [
+            ['center', 'In the middle'],
+            ['top', 'Near the top']
+          ], (from, to) => ({ kind: 'dialogs', from, to }))} />
+        </span>
+        <Segmented<DialogPosition>
+          value={s.dialogPosition}
+          options={[
+            ['center', 'In the middle'],
+            ['top', 'Near the top']
+          ]}
+          onChange={(dialogPosition) => updateSettings({ dialogPosition })}
+        />
+        <span className="hint">Every dialog opens here, and grows downward as its content grows.</span>
       </div>
       <div className="field">
         <span className="field-label">

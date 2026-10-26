@@ -1562,6 +1562,9 @@ input[type='range'] {
   align-items: start;
   padding-top: 8vh;
 }
+.modal-backdrop.top .modal {
+  max-height: calc(92vh - 1rem);
+}
 /* Opened centred, then held at that top edge (Modal sets the margin): growth goes downward. */
 .modal-backdrop.pinned {
   align-items: start;
@@ -5882,4 +5885,148 @@ kbd.setting-key {
   color: var(--text-muted);
   background: var(--bg-hover);
   border: 1px solid var(--border);
+}
+
+/* New tag: a strip of the graph with the tag on its commit, then the branch it's on. */
+.tag-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.tag-strip {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-list);
+}
+.tag-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  overflow: hidden;
+  height: 1.9rem;
+  padding-right: 0.5rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.tag-strip-row.target {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.tag-strip-node {
+  flex: none;
+}
+.tag-strip-node path {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.tag-strip-node .dot {
+  fill: var(--accent);
+}
+.tag-strip-node .ring {
+  fill: var(--bg-list);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+.tag-strip-row .ref-badge {
+  flex: none;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tag-strip-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tag-strip-row.target .tag-strip-subject {
+  font-weight: 600;
+}
+.tag-hash {
+  margin-left: auto;
+  padding-left: 0.5rem;
+  color: var(--text-muted);
+  flex: none;
+}
+.ref-badge.tag.ghost {
+  background: transparent;
+  border: 1px dashed var(--warn);
+  flex: none;
+}
+.ref-badge.tag.ghost.empty {
+  opacity: 0.55;
+  font-style: italic;
+}
+.tag-branch {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.tag-branch .icon {
+  color: var(--accent);
+  flex: none;
+}
+.tag-branch b {
+  color: var(--accent);
+}
+.tag-branch.none {
+  color: var(--warn);
+}
+.tag-warn {
+  margin-top: -0.4rem;
+}
+.warn-text {
+  color: var(--warn);
+}
+.tag-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.tag-name .icon {
+  color: var(--warn);
+  flex: none;
+}
+.tag-name input {
+  flex: 1;
+}
+.pv-win {
+  position: relative;
+  width: 17rem;
+  height: 9.5rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-list);
+}
+.pv-win-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+.pv-dialog {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 9rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  transition:
+    top 0.4s ease,
+    transform 0.4s ease;
+}
+.pv-dialog-btn {
+  align-self: flex-end;
+  width: 2.2rem;
+  height: 0.7rem;
+  border-radius: 0.25rem;
+  background: var(--accent);
 }

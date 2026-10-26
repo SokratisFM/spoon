@@ -37,6 +37,8 @@ export const MAINLIB_DEFAULTS = {
   instructions: 'https://fm-games.atlassian.net/wiki/spaces/DEV/pages/4827578369/Mainlib+update+agent+instructions'
 }
 
+/** Where dialogs open: centred in the window (then growing downward), or near its top. */
+export type DialogPosition = 'center' | 'top'
 /** Squish branches: a fold row in place of the hidden commits, or a "+N" bead on the graph line. */
 export type SquishStyle = 'fold' | 'bead'
 export type LaneSpotlight = 'selected' | 'hover' | 'off'
@@ -66,6 +68,7 @@ export interface Settings {
   submoduleTabs: SubmoduleTabs
   tagDisplay: TagDisplay
   headHighlight: HeadHighlight
+  dialogPosition: DialogPosition
   /** Each straight run of commits in the history shows only its first and latest commit. */
   squishBranches: boolean
   /** What stands in for the hidden commits: a fold row, or a "+N" bead on the graph line. */
@@ -116,6 +119,7 @@ const DEFAULTS: Settings = {
   submoduleTabs: 'grouped',
   tagDisplay: 'diamond',
   headHighlight: 'band',
+  dialogPosition: 'center',
   squishBranches: false,
   squishStyle: 'fold',
   showRemoteName: false,

@@ -12,7 +12,7 @@ import * as atlassian from './atlassian'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { ClaudeLaunch, NewPull, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { ClaudeLaunch, NewPull, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -83,6 +83,7 @@ function buildMenu(): void {
           { label: 'Commit', accelerator: 'CmdOrCtrl+Enter', click: () => send('commit') },
           { label: 'Commit and Push', accelerator: 'CmdOrCtrl+Alt+Enter', click: () => send('commit-push') },
           { label: 'Discard Selected Changes…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('discard') },
+          { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('new-tag') },
           { id: 'review', label: 'Review with Claude…', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('review') },
           { type: 'separator' },
           { label: 'Fetch', accelerator: 'CmdOrCtrl+Shift+F', click: () => send('fetch') },
@@ -265,6 +266,8 @@ function registerIpc(): void {
   ipcMain.handle('repo:rebaseContinue', (_e, path: string, action: 'continue' | 'skip' | 'abort') =>
     git.rebaseContinue(path, action)
   )
+  ipcMain.handle('repo:tagTarget', (_e, path: string, hash: string) => git.tagTarget(path, hash))
+  ipcMain.handle('repo:createTag', (_e, path: string, opts: NewTagOptions) => git.createTag(path, opts))
   ipcMain.handle('repo:stashApply', (_e, path: string, name: string, pop: boolean) => git.stashApply(path, name, pop))
   ipcMain.handle('repo:stashDrop', (_e, path: string, name: string) => git.stashDrop(path, name))
   ipcMain.handle('repo:fastForwardBranches', (_e, path: string, names: string[]) => git.fastForwardBranches(path, names))

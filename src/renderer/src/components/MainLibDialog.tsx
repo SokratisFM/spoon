@@ -210,7 +210,7 @@ export function MainLibDialog({
   })()
 
   return (
-    <Modal title={`Update ${sub.name}`} onClose={step === 'progress' ? () => undefined : onClose} wide top footer={footer}>
+    <Modal title={`Update ${sub.name}`} onClose={step === 'progress' ? () => undefined : onClose} wide footer={footer}>
       <div className="ml">
         <div className="ml-sub muted">
           {repoName} · {sub.path}

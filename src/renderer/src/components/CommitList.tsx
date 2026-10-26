@@ -284,6 +284,8 @@ export const CommitList = memo(function CommitList({
           ? [{ separator: true }, { id: 'delete-branch', label: 'Delete Branch…' }]
           : []),
         { separator: true },
+        { id: 'tag', label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G' },
+        { separator: true },
         ...(ops.review ? [{ id: 'review', label: 'Review This Commit with Claude…' }, { separator: true }] : []),
         { id: 'hash', label: 'Copy Commit Hash' },
         { id: 'subject', label: 'Copy Commit Message' },
@@ -313,6 +315,7 @@ export const CommitList = memo(function CommitList({
       ])
       if (!choice) return
       if (choice === 'review') return ops.review?.({ hash: c.hash, subject: c.subject })
+      if (choice === 'tag') return ops.tag(c)
       if (choice.startsWith('pr:')) return ops.createPull?.(choice.slice(3))
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)

@@ -16,7 +16,9 @@ import type {
   CheckoutTarget,
   PullOptions,
   PushOptions,
+  NewTagOptions,
   Stash,
+  TagTarget,
   Submodule,
   SyncInfo,
   DeleteResult,
@@ -1038,6 +1040,48 @@ export function fetchAndCheckout(cwd: string, remote: string, source: string, lo
 }
 
 /** Deletes a branch on a remote (git push <remote> --delete <branch>). */
+// ---------- tags ----------
+
+/**
+ * The branches a commit is on, for checking where a new tag goes: nearest first, with how many
+ * commits each branch's tip is past it (0 = the commit is the tip).
+ */
+export async function tagTarget(cwd: string, hash: string): Promise<TagTarget> {
+  assertHash(hash)
+  const refs = (await git(cwd, ['for-each-ref', '--format=%(refname)', `--contains=${hash}`, 'refs/heads', 'refs/remotes']))
+    .split('\n')
+    .filter((r) => r && !r.endsWith('/HEAD'))
+  // Every local branch, but only the first remote branches: an old commit is on nearly all of them.
+  const local = refs.filter((r) => r.startsWith('refs/heads/'))
+  const checked = [...local, ...refs.filter((r) => r.startsWith('refs/remotes/')).slice(0, 30)]
+  const branches = await Promise.all(
+    checked.map(async (ref) => ({
+      name: ref.replace(/^refs\/(heads|remotes)\//, ''),
+      remote: ref.startsWith('refs/remotes/'),
+      ahead: Number((await git(cwd, ['rev-list', '--count', `${hash}..${ref}`])).trim())
+    }))
+  )
+  branches.sort((a, b) => a.ahead - b.ahead || Number(a.remote) - Number(b.remote))
+  return { branches, total: refs.length }
+}
+
+/** Creates a tag on a commit (annotated when there's a message), and pushes it when a remote is given. */
+export function createTag(cwd: string, opts: NewTagOptions): Promise<void> {
+  return exclusive(cwd, async () => {
+    assertHash(opts.hash)
+    assertArg(opts.name, 'tag name')
+    try {
+      await git(cwd, ['check-ref-format', `refs/tags/${opts.name}`])
+    } catch {
+      throw new Error(`“${opts.name}” isn’t a valid tag name.`)
+    }
+    if (opts.remote) await assertRemote(cwd, opts.remote)
+    const message = opts.message?.trim()
+    await git(cwd, ['tag', ...(message ? ['-a', '-m', message] : []), opts.name, opts.hash])
+    if (opts.remote) await run(cwd, ['push', opts.remote, `refs/tags/${opts.name}`], { cancellable: true })
+  })
+}
+
 export function deleteRemoteBranch(cwd: string, remote: string, branch: string): Promise<void> {
   return exclusive(cwd, async () => {
     await assertRemote(cwd, remote)
