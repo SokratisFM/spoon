@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import * as git from './git'
 import { safeStorage } from 'electron'
-import type {
+import type { NewRelease,
   CreatedPull,
   DeviceCode,
   NewPull,
@@ -505,6 +505,41 @@ export async function checkoutPull(path: string, number: number): Promise<void> 
 // ---------- creating pull requests ----------
 
 /** Everyone who can be assigned (and so asked for review) in the repository. */
+// ---------- releases ----------
+
+/** The tag of the newest published release, or null when there's none yet. */
+export async function latestRelease(path: string): Promise<string | null> {
+  const slug = await slugOrThrow(path)
+  try {
+    return (await api<{ tag_name: string }>(`/repos/${slug}/releases/latest`)).tag_name
+  } catch {
+    return null
+  }
+}
+
+/** Release notes as GitHub writes them: the pull requests merged since the previous release. */
+export async function releaseNotes(path: string, tag: string, target: string): Promise<{ name: string; body: string }> {
+  const slug = await slugOrThrow(path)
+  return api(`/repos/${slug}/releases/generate-notes`, { method: 'POST', body: { tag_name: tag, target_commitish: target } })
+}
+
+export async function createRelease(path: string, r: NewRelease): Promise<string> {
+  const slug = await slugOrThrow(path)
+  const created = await api<{ html_url: string }>(`/repos/${slug}/releases`, {
+    method: 'POST',
+    body: {
+      tag_name: r.tag,
+      target_commitish: r.target,
+      name: r.name,
+      body: r.body,
+      draft: r.draft,
+      prerelease: r.prerelease,
+      make_latest: r.latest ? 'true' : 'false'
+    }
+  })
+  return created.html_url
+}
+
 export async function assignable(path: string): Promise<GhUser[]> {
   const slug = await slugOrThrow(path)
   const list = await apiAll<{ login: string; avatar_url: string }>(`/repos/${slug}/assignees`, 3)

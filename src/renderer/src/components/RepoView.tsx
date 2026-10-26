@@ -805,7 +805,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           }}
         />
       )}
-      {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} onClose={() => setTagging(null)} />}
+      {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} github={canCreatePull} onClose={() => setTagging(null)} />}
       {reviewing && repo && (
         <ReviewDialog
           path={path}

@@ -1,7 +1,9 @@
 // New Tag: puts a tag on a commit. A strip of the graph shows the commit between its neighbours with
 // the tag already on it (as typed), and the branch it's on, so it's clear where the tag lands before
-// it's created (and, optionally, pushed).
+// it's created (and, optionally, pushed). With a GitHub remote, the same press can also publish a
+// GitHub release for the tag, with notes GitHub writes from what was merged since the last release.
 import { useEffect, useState, type ReactNode } from 'react'
+import { choose } from '../dialogs'
 import type { Commit, RepoState } from '../../../shared/types'
 import { useAsync, usePersistentState } from '../hooks'
 import { Modal } from './Modal'
@@ -15,10 +17,12 @@ interface Props {
   /** The loaded history, for the commits around this one. */
   commits: Commit[]
   ops: Ops
+  /** Signed in to GitHub, and the repository is on GitHub: releases can be published. */
+  github: boolean
   onClose: () => void
 }
 
-export function TagDialog({ path, repo, commit, commits, ops, onClose }: Props) {
+export function TagDialog({ path, repo, commit, commits, ops, github, onClose }: Props) {
   const { data: target, error } = useAsync(() => window.spoon.tagTarget(path, commit.hash), [path, commit.hash])
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
@@ -31,15 +35,80 @@ export function TagDialog({ path, repo, commit, commits, ops, onClose }: Props) 
   const problem = taken ? `${trimmed} already exists.` : trimmed && invalid ? 'Tag names can’t have spaces or ~ ^ : ? * [ \\.' : null
   const canCreate = !!trimmed && !problem
 
+  // The GitHub release: on or off is remembered per repository.
+  const [releaseOn, setReleaseOn] = usePersistentState(`spoon.tag.release.${path}`, false)
+  const release = github && !!remote && releaseOn
+  const [title, setTitle] = useState<string | null>(null) // null: follows the tag's name
+  const [notes, setNotes] = useState<string | null>(null) // null: not generated or written yet
+  const [notesEdited, setNotesEdited] = useState(false)
+  const [notesState, setNotesState] = useState<'idle' | 'loading' | string>('idle')
+  const preTag = /-(rc|beta|alpha|preview|pre)\b/i.test(trimmed)
+  const [prerelease, setPrerelease] = useState<boolean | null>(null)
+  const [latest, setLatest] = useState<boolean | null>(null)
+  const [draft, setDraft] = useState(false)
+  const isPre = prerelease ?? preTag
+  const isLatest = latest ?? !isPre
+  const { data: previous } = useAsync(
+    () => (release ? window.spoon.ghLatestRelease(path).catch(() => null) : Promise.resolve(null)),
+    [path, release]
+  )
+  const generate = (): void => {
+    if (!trimmed || problem) return
+    setNotesState('loading')
+    window.spoon.ghReleaseNotes(path, trimmed, commit.hash).then(
+      (n) => {
+        setNotes(n.body)
+        setNotesEdited(false)
+        setNotesState('idle')
+      },
+      (err: Error) => setNotesState(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    )
+  }
+  // Notes follow the name (once typing pauses) until they're edited by hand.
+  useEffect(() => {
+    if (!release || notesEdited || !trimmed || problem) return
+    const t = setTimeout(generate, 500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [release, trimmed, !!problem])
+
   const create = (): void => {
     if (!canCreate) return
     onClose()
-    const pushTo = push && remote ? remote : undefined
-    ops.run(
-      pushTo ? `Creating ${trimmed} and pushing it to ${pushTo}…` : `Creating ${trimmed}…`,
-      () => window.spoon.createTag(path, { name: trimmed, hash: commit.hash, message, remote: pushTo }),
-      'Couldn’t create the tag'
-    )
+    // A release needs the tag on GitHub, so it's always pushed then.
+    const pushTo = (push || release) && remote ? remote : undefined
+    let url = ''
+    ops
+      .run(
+        release ? `Creating ${trimmed} and publishing its release…` : pushTo ? `Creating ${trimmed} and pushing it to ${pushTo}…` : `Creating ${trimmed}…`,
+        async () => {
+          await window.spoon.createTag(path, { name: trimmed, hash: commit.hash, message, remote: pushTo })
+          if (release)
+            url = await window.spoon.ghCreateRelease(path, {
+              tag: trimmed,
+              target: commit.hash,
+              name: (title ?? trimmed).trim() || trimmed,
+              body: notes ?? '',
+              draft,
+              prerelease: isPre,
+              latest: isLatest && !draft
+            })
+        },
+        release ? 'Couldn’t create the tag or its release' : 'Couldn’t create the tag'
+      )
+      .then(async (ok) => {
+        if (!ok || !url) return
+        const choice = await choose({
+          title: draft ? `Release ${trimmed} saved as a draft` : `Release ${trimmed} published`,
+          detail: url,
+          cancelId: 'done',
+          buttons: [
+            { id: 'done', label: 'Done' },
+            { id: 'open', label: 'Open on GitHub', kind: 'primary' }
+          ]
+        })
+        if (choice === 'open') window.spoon.openExternal(url)
+      })
   }
 
   // The branch named first: one whose tip this commit is (local before remote), else the nearest
@@ -93,8 +162,8 @@ export function TagDialog({ path, repo, commit, commits, ops, onClose }: Props) 
       footer={
         <>
           {remote && (
-            <label className="check" style={{ marginRight: 'auto' }}>
-              <input type="checkbox" checked={push} onChange={(e) => setPush(e.target.checked)} />
+            <label className="check" style={{ marginRight: 'auto' }} title={release ? 'A release needs the tag on GitHub' : undefined}>
+              <input type="checkbox" checked={push || release} disabled={release} onChange={(e) => setPush(e.target.checked)} />
               Push to {remote}
             </label>
           )}
@@ -102,7 +171,7 @@ export function TagDialog({ path, repo, commit, commits, ops, onClose }: Props) 
             Cancel
           </button>
           <button className="btn primary" onClick={create} disabled={!canCreate}>
-            {trimmed && !problem ? `Create ${trimmed}` : 'Create tag'}
+            {trimmed && !problem ? (release ? `Create ${trimmed} and release` : `Create ${trimmed}`) : 'Create tag'}
           </button>
         </>
       }
@@ -186,6 +255,55 @@ export function TagDialog({ path, repo, commit, commits, ops, onClose }: Props) 
           </span>
           <textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} />
         </label>
+
+        {github && remote && (
+          <div className="check">
+            <input id="tag-release" type="checkbox" checked={releaseOn} onChange={(e) => setReleaseOn(e.target.checked)} />
+            <label htmlFor="tag-release">Publish a GitHub release for it</label>
+          </div>
+        )}
+        {release && (
+          <div className="tag-release">
+            <label className="field">
+              <span className="field-label">Title</span>
+              <input value={title ?? trimmed} onChange={(e) => setTitle(e.target.value)} placeholder={trimmed || 'v2.3.1'} />
+            </label>
+            <div className="field">
+              <span className="field-label tag-notes-label">
+                Notes
+                <button className="link-btn" onClick={generate} disabled={!trimmed || !!problem || notesState === 'loading'}>
+                  {notesState === 'loading' ? 'Generating…' : `↻ Generate from changes since ${previous ?? 'the last release'}`}
+                </button>
+              </span>
+              <textarea
+                className="tag-notes"
+                rows={7}
+                value={notes ?? ''}
+                placeholder={trimmed ? 'GitHub writes these from what was merged since the last release.' : 'Name the tag first.'}
+                onChange={(e) => {
+                  setNotes(e.target.value)
+                  setNotesEdited(true)
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+              {notesState !== 'idle' && notesState !== 'loading' && <span className="error-text hint">{notesState}</span>}
+            </div>
+            <div className="tag-flags">
+              <label className="check">
+                <input type="checkbox" checked={isLatest && !draft} disabled={draft || isPre} onChange={(e) => setLatest(e.target.checked)} />
+                Set as latest
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={isPre} onChange={(e) => setPrerelease(e.target.checked)} />
+                Pre-release
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />
+                Save as draft
+              </label>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   )

@@ -6244,3 +6244,27 @@ kbd.setting-key {
 .syn-offer .btn {
   padding: 0.2rem 0.7rem;
 }
+.tag-release {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: -0.3rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+}
+.tag-notes-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.tag-notes {
+  font-family: var(--font-code);
+  font-size: 0.88em;
+}
+.tag-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+}

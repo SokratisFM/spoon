@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { mod } from '../platform'
-import { useSettings } from '../settings'
+import { updateSettings, useSettings } from '../settings'
+import { contextMenu } from '../menus'
 
 // Open modals, oldest first: only the topmost answers Escape and Enter.
 const stack: number[] = []
@@ -99,7 +100,19 @@ export function Modal({ title, children, onClose, onSubmit, footer, wide, pendin
         aria-label={title}
         style={!top && pinnedTop !== null ? { marginTop: pinnedTop, maxHeight: `calc(100vh - ${pinnedTop}px - 1rem)` } : undefined}
       >
-        <h3>{title}</h3>
+        <h3
+          onContextMenu={async (e) => {
+            e.preventDefault()
+            const choice = await contextMenu([
+              { label: 'Popups open', enabled: false },
+              { id: 'center', label: 'In the middle', kind: 'checkbox', checked: !top },
+              { id: 'top', label: 'Near the top', kind: 'checkbox', checked: top }
+            ])
+            if (choice === 'center' || choice === 'top') updateSettings({ dialogPosition: choice })
+          }}
+        >
+          {title}
+        </h3>
         <div className="modal-body">{children}</div>
         <div className="modal-footer">{footer}</div>
       </div>

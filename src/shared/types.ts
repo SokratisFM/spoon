@@ -59,6 +59,17 @@ export interface TagTarget {
   total: number
 }
 
+export interface NewRelease {
+  tag: string
+  /** The commit the tag is on. */
+  target: string
+  name: string
+  body: string
+  draft: boolean
+  prerelease: boolean
+  latest: boolean
+}
+
 export interface NewTagOptions {
   name: string
   hash: string
@@ -593,6 +604,12 @@ export interface SpoonApi {
   /** People who can be assigned or asked to review in this repository. */
   ghAssignable(path: string): Promise<GhUser[]>
   ghCreatePull(path: string, pull: NewPull): Promise<CreatedPull>
+  /** The newest published release's tag (null when there's none). */
+  ghLatestRelease(path: string): Promise<string | null>
+  /** GitHub's release notes for a tag on a commit: what was merged since the previous release. */
+  ghReleaseNotes(path: string, tag: string, target: string): Promise<{ name: string; body: string }>
+  /** Publishes a release for a tag that's on GitHub already; returns its page. */
+  ghCreateRelease(path: string, release: NewRelease): Promise<string>
   gitHistory(): Promise<GitCommandEntry[]>
   clearGitHistory(): Promise<void>
   /** Called as each git command starts and again when it ends. */

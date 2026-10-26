@@ -172,6 +172,24 @@ function AppearanceTab() {
   const s = useSettings()
   return (
     <>
+      <div className="field">
+        <span className="field-label">
+          Popups open
+          <PreviewEye label={'Popups open'} make={() => choicePreviews<DialogPosition>('Popups open', s.dialogPosition, [
+            ['center', 'In the middle'],
+            ['top', 'Near the top']
+          ], (from, to) => ({ kind: 'dialogs', from, to }))} />
+        </span>
+        <Segmented<DialogPosition>
+          value={s.dialogPosition}
+          options={[
+            ['center', 'In the middle'],
+            ['top', 'Near the top']
+          ]}
+          onChange={(dialogPosition) => updateSettings({ dialogPosition })}
+        />
+        <span className="hint">Where every popup (Settings, New tag, Create pull request, Review with Claude…) appears. It grows downward from there. Also switchable by right-clicking any popup’s title.</span>
+      </div>
       <SizeControls />
       <div className="field">
         <span className="field-label">
@@ -191,24 +209,6 @@ function AppearanceTab() {
           ]}
           onChange={(density) => updateSettings({ density })}
         />
-      </div>
-      <div className="field">
-        <span className="field-label">
-          Dialogs open
-          <PreviewEye label={'Dialogs open'} make={() => choicePreviews<DialogPosition>('Dialogs open', s.dialogPosition, [
-            ['center', 'In the middle'],
-            ['top', 'Near the top']
-          ], (from, to) => ({ kind: 'dialogs', from, to }))} />
-        </span>
-        <Segmented<DialogPosition>
-          value={s.dialogPosition}
-          options={[
-            ['center', 'In the middle'],
-            ['top', 'Near the top']
-          ]}
-          onChange={(dialogPosition) => updateSettings({ dialogPosition })}
-        />
-        <span className="hint">Every dialog opens here, and grows downward as its content grows.</span>
       </div>
       <div className="field">
         <span className="field-label">

@@ -13,7 +13,7 @@ import * as ide from './ide'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { ClaudeLaunch, NewPull, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { ClaudeLaunch, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -209,6 +209,9 @@ function registerIpc(): void {
   ipcMain.handle('repo:pullDraftInfo', (_e, path: string, branch: string) => git.pullDraftInfo(path, branch))
   ipcMain.handle('gh:assignable', (_e, path: string) => gh.assignable(path))
   ipcMain.handle('gh:createPull', (_e, path: string, pull: NewPull) => gh.createPull(path, pull))
+  ipcMain.handle('gh:latestRelease', (_e, path: string) => gh.latestRelease(path))
+  ipcMain.handle('gh:releaseNotes', (_e, path: string, tag: string, target: string) => gh.releaseNotes(path, tag, target))
+  ipcMain.handle('gh:createRelease', (_e, path: string, release: NewRelease) => gh.createRelease(path, release))
   ipcMain.handle('claude:availability', () => claude.availability())
   ipcMain.handle('atlassian:account', () => atlassian.account())
   ipcMain.handle('atlassian:connect', (_e, email: string, token: string, pageUrl: string) =>
