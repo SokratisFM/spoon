@@ -61,6 +61,11 @@ export const HistoryIcon = (p: P) => (
     <path d="M12 7.2v9.6" />
   </Icon>
 )
+export const CompareIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 5h6v14H4zM14 5h6v14h-6M7 9v6M17 12h0M15.5 12h3" />
+  </Icon>
+)
 export const ListViewIcon = (p: P) => (
   <Icon {...p}>
     <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />

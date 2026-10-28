@@ -5,6 +5,7 @@ import { confirm } from '../dialogs'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FileList } from './FileList'
+import { requestCompare } from '../compare'
 import { ListViewIcon, TreeViewIcon } from './Icons'
 import { updateSettings, useSettings } from '../settings'
 import { DiffView, type HunkAction } from './DiffView'
@@ -183,12 +184,16 @@ export function ChangesView({
         enabled: files.some((f) => f.status !== 'U')
       },
       { separator: true },
+      { id: 'compare', label: 'Compare with…', enabled: files.length === 1 && files[0].status !== 'D' },
       { id: 'reveal', label: revealLabel, enabled: files.length === 1 },
       { id: 'copy', label: files.length === 1 ? 'Copy Path' : 'Copy Paths' }
     ])
     if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
     else if (choice === 'discard') discard(files, area)
-    else if (choice === 'reveal') window.spoon.revealInFinder(`${path}/${files[0].path}`)
+    else if (choice === 'compare') {
+      const other = await window.spoon.pickFile(`Compare ${files[0].path} with…`)
+      if (other) requestCompare(other, `${path}/${files[0].path}`)
+    } else if (choice === 'reveal') window.spoon.revealInFinder(`${path}/${files[0].path}`)
     else if (choice === 'copy') navigator.clipboard.writeText(files.map((f) => f.path).join('\n'))
   }
 

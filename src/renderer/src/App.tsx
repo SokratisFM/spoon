@@ -9,12 +9,15 @@ import { warmTabs } from './repoCache'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
-import { BoxIcon, ChildIcon, CloseIcon, CogIcon, FolderIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
+import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
 import { choose, DialogHost } from './dialogs'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
 import { useUpdateState } from './appinfo'
 import { closeMenu, contextMenu, MenuHost } from './menus'
+import { compareFiles, compareTab, fileName } from './compare'
+import { CompareView } from './components/CompareView'
+import { CompareDialog } from './components/CompareDialog'
 
 export function App() {
   const settings = useSettings()
@@ -30,6 +33,93 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null)
 
   const current = active && tabs.includes(active) ? active : null
+  const currentCompare = current ? compareFiles(current) : null
+
+  // Comparing two files: a Compare tab, from the menu's picker, a drop on the window or any part of
+  // the app (requestCompare).
+  const [comparing, setComparing] = useState(false)
+  const comparingRef = useRef(comparing)
+  comparingRef.current = comparing
+  const [home, setHome] = useState('')
+  useEffect(() => {
+    window.spoon.homeDir().then(setHome)
+  }, [])
+  const openCompare = useCallback(
+    (a: string, b: string, replace?: string) => {
+      const key = compareTab(a, b)
+      setTabs((t) => (t.includes(key) ? t.filter((x) => x !== replace) : replace ? t.map((x) => (x === replace ? key : x)) : [...t, key]))
+      setActive(key)
+    },
+    [setTabs, setActive]
+  )
+  useEffect(() => {
+    const on = (e: Event): void => {
+      const [a, b] = (e as CustomEvent<[string, string]>).detail
+      openCompare(a, b)
+    }
+    window.addEventListener('spoon:compare', on)
+    return () => window.removeEventListener('spoon:compare', on)
+  }, [openCompare])
+  // Files dragged over the window: drop two to compare them, or one now and one after.
+  const [dropping, setDropping] = useState(false)
+  const [firstDropped, setFirstDropped] = useState<string | null>(null)
+  const firstDroppedRef = useRef(firstDropped)
+  firstDroppedRef.current = firstDropped
+  useEffect(() => {
+    const hasFiles = (e: DragEvent): boolean => !!e.dataTransfer?.types.includes('Files')
+    let depth = 0
+    const enter = (e: DragEvent): void => {
+      if (!hasFiles(e)) return
+      depth++
+      setDropping(true)
+    }
+    const leave = (e: DragEvent): void => {
+      if (!hasFiles(e)) return
+      if (--depth <= 0) {
+        depth = 0
+        setDropping(false)
+      }
+    }
+    const over = (e: DragEvent): void => {
+      if (hasFiles(e)) e.preventDefault()
+    }
+    // Any drop or cancelled drag ends the overlay, even one a Compare Files slot takes for itself.
+    const end = (): void => {
+      depth = 0
+      setDropping(false)
+    }
+    const drop = (e: DragEvent): void => {
+      if (!hasFiles(e) || e.defaultPrevented) return
+      // With Compare Files open, only its slots take files.
+      if (comparingRef.current) return e.preventDefault()
+      e.preventDefault()
+      const paths = [...(e.dataTransfer?.files ?? [])].map((f) => window.spoon.pathForFile(f)).filter(Boolean)
+      if (paths.length >= 2) {
+        setFirstDropped(null)
+        openCompare(paths[0], paths[1])
+      } else if (paths[0]) {
+        const first = firstDroppedRef.current
+        if (first && first !== paths[0]) {
+          setFirstDropped(null)
+          openCompare(first, paths[0])
+        } else setFirstDropped(paths[0])
+      }
+    }
+    window.addEventListener('dragenter', enter)
+    window.addEventListener('dragleave', leave)
+    window.addEventListener('dragover', over)
+    window.addEventListener('drop', drop)
+    window.addEventListener('drop', end, true)
+    window.addEventListener('dragend', end, true)
+    return () => {
+      window.removeEventListener('drop', end, true)
+      window.removeEventListener('dragend', end, true)
+      window.removeEventListener('dragenter', enter)
+      window.removeEventListener('dragleave', leave)
+      window.removeEventListener('dragover', over)
+      window.removeEventListener('drop', drop)
+    }
+  }, [openCompare])
 
   const dropTab = useCallback(
     (path: string) => {
@@ -97,7 +187,7 @@ export function App() {
 
   // A tab restored at startup may point at a folder that has since been moved or deleted.
   useEffect(() => {
-    if (!current) return setCurrentMissing(false)
+    if (!current || compareFiles(current)) return setCurrentMissing(false)
     window.spoon.pathsExist([current]).then(([ok]) => setCurrentMissing(!ok))
   }, [current])
 
@@ -160,11 +250,13 @@ export function App() {
   // Which open tabs are submodules, and of what. Re-checked when the tab list changes.
   const [parents, setParents] = useState<Record<string, string | null>>({})
   useEffect(() => {
-    window.spoon.repoParents(tabs).then((ps) => setParents(Object.fromEntries(tabs.map((t, i) => [t, ps[i]]))))
+    const repos = tabs.filter((t) => !compareFiles(t))
+    window.spoon.repoParents(repos).then((ps) => setParents(Object.fromEntries(repos.map((t, i) => [t, ps[i]]))))
   }, [tabs])
 
   const tab = (path: string, variant: 'plain' | 'child' | 'labelled') => {
-    const name = projectName(path)
+    const files = compareFiles(path)
+    const name = files ? `${fileName(files[0])} ↔ ${fileName(files[1])}` : projectName(path)
     const parent = parents[path]
     return (
       <div
@@ -173,8 +265,9 @@ export function App() {
         onClick={() => setActive(path)}
         onAuxClick={(e) => e.button === 1 && closeTab(path)}
         onContextMenu={(e) => tabMenu(e, path)}
-        title={parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path}
+        title={files ? `${files[0]}\n${files[1]}` : parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path}
       >
+        {files && <CompareIcon className="icon tab-sub-icon" />}
         {variant === 'child' && <ChildIcon className="icon tab-sub-icon" />}
         {variant === 'labelled' && <BoxIcon className="icon tab-sub-icon" />}
         {variant === 'labelled' ? (
@@ -260,8 +353,8 @@ export function App() {
     } else if (choice === 'right') {
       setTabs((t) => t.filter((p) => !after.includes(p)))
       if (current && after.includes(current)) setActive(path)
-    } else if (choice === 'reveal') window.spoon.revealInFinder(path)
-    else if (choice === 'copy') navigator.clipboard.writeText(path)
+    } else if (choice === 'reveal') window.spoon.revealInFinder(compareFiles(path)?.[1] ?? path)
+    else if (choice === 'copy') navigator.clipboard.writeText(compareFiles(path)?.join('\n') ?? path)
   }
   const tabBarMenu = async (e: React.MouseEvent): Promise<void> => {
     if (e.defaultPrevented) return
@@ -369,6 +462,7 @@ export function App() {
         else if (cmd === 'open-repo') pickRepo()
         else if (cmd === 'find-project') setPalette(true)
         else if (cmd === 'git-history') setGitHistory((open) => !open)
+        else if (cmd === 'compare-files') setComparing(true)
         else if (cmd === 'squish') updateSettings({ squishBranches: !getSettings().squishBranches })
         else if (cmd === 'settings') setSettingsWindow('appearance')
         else if (cmd === 'close-tab') closeRef.current() // latest tabs, not the ones this effect saw
@@ -429,6 +523,13 @@ export function App() {
             </button>
           </div>
         </div>
+      ) : current && currentCompare ? (
+        <CompareView
+          key={current}
+          a={currentCompare[0]}
+          b={currentCompare[1]}
+          onChange={(a, b) => openCompare(a, b, current)}
+        />
       ) : current ? (
         <RepoView
           key={current}
@@ -448,12 +549,35 @@ export function App() {
       )}
 
       {palette && (
-        <ProjectPalette openTabs={tabs} onOpen={openRepo} onBrowse={pickRepo} onClose={() => setPalette(false)} />
+        <ProjectPalette
+          openTabs={tabs}
+          onOpen={openRepo}
+          onBrowse={pickRepo}
+          onCompare={() => setComparing(true)}
+          onClose={() => setPalette(false)}
+        />
       )}
 
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
 
       {gitHistory && <GitHistoryDialog current={current} onClose={() => setGitHistory(false)} />}
+      {comparing && <CompareDialog home={home} onCompare={openCompare} onClose={() => setComparing(false)} />}
+      {dropping && !comparing && (
+        <div className="drop-overlay">
+          <span>
+            <CompareIcon className="icon" />{' '}
+            {firstDropped ? `Drop a file to compare with ${fileName(firstDropped)}` : 'Drop 2 files to compare them'}
+          </span>
+        </div>
+      )}
+      {firstDropped && !dropping && (
+        <div className="toast compare-wait" role="status">
+          Comparing <b>{fileName(firstDropped)}</b>: drop the second file anywhere.
+          <button className="link-btn" onClick={() => setFirstDropped(null)}>
+            Cancel
+          </button>
+        </div>
+      )}
       <DialogHost />
       <MenuHost />
 

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import { appendFileSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import * as git from './git'
 import { pathsExist, scanRepos, toSlash } from './scan'
 import config from '../../spoon.config.json'
@@ -69,6 +70,7 @@ function buildMenu(): void {
           { label: 'New Tab…', accelerator: 'CmdOrCtrl+T', click: () => send('find-project') },
           { label: 'Open Repository…', accelerator: 'CmdOrCtrl+O', click: () => send('find-project') },
           { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('open-repo') },
+          { label: 'Compare Files…', accelerator: 'CmdOrCtrl+Alt+D', click: () => send('compare-files') },
           { type: 'separator' },
           // ⌘W / Ctrl+W closes the current repository tab; the renderer closes the window when
           // there's no tab left to close (so the window's usual close behavior applies).
@@ -166,6 +168,13 @@ function registerIpc(): void {
     })
     return res.canceled ? null : toSlash(res.filePaths[0])
   })
+  ipcMain.handle('ui:pickFile', async (_e, title: string) => {
+    const res = await dialog.showOpenDialog(win!, { title, properties: ['openFile'] })
+    return res.canceled ? null : toSlash(res.filePaths[0])
+  })
+  ipcMain.handle('fs:stamps', (_e, paths: string[]) =>
+    Promise.all(paths.map((p) => stat(p).then((s) => s.mtimeMs, () => null)))
+  )
   ipcMain.handle('ui:pickFolder', async (_e, title: string) => {
     const res = await dialog.showOpenDialog(win!, { title, properties: ['openDirectory', 'createDirectory'] })
     return res.canceled ? null : toSlash(res.filePaths[0])

@@ -572,6 +572,10 @@ async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number): Prom
     const parents = (await git(cwd, ['rev-list', '--parents', '-n1', target.hash])).trim().split(' ').slice(1)
     return diffOf([parents[0] ?? EMPTY_TREE, target.hash, '--', ...paths])
   }
+  if (target.kind === 'files') {
+    for (const p of [target.a, target.b]) if (!isAbsolute(p)) throw new Error(`Not a file path: ${p}`)
+    return diffOf(['--no-index', '--', target.a, target.b], [0, 1])
+  }
   if (target.kind === 'staged') return diffOf(['--cached', '--', ...paths])
   if (file.status === '?') return diffOf(['--no-index', '--', '/dev/null', file.path], [0, 1])
   return diffOf(['--', ...paths])
@@ -589,6 +593,14 @@ export async function diffFile(cwd: string, target: DiffTarget): Promise<{ text:
     return truncated ? null : out
   }
   let text: string | null
+  if (target.kind === 'files') {
+    try {
+      text = (await stat(target.b)).size > MAX_FILE_BYTES ? null : await readFile(target.b, 'utf8')
+    } catch {
+      text = null
+    }
+    return text === null ? null : { text, side: 'new' }
+  }
   if (target.kind === 'commit') {
     assertHash(target.hash)
     text = deleted ? await show(`${target.hash}^:${file.oldPath ?? file.path}`) : await show(`${target.hash}:${file.path}`)
@@ -771,7 +783,7 @@ export async function unstageAll(cwd: string): Promise<void> {
  * from the current diff: file header + that hunk, applied to the index.
  */
 export async function applyHunk(cwd: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void> {
-  if (target.kind === 'commit') throw new Error('Cannot stage a hunk from a commit')
+  if (target.kind === 'commit' || target.kind === 'files') throw new Error('Only local changes can be staged by hunk')
   return exclusive(cwd, () => applyHunkNow(cwd, target, hunkIndex, hunkHeader))
 }
 

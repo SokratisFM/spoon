@@ -235,6 +235,8 @@ export interface WorkingTree {
 /** What a diff request refers to. */
 export type DiffTarget =
   | { kind: 'commit'; hash: string; file: FileChange }
+  /** Any two files on disk, inside a repository or not (absolute paths). */
+  | { kind: 'files'; a: string; b: string; file: FileChange }
   | { kind: 'staged'; file: FileChange }
   | { kind: 'unstaged'; file: FileChange }
 
@@ -524,6 +526,12 @@ export interface SpoonApi {
   storeSet(key: string, value: string | null): void
   pickRepo(): Promise<string | null>
   pickFolder(title: string): Promise<string | null>
+  /** Asks for one file (absolute path), or null if cancelled. */
+  pickFile(title: string): Promise<string | null>
+  /** The path of a file dropped on the window. */
+  pathForFile(file: File): string
+  /** Last-modified times of files (null for a missing one), to notice changes. */
+  fileStamps(paths: string[]): Promise<(number | null)[]>
   pathsExist(paths: string[]): Promise<boolean[]>
   /** Git repositories under `root` (may start with ~), at most `depth` folders deep. */
   scanRepos(root: string, depth: number, nested: boolean): Promise<string[]>
@@ -666,3 +674,4 @@ export type MenuCommand =
   | 'git-history'
   | 'squish'
   | 'new-tag'
+  | 'compare-files'

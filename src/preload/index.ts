@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { GitCommandEntry, MenuCommand, SpoonApi, UpdateState } from '../shared/types'
 
 const api: SpoonApi = {
@@ -6,6 +6,9 @@ const api: SpoonApi = {
   storeSet: (key, value) => ipcRenderer.send('store:set', key, value),
   pickRepo: () => ipcRenderer.invoke('repo:pick'),
   pickFolder: (title) => ipcRenderer.invoke('ui:pickFolder', title),
+  pickFile: (title) => ipcRenderer.invoke('ui:pickFile', title),
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  fileStamps: (paths) => ipcRenderer.invoke('fs:stamps', paths),
   pathsExist: (paths) => ipcRenderer.invoke('fs:exists', paths),
   scanRepos: (root, depth, nested) => ipcRenderer.invoke('fs:scanRepos', root, depth, nested),
   homeDir: () => ipcRenderer.invoke('fs:home'),

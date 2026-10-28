@@ -542,7 +542,11 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   else if (!data) body = loading ? <div className="empty-state small muted">Loading…</div> : null
   else if (data.binary) body = <div className="empty-state small muted">Binary file — no text diff.</div>
   else if (parsed && parsed.lines.length === 0)
-    body = <div className="empty-state small muted">No content changes (mode or rename only).</div>
+    body = (
+      <div className="empty-state small muted">
+        {target.kind === 'files' ? 'The two files are identical.' : 'No content changes (mode or rename only).'}
+      </div>
+    )
   else if (parsed && split && rows)
     body = (
       <div className="diff-scroll" ref={parentRef}>

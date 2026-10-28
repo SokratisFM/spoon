@@ -6345,3 +6345,82 @@ kbd.setting-key {
   width: 0.95rem;
   height: 0.95rem;
 }
+
+/* Comparing two files. */
+.drop-overlay {
+  position: fixed;
+  inset: 0.6rem;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 1.1em;
+  font-weight: 600;
+  pointer-events: none; /* drops go through to the window, or to a Compare Files slot */
+}
+.drop-overlay .icon {
+  vertical-align: -0.15em;
+}
+.compare-wait {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.compare {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.compare-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.compare-bar .btn {
+  padding: 0.2rem 0.7rem;
+}
+.compare-slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+.compare-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: 7rem;
+  padding: 0.8rem;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+.compare-slot.full {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+}
+.compare-slot.over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+.compare-slot .muted {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85em;
+}
