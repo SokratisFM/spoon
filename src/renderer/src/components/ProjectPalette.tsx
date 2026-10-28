@@ -187,7 +187,7 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onCompare, onClose 
               onCompare()
             }}
           >
-            Compare files… <kbd>{keys('⌥⌘D')}</kbd>
+            Compare files or text… <kbd>{keys('⌥⌘D')}</kbd>
           </button>
           <button
             className="palette-browse"

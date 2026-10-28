@@ -21,3 +21,14 @@ export const fileName = (p: string): string => p.split(/[\\/]/).pop() ?? p
 export function requestCompare(a: string, b: string): void {
   window.dispatchEvent(new CustomEvent('spoon:compare', { detail: [a, b] }))
 }
+
+// Text compare tabs: named by an id; what was typed or pasted on each side is kept under it.
+export const COMPARE_TEXT = 'compare-text:'
+export const textKey = (id: string): string => `spoon.compareText.${id}`
+export interface TextSides {
+  from: string
+  to: string
+}
+
+/** The id of a Text compare tab, or null for any other tab. */
+export const compareTextId = (tab: string): string | null => (tab.startsWith(COMPARE_TEXT) ? tab.slice(COMPARE_TEXT.length) : null)

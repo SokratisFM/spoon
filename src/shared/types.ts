@@ -237,6 +237,8 @@ export type DiffTarget =
   | { kind: 'commit'; hash: string; file: FileChange }
   /** Any two files on disk, inside a repository or not (absolute paths). */
   | { kind: 'files'; a: string; b: string; file: FileChange }
+  /** Two pieces of text (pasted or typed); file.path only names the language. */
+  | { kind: 'text'; left: string; right: string; file: FileChange }
   | { kind: 'staged'; file: FileChange }
   | { kind: 'unstaged'; file: FileChange }
 

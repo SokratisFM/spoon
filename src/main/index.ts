@@ -70,7 +70,7 @@ function buildMenu(): void {
           { label: 'New Tab…', accelerator: 'CmdOrCtrl+T', click: () => send('find-project') },
           { label: 'Open Repository…', accelerator: 'CmdOrCtrl+O', click: () => send('find-project') },
           { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('open-repo') },
-          { label: 'Compare Files…', accelerator: 'CmdOrCtrl+Alt+D', click: () => send('compare-files') },
+          { label: 'Compare…', accelerator: 'CmdOrCtrl+Alt+D', click: () => send('compare-files') },
           { type: 'separator' },
           // ⌘W / Ctrl+W closes the current repository tab; the renderer closes the window when
           // there's no tab left to close (so the window's usual close behavior applies).

@@ -15,7 +15,9 @@ import { forgetProject, projectName, rememberProject, useProjects } from './proj
 import { keys, revealLabel } from './platform'
 import { useUpdateState } from './appinfo'
 import { closeMenu, contextMenu, MenuHost } from './menus'
-import { compareFiles, compareTab, fileName } from './compare'
+import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, textKey } from './compare'
+import * as storage from './storage'
+import { TextCompareView } from './components/TextCompareView'
 import { CompareView } from './components/CompareView'
 import { CompareDialog } from './components/CompareDialog'
 
@@ -34,6 +36,9 @@ export function App() {
 
   const current = active && tabs.includes(active) ? active : null
   const currentCompare = current ? compareFiles(current) : null
+  const currentText = current ? compareTextId(current) : null
+  /** Compare and Text compare tabs aren't repositories. */
+  const isRepoTab = (t: string): boolean => !compareFiles(t) && !compareTextId(t)
 
   // Comparing two files: a Compare tab, from the menu's picker, a drop on the window or any part of
   // the app (requestCompare).
@@ -49,6 +54,15 @@ export function App() {
       const key = compareTab(a, b)
       setTabs((t) => (t.includes(key) ? t.filter((x) => x !== replace) : replace ? t.map((x) => (x === replace ? key : x)) : [...t, key]))
       setActive(key)
+    },
+    [setTabs, setActive]
+  )
+  const openTextCompare = useCallback(
+    (from: string, to: string) => {
+      const id = Date.now().toString(36)
+      storage.setItem(textKey(id), JSON.stringify({ from, to }))
+      setTabs((t) => [...t, COMPARE_TEXT + id])
+      setActive(COMPARE_TEXT + id)
     },
     [setTabs, setActive]
   )
@@ -187,7 +201,7 @@ export function App() {
 
   // A tab restored at startup may point at a folder that has since been moved or deleted.
   useEffect(() => {
-    if (!current || compareFiles(current)) return setCurrentMissing(false)
+    if (!current || !isRepoTab(current)) return setCurrentMissing(false)
     window.spoon.pathsExist([current]).then(([ok]) => setCurrentMissing(!ok))
   }, [current])
 
@@ -250,13 +264,14 @@ export function App() {
   // Which open tabs are submodules, and of what. Re-checked when the tab list changes.
   const [parents, setParents] = useState<Record<string, string | null>>({})
   useEffect(() => {
-    const repos = tabs.filter((t) => !compareFiles(t))
+    const repos = tabs.filter(isRepoTab)
     window.spoon.repoParents(repos).then((ps) => setParents(Object.fromEntries(repos.map((t, i) => [t, ps[i]]))))
   }, [tabs])
 
   const tab = (path: string, variant: 'plain' | 'child' | 'labelled') => {
     const files = compareFiles(path)
-    const name = files ? `${fileName(files[0])} ↔ ${fileName(files[1])}` : projectName(path)
+    const textTab = !!compareTextId(path)
+    const name = files ? `${fileName(files[0])} ↔ ${fileName(files[1])}` : textTab ? 'Text compare' : projectName(path)
     const parent = parents[path]
     return (
       <div
@@ -265,9 +280,9 @@ export function App() {
         onClick={() => setActive(path)}
         onAuxClick={(e) => e.button === 1 && closeTab(path)}
         onContextMenu={(e) => tabMenu(e, path)}
-        title={files ? `${files[0]}\n${files[1]}` : parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path}
+        title={textTab ? 'Text compare' : files ? `${files[0]}\n${files[1]}` : parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path}
       >
-        {files && <CompareIcon className="icon tab-sub-icon" />}
+        {(files || textTab) && <CompareIcon className="icon tab-sub-icon" />}
         {variant === 'child' && <ChildIcon className="icon tab-sub-icon" />}
         {variant === 'labelled' && <BoxIcon className="icon tab-sub-icon" />}
         {variant === 'labelled' ? (
@@ -341,8 +356,8 @@ export function App() {
       { id: 'others', label: 'Close Other Tabs', enabled: tabs.length > 1 },
       { id: 'right', label: 'Close Tabs to the Right', enabled: after.length > 0 },
       { separator: true },
-      { id: 'reveal', label: revealLabel },
-      { id: 'copy', label: 'Copy Path' },
+      { id: 'reveal', label: revealLabel, enabled: !compareTextId(path) },
+      { id: 'copy', label: 'Copy Path', enabled: !compareTextId(path) },
       ...submoduleTabItems()
     ])
     if (applyTabChoice(choice)) return
@@ -496,6 +511,10 @@ export function App() {
             <SearchIcon />
             <kbd className="keyed-key">Tab</kbd>
           </button>
+          <button className="icon-btn keyed-btn" onClick={() => setComparing(true)} title="Compare files or text">
+            <CompareIcon />
+            <kbd className="keyed-key">{keys('⌥⌘D')}</kbd>
+          </button>
           <button className="icon-btn keyed-btn" onClick={() => setGitHistory(true)} title="Git command history">
             <TerminalHistoryIcon />
             <kbd className="keyed-key">{keys('⇧⌘H')}</kbd>
@@ -523,6 +542,8 @@ export function App() {
             </button>
           </div>
         </div>
+      ) : current && currentText ? (
+        <TextCompareView key={current} id={currentText} />
       ) : current && currentCompare ? (
         <CompareView
           key={current}
@@ -561,7 +582,9 @@ export function App() {
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
 
       {gitHistory && <GitHistoryDialog current={current} onClose={() => setGitHistory(false)} />}
-      {comparing && <CompareDialog home={home} onCompare={openCompare} onClose={() => setComparing(false)} />}
+      {comparing && (
+        <CompareDialog home={home} onCompare={openCompare} onCompareText={openTextCompare} onClose={() => setComparing(false)} />
+      )}
       {dropping && !comparing && (
         <div className="drop-overlay">
           <span>

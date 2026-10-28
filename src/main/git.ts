@@ -2,7 +2,8 @@
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { cp, lstat, mkdir, readdir, readFile, rename, rm, rmdir, stat } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   Commit,
@@ -576,6 +577,17 @@ async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number): Prom
     for (const p of [target.a, target.b]) if (!isAbsolute(p)) throw new Error(`Not a file path: ${p}`)
     return diffOf(['--no-index', '--', target.a, target.b], [0, 1])
   }
+  if (target.kind === 'text') {
+    // Each side goes to a temporary file for git, removed right after.
+    const dir = await mkdtemp(join(tmpdir(), 'spoon-compare-'))
+    try {
+      const [a, b] = [join(dir, 'from'), join(dir, 'to')]
+      await Promise.all([writeFile(a, target.left), writeFile(b, target.right)])
+      return await diffOf(['--no-index', '--', a, b], [0, 1])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
   if (target.kind === 'staged') return diffOf(['--cached', '--', ...paths])
   if (file.status === '?') return diffOf(['--no-index', '--', '/dev/null', file.path], [0, 1])
   return diffOf(['--', ...paths])
@@ -593,6 +605,7 @@ export async function diffFile(cwd: string, target: DiffTarget): Promise<{ text:
     return truncated ? null : out
   }
   let text: string | null
+  if (target.kind === 'text') return { text: target.right, side: 'new' }
   if (target.kind === 'files') {
     try {
       text = (await stat(target.b)).size > MAX_FILE_BYTES ? null : await readFile(target.b, 'utf8')
@@ -783,7 +796,7 @@ export async function unstageAll(cwd: string): Promise<void> {
  * from the current diff: file header + that hunk, applied to the index.
  */
 export async function applyHunk(cwd: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void> {
-  if (target.kind === 'commit' || target.kind === 'files') throw new Error('Only local changes can be staged by hunk')
+  if (target.kind === 'commit' || target.kind === 'files' || target.kind === 'text') throw new Error('Only local changes can be staged by hunk')
   return exclusive(cwd, () => applyHunkNow(cwd, target, hunkIndex, hunkHeader))
 }
 

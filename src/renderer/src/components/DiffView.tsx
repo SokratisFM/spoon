@@ -520,9 +520,17 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   const file = target.file
   const header = (
     <div className="diff-header">
-      <span className="diff-path" title={file.path}>
-        {file.oldPath && <span className="muted">{file.oldPath} → </span>}
-        {file.path}
+      <span className="diff-path" title={target.kind === 'text' ? undefined : file.path}>
+        {target.kind === 'text' ? (
+          <>
+            <span className="muted">From → </span>To
+          </>
+        ) : (
+          <>
+            {file.oldPath && <span className="muted">{file.oldPath} → </span>}
+            {file.path}
+          </>
+        )}
       </span>
       {parsed && (
         <span className="diff-stats">
