@@ -2861,6 +2861,7 @@ input[type='color']::-webkit-color-swatch {
 .palette-footer {
   flex: none;
   display: flex;
+  align-items: center;
   gap: 1.2rem;
   padding: 0.55rem 1rem;
   border-top: 1px solid var(--border);
@@ -2872,6 +2873,11 @@ kbd.soft {
   background: var(--bg-hover);
   color: var(--text-muted);
   margin: 0 0.15em 0 0;
+}
+/* Every hint and the button at their natural width, on one line. */
+.palette-footer > :not(.spacer) {
+  flex: none;
+  white-space: nowrap;
 }
 .palette-browse {
   border: 0;

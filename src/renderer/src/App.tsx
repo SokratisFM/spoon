@@ -574,7 +574,6 @@ export function App() {
           openTabs={tabs}
           onOpen={openRepo}
           onBrowse={pickRepo}
-          onCompare={() => setComparing(true)}
           onClose={() => setPalette(false)}
         />
       )}

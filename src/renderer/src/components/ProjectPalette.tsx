@@ -22,12 +22,10 @@ interface Props {
   onOpen: (path: string) => void
   /** Pick any folder with the system dialog. */
   onBrowse: () => void
-  /** Opens Compare Files. */
-  onCompare: () => void
   onClose: () => void
 }
 
-export function ProjectPalette({ openTabs, onOpen, onBrowse, onCompare, onClose }: Props) {
+export function ProjectPalette({ openTabs, onOpen, onBrowse, onClose }: Props) {
   const settings = useSettings()
   const projects = useProjects()
   const [query, setQuery] = useState('')
@@ -180,15 +178,6 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onCompare, onClose 
             <kbd>esc</kbd> close
           </span>
           <span className="spacer" />
-          <button
-            className="palette-browse"
-            onClick={() => {
-              onClose()
-              onCompare()
-            }}
-          >
-            Compare files or text… <kbd>{keys('⌥⌘D')}</kbd>
-          </button>
           <button
             className="palette-browse"
             onClick={() => {
