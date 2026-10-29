@@ -1,5 +1,5 @@
 {
   "$comment": "Distribution settings. updateRepo is the GitHub repo (owner/name) whose Releases host Spoon's builds; githubClientId is the Spoon OAuth app used for 'Sign in with browser'. Both are public values.",
-  "updateRepo": "",
+  "updateRepo": "SokratisFM/spoon",
   "githubClientId": ""
 }
