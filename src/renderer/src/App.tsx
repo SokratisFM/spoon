@@ -32,6 +32,8 @@ export function App() {
   const [currentMissing, setCurrentMissing] = useState(false)
   const [command, setCommand] = useState<{ name: MenuCommand; n: number } | null>(null)
   const [settingsWindow, setSettingsWindow] = useState<false | SettingsTab>(false)
+  const settingsOpen = useRef(false)
+  settingsOpen.current = !!settingsWindow
   const [toast, setToast] = useState<string | null>(null)
 
   const current = active && tabs.includes(active) ? active : null
@@ -478,6 +480,7 @@ export function App() {
         else if (cmd === 'find-project') setPalette(true)
         else if (cmd === 'git-history') setGitHistory((open) => !open)
         else if (cmd === 'compare-files') setComparing(true)
+        else if (cmd === 'filter-commits' && settingsOpen.current) window.dispatchEvent(new Event('spoon:settings-search'))
         else if (cmd === 'squish') updateSettings({ squishBranches: !getSettings().squishBranches })
         else if (cmd === 'settings') setSettingsWindow('appearance')
         else if (cmd === 'close-tab') closeRef.current() // latest tabs, not the ones this effect saw

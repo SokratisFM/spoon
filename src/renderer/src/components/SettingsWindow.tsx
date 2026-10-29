@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { clearFilter, filterOptions, type SearchResult } from '../settingsSearch'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
@@ -39,19 +40,73 @@ import {
   type ThemeChoice
 } from '../themes'
 import { Modal } from './Modal'
-import { CloseIcon, PlusIcon } from './Icons'
+import { CloseIcon, PlusIcon, SearchIcon } from './Icons'
 import { keys } from '../platform'
 
 export type SettingsTab = 'appearance' | 'authors' | 'projects' | 'accounts' | 'about'
 type Tab = SettingsTab
 
+const TABS: [Tab, string][] = [
+  ['appearance', 'Appearance'],
+  ['authors', 'Author colors'],
+  ['projects', 'Projects'],
+  ['accounts', 'Accounts'],
+  ['about', 'About']
+]
+
+function TabPage({ tab }: { tab: Tab }) {
+  if (tab === 'appearance') return <AppearanceTab />
+  if (tab === 'authors') return <AuthorsTab />
+  if (tab === 'projects') return <ProjectsTab />
+  if (tab === 'accounts') return <AccountsTab />
+  return <AboutTab />
+}
+
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab)
   const tabsRef = useSlidingIndicator<HTMLDivElement>(tab)
+
+  // Search: every tab's options at once, the ones that don't match hidden (see settingsSearch.ts).
+  const [query, setQuery] = useState('')
+  const searching = !!query.trim()
+  const input = useRef<HTMLInputElement>(null)
+  const page = useRef<HTMLDivElement>(null)
+  const [result, setResult] = useState<SearchResult | null>(null)
+  useLayoutEffect(() => {
+    const root = page.current
+    if (!root || !searching) return
+    const run = (): void => {
+      const next = filterOptions(root, query)
+      setResult((old) => (JSON.stringify(old) === JSON.stringify(next) ? old : next))
+    }
+    run()
+    // Options that appear later (an account loading, a list filling) are filtered too.
+    let frame = 0
+    const watch = new MutationObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(run)
+    })
+    watch.observe(root, { childList: true, subtree: true, characterData: true })
+    return () => {
+      watch.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [query, searching])
+  useEffect(() => {
+    if (!searching && page.current) clearFilter(page.current)
+  }, [searching])
+  // ⌘F (which the menu sends as Filter Commits) jumps to the search while Settings is open.
+  useEffect(() => {
+    const focus = (): void => input.current?.focus()
+    window.addEventListener('spoon:settings-search', focus)
+    return () => window.removeEventListener('spoon:settings-search', focus)
+  }, [])
+
   return (
     <Modal
       title="Settings"
-      onClose={onClose}
+      // Esc clears a search first; the next one closes Settings.
+      onClose={() => (searching ? setQuery('') : onClose())}
       wide
       footer={
         <button className="btn primary" onClick={onClose}>
@@ -59,27 +114,78 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
         </button>
       }
     >
-      <div className="settings-tabs slider" ref={tabsRef}>
-        {(
-          [
-            ['appearance', 'Appearance'],
-            ['authors', 'Author colors'],
-            ['projects', 'Projects'],
-            ['accounts', 'Accounts'],
-            ['about', 'About']
-          ] as const
-        ).map(([id, label]) => (
-          <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
-            {label}
+      <div className={`settings-search ${searching ? 'on' : ''}`}>
+        <SearchIcon />
+        <input
+          ref={input}
+          value={query}
+          placeholder="Search settings"
+          spellCheck={false}
+          data-own-enter
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {searching && result && (
+          <span className="muted settings-search-count">
+            {result.total} option{result.total === 1 ? '' : 's'}
+          </span>
+        )}
+        {searching && (
+          <button className="icon-btn" aria-label="Clear search" onClick={() => setQuery('')}>
+            <CloseIcon />
           </button>
-        ))}
+        )}
       </div>
-      <div className="settings-page">
-        {tab === 'appearance' && <AppearanceTab />}
-        {tab === 'authors' && <AuthorsTab />}
-        {tab === 'projects' && <ProjectsTab />}
-        {tab === 'accounts' && <AccountsTab />}
-        {tab === 'about' && <AboutTab />}
+      <div className={`settings-tabs ${searching ? 'searching' : 'slider'}`} ref={searching ? undefined : tabsRef}>
+        {TABS.map(([id, label]) => {
+          const n = searching ? (result?.counts[id] ?? 0) : null
+          return (
+            <button
+              key={id}
+              className={`${!searching && tab === id ? 'on' : ''} ${n === 0 ? 'dim' : ''}`}
+              onClick={() => {
+                if (!searching) return setTab(id)
+                // While searching, a tab jumps to its matches.
+                page.current?.querySelector(`.search-group[data-tab="${id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+              }}
+            >
+              {label}
+              {n !== null && n > 0 && <span className="search-count">{n}</span>}
+            </button>
+          )
+        })}
+      </div>
+      <div className={`settings-page ${searching ? 'search-results' : ''}`} ref={page}>
+        {searching ? (
+          <>
+            {TABS.map(([id, label]) => (
+              <section key={id} className="search-group" data-tab={id}>
+                <h5 className="search-group-title">{label}</h5>
+                <div className="search-opts">
+                  <TabPage tab={id} />
+                </div>
+              </section>
+            ))}
+            {result && result.total === 0 && (
+              <div className="search-none">
+                <b>No settings match “{query.trim()}”</b>
+                {result.suggestions.length > 0 && (
+                  <>
+                    <span className="muted">Did you mean</span>
+                    <div>
+                      {result.suggestions.map((s) => (
+                        <button key={s} className="search-suggestion" onClick={() => setQuery(s)}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <TabPage tab={tab} />
+        )}
       </div>
       <PreviewCard />
     </Modal>

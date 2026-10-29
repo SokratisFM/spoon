@@ -6508,3 +6508,107 @@ kbd.setting-key {
 .compare-text-box .tc-text {
   min-height: 9rem;
 }
+
+/* Settings search. */
+.settings-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-muted);
+}
+.settings-search.on,
+.settings-search:focus-within {
+  border-color: var(--accent);
+}
+.modal .settings-search input:not([type]),
+.modal .settings-search input:not([type]):focus {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0.15rem 0;
+  background: none;
+  color: var(--text);
+  outline: none;
+  box-shadow: none;
+}
+.settings-search-count {
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.settings-tabs.searching button.dim {
+  opacity: 0.4;
+}
+.search-count {
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent-fg);
+  font-size: 0.8em;
+  font-weight: 650;
+}
+.search-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.search-group + .search-group:not(.search-empty) {
+  margin-top: 0.4rem;
+}
+.search-group.search-empty,
+.search-miss {
+  display: none !important;
+}
+.search-group-title {
+  margin: 0;
+  font-size: 0.75em;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.search-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.search-opts > [data-why] {
+  position: relative;
+}
+.search-opts > [data-why]::after {
+  content: attr(data-why);
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 0.78em;
+  color: var(--accent-fg);
+  pointer-events: none;
+}
+.search-none {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 2rem 0;
+  text-align: center;
+}
+.search-suggestion {
+  margin: 0.2rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.search-suggestion:hover {
+  border-color: var(--accent);
+}
