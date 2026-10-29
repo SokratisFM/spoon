@@ -13,29 +13,32 @@ if [ ! -w "$DEST" ]; then
   mkdir -p "$DEST"
 fi
 
-case "$(uname -m)" in
-  arm64) ARCH=arm64 ;;
-  *) ARCH=x64 ;;
-esac
+[ "$(uname -m)" = arm64 ] || { echo "Spoon is built for Apple Silicon Macs only."; exit 1; }
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# The release's checksum list names its one zip per chip (Spoon-<version>-mac-<chip>.zip).
-curl -fsSL "$BASE/SHA256SUMS" -o "$TMP/SHA256SUMS"
-line=$(grep -E " Spoon-[0-9][^ ]*-mac-$ARCH\.zip\$" "$TMP/SHA256SUMS" | head -n 1)
-ZIP=$(echo "$line" | cut -d' ' -f3)
-expected=$(echo "$line" | cut -d' ' -f1)
-[ -n "$ZIP" ] || { echo "This release has no Mac download for $ARCH."; exit 1; }
-
-echo "Downloading $ZIP…"
-curl -fL --progress-bar "$BASE/$ZIP" -o "$TMP/Spoon.zip"
-actual=$(shasum -a 256 "$TMP/Spoon.zip" | cut -d' ' -f1)
-if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
-  echo "The download doesn't match its checksum. Nothing was installed."
-  exit 1
-fi
+# INSTALLERS lists "<sha256>  <link>": the full app (in the release that last changed Electron) and,
+# when this release only changed Spoon's code, that code, which goes over the app.
+curl -fsSL "$BASE/INSTALLERS" -o "$TMP/INSTALLERS"
+fetch() { # fetch <pattern> <dest>: download the matching file and check its checksum
+  line=$(grep -E "$1\$" "$TMP/INSTALLERS" | head -n 1)
+  [ -n "$line" ] || return 1
+  url=$(echo "$line" | cut -d' ' -f3)
+  expected=$(echo "$line" | cut -d' ' -f1)
+  echo "Downloading ${url##*/}…"
+  curl -fL --progress-bar "$url" -o "$2"
+  actual=$(shasum -a 256 "$2" | cut -d' ' -f1)
+  [ "$expected" = "$actual" ] || { echo "The download doesn't match its checksum. Nothing was installed."; exit 1; }
+}
+fetch '/Spoon-[0-9][^ /]*-mac-arm64\.zip' "$TMP/Spoon.zip" || { echo "This release has no Mac download."; exit 1; }
 
 ditto -x -k "$TMP/Spoon.zip" "$TMP/unpacked"
+if fetch '/Spoon-[0-9][^ /]*-mac-arm64-code\.zip' "$TMP/code.zip"; then
+  ditto -x -k "$TMP/code.zip" "$TMP/code"
+  rsync -a --delete "$TMP/code/Resources/" "$TMP/unpacked/Spoon.app/Contents/Resources/"
+  cp "$TMP/code/Info.plist" "$TMP/unpacked/Spoon.app/Contents/Info.plist"
+  codesign --force --sign - "$TMP/unpacked/Spoon.app" 2>/dev/null
+fi
 osascript -e 'tell application id "com.sokratis.spoon" to quit' >/dev/null 2>&1 || true
 rm -rf "$DEST/Spoon.app"
 ditto "$TMP/unpacked/Spoon.app" "$DEST/Spoon.app"

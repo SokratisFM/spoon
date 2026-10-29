@@ -42,10 +42,13 @@ npm version minor --no-git-tag-version
 npm run release -- --notes "What changed"
 ```
 
-This builds into `dist.noindex/release/<version>/`: one Mac zip each for Apple Silicon and Intel,
-the Windows installer, `latest.json` (the signed update manifest), `SHA256SUMS` and the install scripts.
-Each platform's file is uploaded once: the install scripts find theirs in `SHA256SUMS`, the updater
-in `latest.json`.
+This builds into `dist.noindex/release/<version>/`. Nearly all of an installer is Electron, so
+only a release where the Electron version changed (or one built with `--full`) carries full
+installers: the Apple Silicon zip and the Windows installer (there's no Intel Mac build). Every
+release carries Spoon's code alone (`…-code.zip`, about 2 MB per platform), which is all an update
+needs while Electron stays the same, plus `latest.json` (the signed update manifest), `INSTALLERS`
+(links to the full installers, wherever they are), `SHA256SUMS` and the install scripts. A first
+install takes the full installer and lays the latest code over it.
 It prints the `gh release create` command to publish them; nothing is uploaded automatically.
 
 Installing for the first time:

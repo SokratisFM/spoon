@@ -8,24 +8,37 @@ $ProgressPreference = 'SilentlyContinue'
 $base = if ($env:SPOON_DOWNLOAD_BASE) { $env:SPOON_DOWNLOAD_BASE } else { 'https://github.com/__REPO__/releases/latest/download' }
 $setup = Join-Path $env:TEMP 'Spoon-Setup.exe'
 
-# The release's checksum list names its installer (Spoon-<version>-win-x64-setup.exe).
-$sums = (Invoke-WebRequest "$base/SHA256SUMS" -UseBasicParsing).Content
-if ($sums -is [byte[]]) { $sums = [Text.Encoding]::UTF8.GetString($sums) }
-$line = ($sums -split "`n") | Where-Object { $_ -match ' Spoon-[0-9][^ ]*-win-x64-setup\.exe\s*$' } | Select-Object -First 1
-if (-not $line) { throw 'This release has no Windows installer.' }
-$parts = $line.Trim() -split '\s+'
-$expected = $parts[0].ToLower()
-$file = $parts[-1]
-
-Write-Host "Downloading $file..."
-Invoke-WebRequest "$base/$file" -OutFile $setup -UseBasicParsing
-$actual = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
-if (-not $expected -or $expected -ne $actual) {
-  Remove-Item $setup -Force
-  throw "The download doesn't match its checksum. Nothing was installed."
+# INSTALLERS lists "<sha256>  <link>": the full installer (in the release that last changed
+# Electron) and, when this release only changed Spoon's code, that code, which goes over it.
+$list = (Invoke-WebRequest "$base/INSTALLERS" -UseBasicParsing).Content
+if ($list -is [byte[]]) { $list = [Text.Encoding]::UTF8.GetString($list) }
+function Get-Checked($pattern, $dest) {
+  $line = ($list -split "`n") | Where-Object { $_ -match $pattern } | Select-Object -First 1
+  if (-not $line) { return $false }
+  $parts = $line.Trim() -split '\s+'
+  Write-Host "Downloading $($parts[-1].Split('/')[-1])..."
+  Invoke-WebRequest $parts[-1] -OutFile $dest -UseBasicParsing
+  if ((Get-FileHash $dest -Algorithm SHA256).Hash.ToLower() -ne $parts[0].ToLower()) {
+    Remove-Item $dest -Force
+    throw "The download doesn't match its checksum. Nothing was installed."
+  }
+  return $true
 }
+if (-not (Get-Checked '/Spoon-[0-9][^ /]*-win-x64-setup\.exe\s*$' $setup)) { throw 'This release has no Windows installer.' }
 
 Unblock-File $setup
-Start-Process $setup -ArgumentList '/S', '--force-run' -Wait
+Start-Process $setup -ArgumentList '/S' -Wait
 Remove-Item $setup -Force
+
+# Where the installer put Spoon (per user, no admin rights).
+$exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Filter 'Spoon.exe' -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object -First 1
+$code = Join-Path $env:TEMP 'Spoon-code.zip'
+if ($exe -and (Get-Checked '/Spoon-[0-9][^ /]*-win-x64-code\.zip\s*$' $code)) {
+  $unpacked = Join-Path $env:TEMP 'Spoon-code'
+  if (Test-Path $unpacked) { Remove-Item $unpacked -Recurse -Force }
+  Expand-Archive $code $unpacked
+  robocopy (Join-Path $unpacked 'resources') (Join-Path $exe.DirectoryName 'resources') /MIR /NJH /NJS /NP | Out-Null
+  Remove-Item $code, $unpacked -Recurse -Force
+}
+if ($exe) { Start-Process $exe.FullName }
 Write-Host 'Spoon is installed. It will update itself from now on.'

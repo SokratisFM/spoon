@@ -5,13 +5,17 @@
 // with the public key it ships with, downloads the file itself (so macOS doesn't mark it as
 // "downloaded from the internet" and Windows adds no Mark of the Web), checks the hash, and swaps
 // the new version in when you restart.
+//
+// While the release runs the same Electron as this copy, only Spoon's code is downloaded (a few MB:
+// Resources + Info.plist on macOS, resources\ on Windows) and swapped into the installed app; the
+// full installer is only needed across an Electron upgrade.
 import { app, BrowserWindow, ipcMain, net } from 'electron'
 import { spawn } from 'node:child_process'
 import { createHash, verify } from 'node:crypto'
 import { accessSync, constants, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import config from '../../spoon.config.json'
 import { UPDATE_PUBLIC_KEY } from './update-key'
 import type { UpdateState } from '../shared/types'
@@ -22,19 +26,30 @@ const STALL_MS = 60_000
 
 interface Asset {
   file: string
+  /** Where to download it; without one, `file` is next to latest.json. */
+  url?: string
   sha256: string
   size: number
 }
+
+type PlatformKey = 'darwin-arm64' | 'darwin-x64' | 'win32-x64'
 
 interface Release {
   version: string
   date: string
   notes: string
-  assets: Partial<Record<'darwin-arm64' | 'darwin-x64' | 'win32-x64', Asset>>
+  /** The Electron version the release runs on (from 0.32.0 on). */
+  electron?: string
+  /** What 0.31.0 and older read: full installers in the same release (only in full releases). */
+  assets: Partial<Record<PlatformKey, Asset>>
+  /** Full installers, possibly in an earlier release (with links). */
+  full?: Partial<Record<PlatformKey, Asset>>
+  /** Spoon's code alone, for copies already on `electron`. */
+  code?: Partial<Record<PlatformKey, Asset>>
 }
 
 let state: UpdateState = { status: 'idle', current: app.getVersion() }
-let staged: { version: string; path: string } | null = null
+let staged: { version: string; path: string; code: boolean } | null = null
 let busy = false
 
 /** latest.json URL: SPOON_UPDATE_URL (for testing) or the configured repo's latest GitHub release. */
@@ -43,7 +58,7 @@ function feedUrl(): string | null {
   return config.updateRepo ? `https://github.com/${config.updateRepo}/releases/latest/download/latest.json` : null
 }
 
-function platformKey(): keyof Release['assets'] | null {
+function platformKey(): PlatformKey | null {
   if (process.platform === 'darwin') return process.arch === 'arm64' ? 'darwin-arm64' : 'darwin-x64'
   if (process.platform === 'win32' && process.arch === 'x64') return 'win32-x64'
   return null
@@ -89,14 +104,14 @@ export async function checkForUpdates(): Promise<UpdateState> {
     if (res.status === 404) return set({ status: 'current', lastCheck: Date.now() }), state // no release yet
     if (!res.ok) throw new Error(`Update check failed (${res.status}).`)
     const release = verifyManifest(await res.text())
-    const asset = release.assets[key]
+    const { asset, code } = pickAsset(release, key, process.versions.electron)
     if (!asset || !newer(release.version, app.getVersion())) {
       set({ status: 'current', lastCheck: Date.now() })
       return state
     }
     set({ status: 'downloading', version: release.version, notes: release.notes, progress: 0, lastCheck: Date.now() })
-    const file = await download(new URL(asset.file, feed).toString(), asset)
-    staged = { version: release.version, path: await stage(file, release.version) }
+    const file = await download(asset.url ?? new URL(asset.file, feed).toString(), asset)
+    staged = { version: release.version, path: await stage(file, release.version, code), code }
     set({ status: 'ready', progress: 1 })
   } catch (err) {
     set({ status: 'error', error: (err as Error).message })
@@ -106,9 +121,16 @@ export async function checkForUpdates(): Promise<UpdateState> {
   return state
 }
 
+/** Spoon's code alone when the release runs this Electron, else the full installer. */
+export function pickAsset(release: Release, key: PlatformKey, electron: string): { asset?: Asset; code: boolean } {
+  const code = release.code?.[key]
+  if (code && release.electron === electron) return { asset: code, code: true }
+  return { asset: release.full?.[key] ?? release.assets[key], code: false }
+}
+
 async function download(url: string, asset: Asset): Promise<string> {
   mkdirSync(updatesDir(), { recursive: true })
-  const dest = join(updatesDir(), asset.file)
+  const dest = join(updatesDir(), basename(asset.file))
   const part = `${dest}.part`
   // Electron's network stack (Chromium's): follows GitHub's redirects, honors system proxies, and
   // avoids an undici bug that crashed the main process when a server closed a paused download.
@@ -153,18 +175,28 @@ async function download(url: string, asset: Asset): Promise<string> {
   return dest
 }
 
-/** macOS: unzip next to the other updates. Windows: the installer itself is the staged file. */
-async function stage(file: string, version: string): Promise<string> {
-  if (process.platform !== 'darwin') return file
+/**
+ * Code: unzipped into a folder (macOS: Resources + Info.plist; Windows: resources). Full: macOS
+ * unzips the app next to the other updates; on Windows the installer itself is the staged file.
+ */
+async function stage(file: string, version: string, code: boolean): Promise<string> {
+  if (process.platform !== 'darwin' && !code) return file
   const dir = join(updatesDir(), version)
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
+  // ditto on macOS; Windows 10 and later have bsdtar, which reads zips.
+  const [cmd, args] = process.platform === 'darwin' ? ['ditto', ['-x', '-k', file, dir]] : ['tar', ['-xf', file, '-C', dir]]
   await new Promise<void>((ok, fail) =>
-    spawn('ditto', ['-x', '-k', file, dir])
+    spawn(cmd, args)
       .on('error', () => fail(new Error('Could not unpack the update.')))
-      .on('exit', (code) => (code === 0 ? ok() : fail(new Error('Could not unpack the update.'))))
+      .on('exit', (c) => (c === 0 ? ok() : fail(new Error('Could not unpack the update.'))))
   )
   rmSync(file, { force: true })
+  if (code) {
+    const expect = process.platform === 'darwin' ? join(dir, 'Resources', 'app.asar') : join(dir, 'resources', 'app.asar')
+    if (!existsSync(expect)) throw new Error('The update doesn’t contain Spoon’s code.')
+    return dir
+  }
   const appDir = readdirSync(dir).find((n) => n.endsWith('.app'))
   if (!appDir) throw new Error('The update doesn’t contain an app.')
   return join(dir, appDir)
@@ -217,8 +249,58 @@ if [ -d "$TARGET" ] && cmp -s "$NEW/$FW" "$TARGET/$FW"; then
 else
   swap
 fi
-open "$TARGET"
+# A test copy (own SPOON_USER_DATA) isn't reopened: open would start it with your real data.
+[ -n "$SPOON_USER_DATA" ] || open "$TARGET"
 rm -f "$0"
+`
+}
+
+/**
+ * macOS, code only: swaps Resources and Info.plist inside the installed app once Spoon has quit,
+ * renews its ad-hoc signature, and opens it again. A clone of the app is kept until the result
+ * verifies, and put back if it doesn't.
+ */
+export function codeUpdateScript(pid: number, target: string, staged: string): string {
+  return `#!/bin/sh
+TARGET=${sq(target)}
+NEW=${sq(staged)}
+while kill -0 ${pid} 2>/dev/null; do sleep 0.2; done
+BACKUP="$TARGET.backup-$$"
+if { cp -cR "$TARGET" "$BACKUP" 2>/dev/null || ditto "$TARGET" "$BACKUP"; } &&
+  rsync -a --checksum --delete "$NEW/Resources/" "$TARGET/Contents/Resources/" &&
+  cp "$NEW/Info.plist" "$TARGET/Contents/Info.plist" &&
+  codesign --force --sign - "$TARGET" 2>/dev/null &&
+  codesign --verify --deep --strict "$TARGET" 2>/dev/null; then
+  rm -rf "$BACKUP"
+elif [ -d "$BACKUP" ]; then
+  rm -rf "$TARGET" && mv "$BACKUP" "$TARGET"
+fi
+rm -rf "$NEW"
+# A test copy (own SPOON_USER_DATA) isn't reopened: open would start it with your real data.
+[ -n "$SPOON_USER_DATA" ] || open "$TARGET"
+rm -f "$0"
+`
+}
+
+/** Windows, code only: the same with resources\ next to Spoon.exe, from PowerShell. */
+export function windowsCodeUpdateScript(pid: number, exe: string, staged: string): string {
+  const q = (s: string): string => `'${s.replace(/'/g, "''")}'`
+  return `$ErrorActionPreference = 'Stop'
+Wait-Process -Id ${pid} -ErrorAction SilentlyContinue
+$res = Join-Path (Split-Path ${q(exe)}) 'resources'
+$backup = "$res.backup"
+try {
+  if (Test-Path $backup) { Remove-Item $backup -Recurse -Force }
+  Copy-Item $res $backup -Recurse
+  robocopy (Join-Path ${q(staged)} 'resources') $res /MIR /NJH /NJS /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw 'copy failed' }
+  Remove-Item $backup -Recurse -Force
+} catch {
+  if (Test-Path $backup) { Remove-Item $res -Recurse -Force -ErrorAction SilentlyContinue; Move-Item $backup $res }
+}
+Remove-Item ${q(staged)} -Recurse -Force -ErrorAction SilentlyContinue
+Start-Process ${q(exe)}
+Remove-Item $MyInvocation.MyCommand.Path -Force
 `
 }
 
@@ -239,8 +321,16 @@ export function installUpdate(): void {
     // A tiny script outlives Spoon: waits for it to quit, swaps the bundles (keeping the old one
     // until the new one is in place), then opens the new version.
     const script = join(tmpdir(), `spoon-update-${process.pid}.sh`)
-    writeFileSync(script, updateScript(process.pid, target, staged.path), { mode: 0o755 })
+    const text = staged.code ? codeUpdateScript(process.pid, target, staged.path) : updateScript(process.pid, target, staged.path)
+    writeFileSync(script, text, { mode: 0o755 })
     spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' }).unref()
+  } else if (staged.code) {
+    const script = join(tmpdir(), `spoon-update-${process.pid}.ps1`)
+    writeFileSync(script, windowsCodeUpdateScript(process.pid, process.execPath, staged.path))
+    spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', script], {
+      detached: true,
+      stdio: 'ignore'
+    }).unref()
   } else {
     // electron-builder's NSIS installer: /S installs silently over the current version,
     // --force-run starts Spoon again afterwards.
