@@ -9,7 +9,7 @@ import { warmTabs } from './repoCache'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
-import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
+import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, NewBranchIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
 import { choose, DialogHost } from './dialogs'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
@@ -514,6 +514,16 @@ export function App() {
             <SearchIcon />
             <kbd className="keyed-key">Tab</kbd>
           </button>
+          {current && !currentMissing && (
+            <button
+              className="icon-btn keyed-btn"
+              onClick={() => setCommand({ name: 'new-branch', n: Date.now() })}
+              title="New branch from a Jira ticket"
+            >
+              <NewBranchIcon />
+              <kbd className="keyed-key">{keys('⌘N')}</kbd>
+            </button>
+          )}
           <button className="icon-btn keyed-btn" onClick={() => setComparing(true)} title="Compare files or text">
             <CompareIcon />
             <kbd className="keyed-key">{keys('⌥⌘D')}</kbd>

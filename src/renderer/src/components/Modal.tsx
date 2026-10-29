@@ -14,6 +14,8 @@ export function overlayOpen(): boolean {
 
 interface Props {
   title: string
+  /** Shown at the right end of the title row (e.g. Settings' version). */
+  titleExtra?: ReactNode
   children: ReactNode
   onClose: () => void
   /** Called on ⌘Enter / Enter outside text areas. */
@@ -26,7 +28,7 @@ interface Props {
   ownKeys?: boolean
 }
 
-export function Modal({ title, children, onClose, onSubmit, footer, wide, pending, ownKeys }: Props) {
+export function Modal({ title, titleExtra, children, onClose, onSubmit, footer, wide, pending, ownKeys }: Props) {
   const id = useRef(0)
   // Every dialog opens in the same place, chosen in Settings: near the top, or centred.
   const top = useSettings().dialogPosition === 'top'
@@ -122,6 +124,7 @@ export function Modal({ title, children, onClose, onSubmit, footer, wide, pendin
           }}
         >
           {title}
+          {titleExtra && <span className="modal-title-extra">{titleExtra}</span>}
         </h3>
         <div className="modal-body">{children}</div>
         <div className="modal-footer">{footer}</div>

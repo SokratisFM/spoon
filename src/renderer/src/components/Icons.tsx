@@ -118,6 +118,13 @@ export const CogIcon = (p: P) => (
     <circle cx="12" cy="12" r="3" />
   </Icon>
 )
+export const NewBranchIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="6" cy="5" r="2.2" />
+    <circle cx="6" cy="19" r="2.2" />
+    <path d="M6 7.2v9.6M17 11c0 4-5 4-10 6.2M17 3.5v6M14 6.5h6" />
+  </Icon>
+)
 export const PlusIcon = (p: P) => (
   <Icon {...p}>
     <path d="M12 5v14M5 12h14" />

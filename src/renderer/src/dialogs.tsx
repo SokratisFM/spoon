@@ -8,6 +8,8 @@ export interface DialogButton {
   label: string
   /** primary: the default (Enter); warn: the default, for something that can't easily be undone. */
   kind?: 'primary' | 'warn'
+  /** Enter presses it and it starts focused, even when it's a warn button. */
+  default?: boolean
 }
 
 export interface ChoiceOptions {
@@ -24,6 +26,8 @@ export interface ConfirmOptions {
   confirmLabel: string
   /** Deletes or discards something: the confirm button turns amber. */
   risky?: boolean
+  /** Enter confirms, even when it's risky (the user asked for it, e.g. Discard). */
+  enterConfirms?: boolean
 }
 
 interface Request extends ChoiceOptions {
@@ -50,11 +54,14 @@ export async function confirm(opts: ConfirmOptions): Promise<boolean> {
     cancelId: 'cancel',
     buttons: [
       { id: 'cancel', label: 'Cancel' },
-      { id: 'ok', label: opts.confirmLabel, kind: opts.risky ? 'warn' : 'primary' }
+      { id: 'ok', label: opts.confirmLabel, kind: opts.risky ? 'warn' : 'primary', default: opts.enterConfirms }
     ]
   })
   return answer === 'ok'
 }
+
+const defaultOf = (req: ChoiceOptions): DialogButton | undefined =>
+  req.buttons.find((b) => b.default) ?? req.buttons.find((b) => b.kind === 'primary')
 
 export function DialogHost() {
   const [, rerender] = useState(0)
@@ -88,11 +95,11 @@ export function DialogHost() {
         answer(req.cancelId)
         return
       }
-      // Enter on a focused button presses that button. Otherwise it means the primary button; a risky
-      // one (delete, discard) is never pressed by a stray Enter.
+      // Enter on a focused button presses that button. Otherwise it means the default button; a risky
+      // one (delete, discard) is pressed by Enter only when the dialog says so.
       if ((document.activeElement as HTMLElement | null)?.closest('.app-dialog button')) return
       e.preventDefault()
-      const def = req.buttons.find((b) => b.kind === 'primary')
+      const def = defaultOf(req)
       if (def) answer(def.id)
     }
     window.addEventListener('keydown', onKey, true)
@@ -101,6 +108,7 @@ export function DialogHost() {
   }, [req?.n])
 
   if (!req) return null
+  const def = defaultOf(req)
   return (
     <div className="app-dialog" key={req.n}>
       <Modal
@@ -111,7 +119,7 @@ export function DialogHost() {
           <button
             key={b.id}
             className={`btn ${b.kind === 'warn' ? 'primary warn' : b.kind === 'primary' ? 'primary' : ''}`}
-            autoFocus={b.kind === 'primary' || (!req.buttons.some((x) => x.kind === 'primary') && b.id === req.cancelId)}
+            autoFocus={def ? b === def : b.id === req.cancelId}
             onClick={() => answer(b.id)}
           >
             {b.label}

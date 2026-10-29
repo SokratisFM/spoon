@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process'
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
-import type { AtlassianAccount, ConfluencePage } from '../shared/types'
+import type { AtlassianAccount, ConfluencePage, JiraIssue } from '../shared/types'
 
 const SERVICE = 'Spoon Atlassian'
 const ACCOUNT = 'credentials'
@@ -117,6 +117,37 @@ export async function disconnect(): Promise<void> {
   if (process.platform === 'darwin') await security(['delete-generic-password', '-s', SERVICE, '-a', ACCOUNT]).catch(() => undefined)
   else rmSync(secretFile(), { force: true })
   cache = null
+}
+
+/**
+ * A Jira ticket's title and type, read with the connected Atlassian account; null when there's no
+ * account, it's for another site, or it can't read the ticket (a Confluence-only token, say).
+ */
+export async function jiraIssue(site: string, key: string): Promise<JiraIssue | null> {
+  const c = await readCreds()
+  if (!c || !/^[A-Z][A-Z0-9]+-\d+$/.test(key)) return null
+  let origin: string
+  try {
+    origin = new URL(site).origin
+  } catch {
+    return null
+  }
+  const allowed = c.origin ? origin === c.origin : new URL(origin).hostname.endsWith('.atlassian.net')
+  if (!allowed) return null
+  const path = `/rest/api/3/issue/${key}?fields=summary,issuetype`
+  type Issue = { fields?: { summary?: string; issuetype?: { name?: string } } }
+  try {
+    let issue: Issue
+    try {
+      issue = await get<Issue>(c, `${origin}${path}`)
+    } catch (err) {
+      if (!(err instanceof AuthError)) throw err
+      issue = await get<Issue>(c, `https://api.atlassian.com/ex/jira/${await cloudId(origin)}${path}`)
+    }
+    return issue.fields?.summary ? { summary: issue.fields.summary, type: issue.fields.issuetype?.name ?? '' } : null
+  } catch {
+    return null
+  }
 }
 
 export async function page(url: string): Promise<ConfluencePage> {

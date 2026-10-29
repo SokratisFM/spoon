@@ -154,7 +154,8 @@ export function ChangesView({
         .filter(Boolean)
         .join('\n\n'),
       confirmLabel: 'Discard',
-      risky: true
+      risky: true,
+      enterConfirms: true
     })
     if (!ok) return
     ops.run(

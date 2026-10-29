@@ -114,6 +114,14 @@ export interface Settings {
   jiraSite: string
   /** Optional project keys (e.g. "MAINLIB, CANFA") to limit which keys become links. */
   jiraProjects: string
+  /** New branch from ticket (⌘N): the name's pattern, e.g. "{type}/{dev}/{ticket}/{description}". */
+  branchPattern: string
+  /** The choices for {type}, comma-separated; a Jira bug picks "fix" when it's one of them. */
+  branchTypes: string
+  /** {dev}; empty = the first name in git's user.name. */
+  branchDevName: string
+  /** The branch new ones start from, when it exists (its remote copy if the local one is behind). */
+  branchBase: string
 }
 
 const BASE_FONT_PX = 13
@@ -160,7 +168,11 @@ const DEFAULTS: Settings = {
   reservedColors: {},
   reservedColorsGraph: true,
   jiraSite: 'https://fm-games.atlassian.net',
-  jiraProjects: ''
+  jiraProjects: '',
+  branchPattern: '{type}/{dev}/{ticket}/{description}',
+  branchTypes: 'feature, fix',
+  branchDevName: '',
+  branchBase: 'develop'
 }
 
 export const SCALE_MIN = 0.8

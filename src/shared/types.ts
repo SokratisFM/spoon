@@ -18,6 +18,12 @@ export interface Commit {
 
 export type RefKind = 'head' | 'remote' | 'tag' | 'stash'
 
+export interface JiraIssue {
+  summary: string
+  /** "Bug", "Story", "Task"… */
+  type: string
+}
+
 export interface Ref {
   name: string // short name, e.g. "main", "origin/main", "v1.0"
   fullName: string // e.g. "refs/heads/main"
@@ -556,6 +562,10 @@ export interface SpoonApi {
   headMessage(path: string): Promise<string>
   commit(path: string, message: string, amend: boolean): Promise<string>
   checkout(path: string, target: CheckoutTarget): Promise<void>
+  /** A new branch at `base`, not tracking it (and not checked out). */
+  createBranch(path: string, name: string, base: string): Promise<void>
+  /** git's user.name, or "". */
+  userName(path: string): Promise<string>
   syncInfo(path: string): Promise<SyncInfo>
   fetch(path: string, prune: boolean): Promise<void>
   updateSubmodule(path: string, submodulePath: string, backupBranch?: string): Promise<void>
@@ -638,6 +648,9 @@ export interface SpoonApi {
   atlassianConnect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount>
   atlassianDisconnect(): Promise<void>
   confluencePage(url: string): Promise<ConfluencePage>
+  /** A ticket's title and type through the connected Atlassian account, or null. */
+  jiraIssue(site: string, key: string): Promise<JiraIssue | null>
+  readClipboard(): Promise<string>
   /** Fetches the submodule and lists its version branches (prefix like "candidates/"). */
   mainlibState(path: string, submodulePath: string, prefix: string): Promise<MainLibState>
   /** Checks out the version branch in the submodule (fast-forwarding an existing local branch). */
@@ -676,4 +689,5 @@ export type MenuCommand =
   | 'git-history'
   | 'squish'
   | 'new-tag'
+  | 'new-branch'
   | 'compare-files'

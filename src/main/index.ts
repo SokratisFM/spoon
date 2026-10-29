@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import { appendFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
@@ -86,6 +86,7 @@ function buildMenu(): void {
           { label: 'Commit', accelerator: 'CmdOrCtrl+Enter', click: () => send('commit') },
           { label: 'Commit and Push', accelerator: 'CmdOrCtrl+Alt+Enter', click: () => send('commit-push') },
           { label: 'Discard Selected Changes…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('discard') },
+          { label: 'New Branch from Ticket…', accelerator: 'CmdOrCtrl+N', click: () => send('new-branch') },
           { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('new-tag') },
           { id: 'review', label: 'Review with Claude…', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('review') },
           { type: 'separator' },
@@ -229,6 +230,8 @@ function registerIpc(): void {
   )
   ipcMain.handle('atlassian:disconnect', () => atlassian.disconnect())
   ipcMain.handle('atlassian:page', (_e, url: string) => atlassian.page(url))
+  ipcMain.handle('atlassian:jiraIssue', (_e, site: string, key: string) => atlassian.jiraIssue(site, key))
+  ipcMain.handle('clipboard:readText', () => clipboard.readText())
   ipcMain.handle('mainlib:state', (_e, path: string, sub: string, prefix: string) => git.mainlibState(path, sub, prefix))
   ipcMain.handle('mainlib:switch', (_e, path: string, sub: string, ref: string) => git.mainlibSwitch(path, sub, ref))
   ipcMain.handle('git:history', () => history.list())
@@ -270,6 +273,8 @@ function registerIpc(): void {
     git.commit(path, message, amend)
   )
   ipcMain.handle('repo:checkout', (_e, path: string, target: CheckoutTarget) => git.checkout(path, target))
+  ipcMain.handle('repo:createBranch', (_e, path: string, name: string, base: string) => git.createBranch(path, name, base))
+  ipcMain.handle('repo:userName', (_e, path: string) => git.userName(path))
   ipcMain.handle('repo:syncInfo', (_e, path: string) => git.syncInfo(path))
   ipcMain.handle('repo:updateSubmodule', (_e, path: string, sub: string, backup?: string) =>
     git.updateSubmodule(path, sub, backup)

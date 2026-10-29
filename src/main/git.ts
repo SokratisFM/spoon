@@ -856,6 +856,18 @@ async function checkoutNow(cwd: string, target: CheckoutTarget): Promise<void> {
   }
 }
 
+/** A new branch at `base` (a local or remote branch), not tracking it: it gets its own upstream on first push. */
+export async function createBranch(cwd: string, name: string, base: string): Promise<void> {
+  await assertBranchName(cwd, name)
+  assertArg(base, 'base branch')
+  await exclusive(cwd, () => git(cwd, ['branch', '--no-track', name, base]))
+}
+
+/** git's user.name for the repository (its own config, else the global one), or "". */
+export async function userName(cwd: string): Promise<string> {
+  return (await git(cwd, ['config', '--get', 'user.name'], [0, 1])).trim()
+}
+
 // ---------- network ----------
 
 /** Current branch and where it pulls from / pushes to, for the Pull and Push dialogs. */

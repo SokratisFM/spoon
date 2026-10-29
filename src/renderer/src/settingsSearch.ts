@@ -8,6 +8,7 @@ const RELATED: [string, string][] = [
   ['diff font size', 'font code text size monospace'],
   ['row spacing', 'density compact spacious height rows'],
   ['popups open', 'dialogs modal position top middle center window'],
+  ['new branch from ticket', 'jira create branch name pattern naming feature fix dev ticket description base develop'],
   ['diff layout', 'split side by side unified'],
   ['syntax colors in diffs', 'highlighting language code colours subtle'],
   ['syntax colors from', 'ide rider vscode vs code cursor scheme import theme colours'],

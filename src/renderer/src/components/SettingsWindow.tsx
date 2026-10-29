@@ -64,6 +64,7 @@ function TabPage({ tab }: { tab: Tab }) {
 
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
   const [tab, setTab] = useState<Tab>(initialTab)
+  const info = useAppInfo()
   const tabsRef = useSlidingIndicator<HTMLDivElement>(tab)
 
   // Search: every tab's options at once, the ones that don't match hidden (see settingsSearch.ts).
@@ -105,6 +106,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
   return (
     <Modal
       title="Settings"
+      titleExtra={info && <span title="The Spoon version you're running">Spoon {info.version}</span>}
       // Esc clears a search first; the next one closes Settings.
       onClose={() => (searching ? setQuery('') : onClose())}
       wide
@@ -1288,9 +1290,69 @@ function AccountsTab() {
         )}
       </div>
 
+      <TicketBranchField />
       <ClaudeField />
       <MainLibField />
     </>
+  )
+}
+
+function TicketBranchField() {
+  const s = useSettings()
+  const row = (label: string, input: React.ReactNode) => (
+    <div className="nb-setting">
+      <span className="hint">{label}</span>
+      {input}
+    </div>
+  )
+  return (
+    <div className="field jira-field">
+      <span className="field-label">
+        New branch from ticket <kbd className="setting-key">{keys('⌘N')}</kbd>
+      </span>
+      <span className="hint">
+        Paste a Jira link (one you just copied is filled in) and Spoon builds the branch name from this pattern. Every
+        part can still be edited before creating it.
+      </span>
+      {row(
+        'Pattern',
+        <SettingInput
+          className="mono"
+          value={s.branchPattern}
+          spellCheck={false}
+          onCommit={(v) => updateSettings({ branchPattern: v.trim() || '{type}/{dev}/{ticket}/{description}' })}
+        />
+      )}
+      <span className="hint">
+        Parts: {'{type}'} {'{dev}'} {'{ticket}'} {'{description}'}; any other text stays as written, and each / starts a
+        new part.
+      </span>
+      {row('Types', <SettingInput value={s.branchTypes} spellCheck={false} onCommit={(v) => updateSettings({ branchTypes: v })} />)}
+      {row(
+        'Dev name',
+        <SettingInput
+          value={s.branchDevName}
+          placeholder="First name from git’s user.name"
+          spellCheck={false}
+          onCommit={(v) => updateSettings({ branchDevName: v.trim() })}
+        />
+      )}
+      {row(
+        'Based on',
+        <SettingInput
+          className="mono"
+          value={s.branchBase}
+          placeholder="develop"
+          spellCheck={false}
+          onCommit={(v) => updateSettings({ branchBase: v.trim() })}
+        />
+      )}
+      <span className="hint">
+        Starts from this branch when the repository has it (its remote copy when the local one is behind), else the
+        checked-out one. With an Atlassian account connected below, the ticket’s title becomes the description, and a
+        bug picks “fix”.
+      </span>
+    </div>
   )
 }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   CheckoutTarget,
+  DiscardEntry,
   Commit,
   MenuCommand,
   PullSummary,
@@ -22,6 +23,7 @@ import { Split } from './Split'
 import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
+import { NewBranchDialog } from './NewBranchDialog'
 import { FOLD, groupOf, runAt, squishCommits } from '../squish'
 import type { Graph } from '../graph'
 
@@ -35,6 +37,7 @@ import { PullDialog, PushDialog } from './SyncDialogs'
 import { ParentChip, SubmoduleChip, submoduleActions } from './Submodules'
 import { NetButton, type NetKind, type NetState } from './NetButton'
 import { DeleteBranchDialog } from './DeleteBranchDialog'
+import { CheckoutBlockedDialog, overwrittenFiles } from './CheckoutBlockedDialog'
 import { RebaseEditor } from './RebaseEditor'
 import { RebaseBanner } from './RebaseBanner'
 import { SubmoduleUpdateDialog } from './SubmoduleUpdateDialog'
@@ -100,6 +103,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [busy, setBusy] = useState<Busy | null>(null)
   const [opError, setOpError] = useState<{ title: string; message: string } | null>(null)
   const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
+  // A checkout that local changes are in the way of: offers to discard them.
+  const [blocked, setBlocked] = useState<{ target: CheckoutTarget; description: string; files: string[]; tree: WorkingTree } | null>(null)
   // ⌘↵ / ⌥⌘↵ from the menu: commit, optionally followed by a push.
   const [commitRequest, setCommitRequest] = useState<{ push: boolean; n: number } | null>(null)
   const clearCommitRequest = useCallback(() => setCommitRequest(null), [])
@@ -113,6 +118,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
   const [prFor, setPrFor] = useState<string | null>(null)
   const [tagging, setTagging] = useState<Commit | null>(null)
+  const [newBranch, setNewBranch] = useState(false)
   // New Tag for a commit: never a stash (its work in progress is private) or a fold row, and with
   // the commit as it really is (squishing rewrites the parents of the rows it shows).
   const openTag = useCallback((c: Commit): void => {
@@ -314,10 +320,32 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         })
         if (!ok) return
       }
-      run(`Checking out ${description}…`, () => window.spoon.checkout(path, target), 'Checkout failed')
+      checkoutNow(target, description)
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [path, run]
   )
+  const checkoutNow = (target: CheckoutTarget, description: string): void => {
+    const stopped: { files?: string[] } = {}
+    run(
+      `Checking out ${description}…`,
+      async () => {
+        try {
+          await window.spoon.checkout(path, target)
+        } catch (err) {
+          // Local changes in the way: not an error to show, but files to offer to discard.
+          stopped.files = overwrittenFiles(cleanError(err)) ?? undefined
+          if (!stopped.files) throw err
+        }
+      },
+      'Checkout failed'
+    ).then(async () => {
+      const files = stopped.files
+      if (!files) return
+      const tree = await window.spoon.workingTree(path).catch(() => ({ staged: [], unstaged: [] }))
+      setBlocked({ target, description, files, tree })
+    })
+  }
 
   const rebase = useCallback<Ops['rebase']>(
     async (onto, interactive) => {
@@ -458,6 +486,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       const hash = view === 'history' && selected ? selected : repo?.headHash
       const c = commits.find((x) => x.hash === hash)
       if (c) openTag(c)
+    } else if (command.name === 'new-branch') {
+      if (repo) setNewBranch(true)
     } else if (command.name === 'review') {
       if (settings.claudeEnabled) setReviewing({})
     } else if (command.name === 'commit' || command.name === 'commit-push') {
@@ -527,6 +557,14 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     (hash: string) => (hash.startsWith(FOLD) ? unsquish(hash.slice(FOLD.length)) : setSelected(hash)),
     [unsquish]
   )
+  // The selected commit never disappears into a squished run: when a push, commit or fetch makes it
+  // an ordinary middle commit (its branch label moved on), its run opens, so it stays selected and
+  // its branch stays lit.
+  useEffect(() => {
+    if (!squished || !selected || squished.shown.some((c) => c.hash === selected)) return
+    const key = groupOf(selected, commits, squished.shown)
+    if (key) unsquish(key)
+  }, [squished, selected, commits, unsquish])
   const graph = useMemo(
     () => (squished ? (squished.graph ??= cachedGraph(path, shown, repoRef.current, settings)) : cachedGraph(path, shown, repoRef.current, settings)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -830,6 +868,16 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           onPush={(opts) => netOp('push', 'Pushing…', () => window.spoon.push(path, opts), 'Push failed')}
         />
       )}
+      {blocked && (
+        <CheckoutBlockedDialog
+          description={blocked.description}
+          files={blocked.files}
+          tree={blocked.tree}
+          onClose={() => setBlocked(null)}
+          discard={(entries: DiscardEntry[]) => run('Discarding…', () => window.spoon.discard(path, entries), 'Discard failed')}
+          onCheckout={() => checkoutNow(blocked.target, blocked.description)}
+        />
+      )}
       {deleting && repo && (
         <DeleteBranchDialog
           branch={deleting}
@@ -858,6 +906,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           }}
         />
       )}
+      {newBranch && repo && <NewBranchDialog path={path} repo={repo} ops={ops} onClose={() => setNewBranch(false)} />}
       {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} github={canCreatePull} onClose={() => setTagging(null)} />}
       {reviewing && repo && (
         <ReviewDialog
