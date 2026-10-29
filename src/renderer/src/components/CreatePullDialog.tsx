@@ -55,6 +55,7 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
   const [sentAt, setSentAt] = useState<number | null>(reviewedAt.get(`${path}|${branch}`) ?? null)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [creating, setCreating] = useState(false)
   const { data: users } = useAsync(() => window.spoon.ghAssignable(path).catch(() => [] as GhUser[]), [path])
   const [lastReviewers, setLastReviewers] = usePersistentState<string[]>(`spoon.pr.reviewers.${path}`, [])
 
@@ -144,8 +145,9 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
   }
 
   const create = (): void => {
-    if (!info || !canCreate) return
-    onClose()
+    if (!info || !canCreate || creating) return
+    // The dialog stays until it worked, so a failure doesn't lose the title and description.
+    setCreating(true)
     setLastReviewers(reviewers)
     let created: CreatedPull | null = null
     ops
@@ -173,7 +175,12 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
         },
         'Couldn’t create the pull request'
       )
-      .then((ok) => ok && created && onCreated(created))
+      .then((ok) => {
+        setCreating(false)
+        if (!ok) return
+        onClose()
+        if (created) onCreated(created)
+      })
   }
 
   const steps: [Step, string][] = [
@@ -189,7 +196,7 @@ export function CreatePullDialog({ path, branch, me, ops, onClose, onCreated }: 
     </label>
   )
   const createButton = (
-    <button className="btn primary" onClick={create} disabled={!canCreate}>
+    <button className="btn primary" onClick={create} disabled={!canCreate || creating}>
       {draft ? 'Create draft' : 'Create pull request'}
     </button>
   )

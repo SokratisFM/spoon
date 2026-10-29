@@ -541,7 +541,7 @@ interface RowProps {
 const CommitRow = memo(function CommitRow(p: RowProps) {
   const { commit: c } = p
   if (c.hash.startsWith(FOLD) && c.squish) return <FoldRow {...p} />
-  const bead = c.squish
+  const beads = c.beads ?? []
   const tags = p.badges?.filter((b) => b.kind === 'tag') ?? []
   const shown = p.tagMode === 'all' ? p.badges : p.badges?.filter((b) => b.kind !== 'tag')
   // Label color: a reserved prefix color wins; otherwise the graph line's color (when enabled).
@@ -557,7 +557,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
   }
   return (
     <div
-      className={`commit-row ${p.spotDim ? 'spot-dim' : ''} ${bead ? 'has-bead' : ''} ${p.fresh ? 'fresh' : ''} ${p.selected ? 'selected' : ''} ${p.isHead ? `is-head head-hl-${p.headStyle}` : ''} ${p.authorColor ? 'authored' : ''}`}
+      className={`commit-row ${p.spotDim ? 'spot-dim' : ''} ${beads.length ? 'has-bead' : ''} ${p.fresh ? 'fresh' : ''} ${p.selected ? 'selected' : ''} ${p.isHead ? `is-head head-hl-${p.headStyle}` : ''} ${p.authorColor ? 'authored' : ''}`}
       style={
         {
           transform: `translateY(${p.top}px)`,
@@ -671,21 +671,27 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
       </span>
       <span className="cell date">{shortDate(c.authorTime)}</span>
       <HashCell hash={c.hash} />
-      {bead && p.row && (
-        // On the graph line between this commit and the first of its branch, where the hidden ones were.
-        <button
-          className="squish-bead"
-          style={{ left: p.laneW * p.row.col + p.laneW * 0.75 }}
-          title={`${bead.count} commits squished, ${shortDate(bead.oldest)} to ${shortDate(bead.newest)}. Click to show them.`}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation()
-            p.onExpand(bead.key)
-          }}
-        >
-          +{bead.count}
-        </button>
-      )}
+      {p.row &&
+        beads.map((bead) => {
+          // On the graph line from this commit towards that parent, where the hidden ones were: the
+          // row's lines leaving downwards are in parent order.
+          const lane = p.row!.segments.filter((s) => s.kind === 'bottom')[bead.parent]?.to ?? p.row!.col
+          return (
+            <button
+              key={bead.key}
+              className="squish-bead"
+              style={{ left: p.laneW * lane + p.laneW * 0.75 }}
+              title={`${bead.count} commits squished, ${shortDate(bead.oldest)} to ${shortDate(bead.newest)}. Click to show them.`}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                p.onExpand(bead.key)
+              }}
+            >
+              +{bead.count}
+            </button>
+          )
+        })}
     </div>
   )
 })

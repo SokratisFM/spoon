@@ -267,10 +267,16 @@ export async function repoRemote(path: string): Promise<{ slug: string; remote: 
   const remotes = await git.remoteUrls(path)
   const ordered = Object.entries(remotes).sort(([a], [b]) => Number(b === 'origin') - Number(a === 'origin'))
   for (const [remote, url] of ordered) {
-    const m = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url)
-    if (m) return { slug: `${m[1]}/${m[2]}`, remote }
+    const slug = slugOfUrl(url)
+    if (slug) return { slug, remote }
   }
   return null
+}
+
+/** owner/name of a GitHub remote URL (https or ssh), or null. */
+function slugOfUrl(url: string): string | null {
+  const m = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url)
+  return m ? `${m[1]}/${m[2]}` : null
 }
 
 async function slugOrThrow(path: string): Promise<string> {
@@ -498,8 +504,9 @@ export async function checkoutPull(path: string, number: number): Promise<void> 
   const p = await api<RawPull>(`/repos/${await slugOrThrow(path)}/pulls/${number}`)
   const baseRepo = p.base.repo.full_name
   const remotes = await git.remoteUrls(path)
-  const remote =
-    Object.entries(remotes).find(([, url]) => url.includes(`${baseRepo}.git`) || url.endsWith(baseRepo))?.[0] ?? 'origin'
+  // The remote whose URL is exactly that repository (GitHub names aren't case-sensitive); a suffix
+  // match would take myorg/repo for org/repo.
+  const remote = Object.entries(remotes).find(([, url]) => slugOfUrl(url)?.toLowerCase() === baseRepo.toLowerCase())?.[0] ?? 'origin'
   if (p.head.repo?.full_name === baseRepo) {
     await git.fetchAndCheckout(path, remote, `refs/heads/${p.head.ref}`, p.head.ref, `${remote}/${p.head.ref}`)
   } else {

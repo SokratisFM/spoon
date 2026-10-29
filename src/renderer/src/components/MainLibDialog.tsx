@@ -6,6 +6,7 @@ import type { ClaudeAvailability, MainLibState, MainLibVersion, Submodule } from
 import { cleanError, usePersistentState } from '../hooks'
 import { parseChangelog, type ChangelogEntry } from '../changelog'
 import { useSettings } from '../settings'
+import { enqueue } from '../repoCache'
 import { Modal } from './Modal'
 import { CheckIcon } from './Icons'
 
@@ -128,11 +129,12 @@ export function MainLibDialog({
     setStep('progress')
     const work: (() => Promise<unknown>)[] = [
       async () => {
-        const { backup } = await window.spoon.mainlibSwitch(path, sub.path, target.ref)
+        // Through the repository's queue, like every other git write, so nothing collides on index.lock.
+        const { backup } = await enqueue(path, () => window.spoon.mainlibSwitch(path, sub.path, target.ref))
         if (backup)
           setTasks((t) => t.map((x, k) => (k === 0 ? { ...x, label: `${x.label} (commits on no branch kept on ${backup})` } : x)))
       },
-      () => window.spoon.stage(path, [sub.path]),
+      () => enqueue(path, () => window.spoon.stage(path, [sub.path])),
       () =>
         window.spoon.claudeLaunch({
           where: prefs.where,

@@ -1833,6 +1833,16 @@ function SettingInput({ value, onCommit, ...rest }: Omit<React.InputHTMLAttribut
   const commit = (): void => {
     if (draft !== value) onCommit(draft)
   }
+  // Closing Settings right after typing removes the field without a blur: what's typed is kept then too.
+  const latest = useRef({ draft, value, onCommit })
+  latest.current = { draft, value, onCommit }
+  useEffect(
+    () => () => {
+      const l = latest.current
+      if (l.draft !== l.value) l.onCommit(l.draft)
+    },
+    []
+  )
   return (
     <input
       {...rest}

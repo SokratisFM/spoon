@@ -204,7 +204,17 @@ function load(): Settings {
 export function activeTheme(s: Settings): ThemeDef {
   if (s.theme !== 'custom') return resolveTheme(s.theme)
   const base = resolveTheme(s.customBase)
-  return { ...base, name: 'Custom', colors: { ...base.colors, ...s.customColors } }
+  // The base's fixed overrides are tuned to its own colors: one derived from a color you changed
+  // (the accent's text shade, hover and selection washes) gives way to the defaults built from yours.
+  const changed = Object.keys(s.customColors)
+  const derivedFrom: Record<string, (k: string) => boolean> = {
+    '--accent-fg': (k) => k === 'accent',
+    '--bg-hover': (k) => k === 'accent' || k.startsWith('bg'),
+    '--bg-selected': (k) => k === 'accent' || k.startsWith('bg'),
+    '--bg-selected-strong': (k) => k === 'accent' || k.startsWith('bg')
+  }
+  const extra = Object.fromEntries(Object.entries(base.extra ?? {}).filter(([k]) => !changed.some((c) => derivedFrom[k]?.(c))))
+  return { ...base, name: 'Custom', colors: { ...base.colors, ...s.customColors }, extra }
 }
 
 let appliedExtra: string[] = []

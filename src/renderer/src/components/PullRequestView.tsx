@@ -18,6 +18,7 @@ import { DiffLayoutToggle, pairLines, parseDiff, type Line } from './DiffView'
 import { useSettings } from '../settings'
 import { CloseIcon, PlusIcon, PullRequestIcon } from './Icons'
 import { keys, mod } from '../platform'
+import { confirm } from '../dialogs'
 
 type Tab = 'conversation' | 'commits' | 'files'
 const MAX_PATCH_LINES = 5000
@@ -143,14 +144,32 @@ export function PullRequestView({ path, number, ops, onJump }: Props) {
               pending={pending}
               onClose={() => setShowReview(false)}
               onSubmit={async (event, body) => {
+                // Comments written before the PR was pushed to again point at lines of the older diff:
+                // GitHub would reject the whole review (or put them on the wrong lines), so they're
+                // left out, after asking. They stay pending.
+                const stale = pending.filter((c) => c.commitId && c.commitId !== pr.headSha)
+                if (stale.length) {
+                  const ok = await confirm({
+                    message: `${stale.length} pending comment${stale.length === 1 ? ' was' : 's were'} written before the latest push`,
+                    detail: `The lines ${stale.length === 1 ? 'it points' : 'they point'} at may have moved. Submit the review without ${stale.length === 1 ? 'it' : 'them'}? ${stale.length === 1 ? 'It stays' : 'They stay'} pending, to re-place on the new diff.`,
+                    confirmLabel: 'Submit without them'
+                  })
+                  if (!ok) return
+                }
+                const fresh = pending.filter((c) => !stale.includes(c))
                 const ok = await ops.run(
                   'Submitting review…',
                   () =>
-                    window.spoon.ghSubmitReview(path, pr.number, { event, body, commitId: pr.headSha, comments: pending }),
+                    window.spoon.ghSubmitReview(path, pr.number, {
+                      event,
+                      body,
+                      commitId: pr.headSha,
+                      comments: fresh.map(({ commitId: _c, ...c }) => c)
+                    }),
                   'Review failed'
                 )
                 if (ok) {
-                  setPending([])
+                  setPending(stale)
                   setShowReview(false)
                   refresh()
                 }
@@ -238,7 +257,7 @@ export function PullRequestView({ path, number, ops, onJump }: Props) {
                 pending={pending.filter((c) => c.path === f.path)}
                 viewed={!!viewed[f.path]}
                 onToggleViewed={() => toggleViewed(f)}
-                onAddPending={(c) => setPending((p) => [...p, c])}
+                onAddPending={(c) => setPending((p) => [...p, { ...c, commitId: pr.headSha }])}
                 onRemovePending={(id) => setPending((p) => p.filter((c) => c.id !== id))}
                 onReply={(id, body) => act(() => window.spoon.ghReply(path, pr.number, id, body))}
                 prUrl={pr.url}
@@ -522,7 +541,10 @@ function PatchView({
   }
 
   const startComment = (i: number, shift: boolean): void => {
-    if (shift && draft) setDraft({ from: Math.min(draft.from, i), to: Math.max(draft.from, i) })
+    const from = draft ? Math.min(draft.from, i) : i
+    const to = draft ? Math.max(draft.from, i) : i
+    // GitHub only takes a range inside one hunk: one that crosses a hunk header starts over at this line.
+    if (shift && draft && !lines.slice(from, to + 1).some((l) => l.kind === 'hunk')) setDraft({ from, to })
     else setDraft({ from: i, to: i })
   }
 
@@ -581,7 +603,16 @@ function PatchView({
             {units.map((unit, u) => {
               // The lines this row shows; comments for any of them go right under the row.
               const idxs = 'full' in unit ? [unit.full] : [...new Set([unit.left, unit.right].filter((x) => x !== undefined))]
-              const keys = [...new Set(idxs.map((i) => anchorOf(lines[i])).filter(Boolean).map((a) => `${a!.side}:${a!.line}`))]
+              // A context line is on both sides: GitHub threads can sit on its old (LEFT) number too.
+              const keys = [
+                ...new Set(
+                  idxs.flatMap((i) => {
+                    const l = lines[i]
+                    const a = anchorOf(l)
+                    return [...(a ? [`${a.side}:${a.line}`] : []), ...(l.kind === 'ctx' ? [`LEFT:${l.oldNo}`] : [])]
+                  })
+                )
+              ]
               const inDraft = draft && idxs.some((i) => i >= draft.from && i <= draft.to)
               const plus = (i: number) =>
                 anchorOf(lines[i]) ? (

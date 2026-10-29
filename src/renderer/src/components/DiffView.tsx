@@ -322,10 +322,19 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   const key = target ? JSON.stringify(target) : ''
   // A commit's diff never changes, so it's cached; working-tree diffs reload on every refresh.
   const isCommit = target?.kind === 'commit'
-  const live = useAsync(
-    () => (target && !isCommit ? window.spoon.diff(path, target) : Promise.resolve(null)),
+  // Each result says which file it's for: while another file loads, the previous one's diff (and its
+  // hunk buttons, which would act on the new file) isn't shown. A refresh of the same file keeps it.
+  const liveFor = `${path}|${key}`
+  const loaded = useAsync(
+    () => (target && !isCommit ? window.spoon.diff(path, target).then((d) => ({ for: liveFor, d })) : Promise.resolve(null)),
     [path, key, isCommit ? null : nonce]
   )
+  const current = loaded.data?.for === liveFor
+  const live = {
+    data: current ? loaded.data!.d : null,
+    error: current || !loaded.loading ? loaded.error : null,
+    loading: loaded.loading && !current
+  }
   const cached = useCachedAsync(commitDiffCache, isCommit ? `${path}|${key}` : null, () => window.spoon.diff(path, target!))
   const { data, error, loading } = isCommit ? cached : live
   // An unchanged diff keeps its parsed lines, so nothing below re-renders.

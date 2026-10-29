@@ -52,6 +52,7 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
   const [prerelease, setPrerelease] = useState<boolean | null>(null)
   const [latest, setLatest] = useState<boolean | null>(null)
   const [draft, setDraft] = useState(false)
+  const [creating, setCreating] = useState(false)
   const isPre = prerelease ?? preTag
   const isLatest = latest ?? !isPre
   const { data: previous } = useAsync(
@@ -87,8 +88,9 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
 
   const notesLoading = release && notesState === 'loading'
   const create = (): void => {
-    if (!canCreate || notesLoading) return
-    onClose()
+    if (!canCreate || notesLoading || creating) return
+    // The dialog stays until it worked, so a failure doesn't lose the name, message or notes.
+    setCreating(true)
     // A release needs the tag on GitHub, so it's always pushed then.
     const pushTo = (push || release) && pushRemote ? pushRemote : undefined
     let url = ''
@@ -111,7 +113,10 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
         release ? 'Couldn’t create the tag or its release' : 'Couldn’t create the tag'
       )
       .then(async (ok) => {
-        if (!ok || !url) return
+        setCreating(false)
+        if (!ok) return
+        onClose()
+        if (!url) return
         const choice = await choose({
           title: draft ? `Release ${trimmed} saved as a draft` : `Release ${trimmed} published`,
           detail: url,
@@ -184,7 +189,7 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" onClick={create} disabled={!canCreate || notesLoading} title={notesLoading ? 'Waiting for the release notes' : undefined}>
+          <button className="btn primary" onClick={create} disabled={!canCreate || notesLoading || creating} title={notesLoading ? 'Waiting for the release notes' : undefined}>
             {trimmed && !problem ? (release ? `Create ${trimmed} and release` : `Create ${trimmed}`) : 'Create tag'}
           </button>
         </>

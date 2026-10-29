@@ -77,8 +77,8 @@ interface RunOptions {
   env?: Record<string, string>
   /** Stop reading (and end git) once stdout passes this many bytes; the output is then truncated. */
   maxBytes?: number
-  /** Network commands: cancel(cwd) ends them. */
-  cancellable?: boolean
+  /** Network commands: cancel(cwd) ends them; a path instead says whose Cancel (a submodule's fetch is the parent's). */
+  cancellable?: boolean | string
 }
 
 const CANCELLED = 'Cancelled.'
@@ -103,7 +103,7 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
     let truncated = false
     let cancelled = false
     let err = ''
-    const key = repoKey(cwd)
+    const key = repoKey(typeof opts.cancellable === 'string' ? opts.cancellable : cwd)
     if (opts.cancellable) {
       if (!cancellable.has(key)) cancellable.set(key, new Set())
       cancellable.get(key)!.add(child)
@@ -1027,7 +1027,7 @@ async function updateSubmoduleNow(cwd: string, submodulePath: string, backupBran
     await assertBranchName(dir, backupBranch)
     await git(dir, ['branch', '--', backupBranch, 'HEAD'])
   }
-  if (!(await hasCommit(dir, recorded))) await run(dir, ['fetch', '--all', '--quiet'], { cancellable: true })
+  if (!(await hasCommit(dir, recorded))) await run(dir, ['fetch', '--all', '--quiet'], { cancellable: cwd })
   if (await hasCommit(dir, recorded)) {
     const preview = await submoduleUpdatePreview(cwd, submodulePath)
     if (preview.fastForward) await git(dir, ['merge', '--ff-only', '--quiet', recorded])
@@ -1474,18 +1474,20 @@ export async function mainlibState(cwd: string, submodulePath: string, prefix: s
   if (!existsSync(join(dir, '.git'))) throw new Error(`${submodulePath} isn’t checked out. Initialize the submodule first.`)
   if (!/^[\w./-]+$/.test(prefix)) throw new Error(`Invalid branch prefix: ${prefix}`)
   // New version branches only show up after a fetch.
-  await exclusive(dir, () => run(dir, ['fetch', '--prune', '--quiet', 'origin'], { cancellable: true }))
+  await exclusive(dir, () => run(dir, ['fetch', '--prune', '--quiet', 'origin'], { cancellable: cwd }))
   const [describe, hash, branch, refs, status, orphanCount] = await Promise.all([
     git(dir, ['describe', '--tags', '--always'], [0, 128]).then((s) => s.trim()),
     git(dir, ['rev-parse', '--short', 'HEAD']).then((s) => s.trim()),
     git(dir, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).then((s) => s.trim() || null),
-    git(dir, ['for-each-ref', `--format=%(refname:short)${FS}%(committerdate:unix)${FS}%(objectname:short)`, `refs/remotes/origin/${prefix}`]),
+    // All of origin's branches, filtered here: for-each-ref only matches whole path segments, so a
+    // prefix without a trailing slash ("mainlib-") would match nothing.
+    git(dir, ['for-each-ref', `--format=%(refname:short)${FS}%(committerdate:unix)${FS}%(objectname:short)`, 'refs/remotes/origin/']),
     git(dir, ['status', '--porcelain', '--untracked-files=no']),
     orphanedCommits(dir)
   ])
   const versions: MainLibVersion[] = refs
     .split('\n')
-    .filter(Boolean)
+    .filter((line) => line.startsWith(`origin/${prefix}`))
     .map((line) => {
       const [ref, date, h] = line.split(FS)
       const name = ref.slice('origin/'.length)

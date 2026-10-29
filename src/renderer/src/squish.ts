@@ -76,10 +76,11 @@ export function squishCommits(commits: Commit[], repo: RepoState, style: SquishS
     const info = { key, count: members.length, newest: c.authorTime, oldest: members[members.length - 1].authorTime }
     const target = style === 'fold' ? FOLD + key : first.hash
     const prev = rewired.get(above.hash) ?? above
+    const parent = prev.parents.indexOf(c.hash)
     rewired.set(above.hash, {
       ...prev,
       parents: prev.parents.map((p) => (p === c.hash ? target : p)),
-      ...(style === 'bead' ? { squish: info } : {})
+      ...(style === 'bead' ? { beads: [...(prev.beads ?? []), { ...info, parent }] } : {})
     })
     if (style === 'fold')
       folds.set(above.hash, [...(folds.get(above.hash) ?? []), {

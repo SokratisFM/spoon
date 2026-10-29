@@ -244,11 +244,20 @@ function registerIpc(): void {
   ipcMain.handle('unity:isProject', (_e, path: string) => unityExports.isUnityProject(path))
   ipcMain.handle('unity:findExports', (_e, path: string) => unityExports.findExports(path))
   ipcMain.handle('unity:scanExports', (_e, path: string, dirs: string[]) => unityExports.scanExports(path, dirs))
-  ipcMain.handle('unity:watchExports', (e, path: string, dirs: string[]) =>
-    unityExports.watchExports(path, dirs, () => {
+  const exportOwners = new Set<number>()
+  ipcMain.handle('unity:watchExports', (e, path: string, dirs: string[]) => {
+    const owner = e.sender.id
+    if (!exportOwners.has(owner)) {
+      exportOwners.add(owner)
+      e.sender.once('destroyed', () => {
+        exportOwners.delete(owner)
+        unityExports.stopWatching(owner)
+      })
+    }
+    unityExports.watchExports(owner, path, dirs, () => {
       if (!e.sender.isDestroyed()) e.sender.send('unity:exportsChanged', path)
     })
-  )
+  })
   ipcMain.handle('unity:bringBack', (_e, path: string, exp: string, src: string) => unityExports.bringBack(path, exp, src))
   ipcMain.handle('unity:relink', (_e, path: string, exp: string, src: string, force: boolean) =>
     unityExports.relink(path, exp, src, force)
@@ -338,7 +347,7 @@ function registerIpc(): void {
 
   // Network operations stream git's progress lines back to the window that started them.
   const progress = (e: Electron.IpcMainInvokeEvent, path: string) => (line: string) =>
-    e.sender.send('progress', path, line)
+    void (!e.sender.isDestroyed() && e.sender.send('progress', path, line))
   ipcMain.handle('repo:fetch', (e, path: string, prune: boolean) => git.fetch(path, prune, progress(e, path)))
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
   ipcMain.handle('repo:push', (e, path: string, opts: PushOptions) => git.push(path, opts, progress(e, path)))

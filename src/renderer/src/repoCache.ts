@@ -176,3 +176,46 @@ export async function warmTabs(tabs: string[], active: string | null): Promise<v
     await prefetch(path).catch(() => undefined) // a missing or broken repo stays cold; tried again next time
   }
 }
+
+// ---------- operations ----------
+
+export interface OpBusy {
+  label: string
+  network: boolean
+  progress?: string
+}
+export interface OpState {
+  busy: OpBusy | null
+  error: { title: string; message: string } | null
+  /** git writes run one after another, so quick clicks never collide on index.lock. */
+  queue: Promise<unknown>
+}
+// Per repository and outside React: an operation outlives its tab being switched away, and its
+// progress (or the error it ends with) is there when the tab is shown again.
+const opStates = new Map<string, OpState>()
+const opListeners = new Map<string, Set<() => void>>()
+
+export function opStateOf(path: string): OpState {
+  let s = opStates.get(path)
+  if (!s) opStates.set(path, (s = { busy: null, error: null, queue: Promise.resolve() }))
+  return s
+}
+
+export function setOpState(path: string, patch: Partial<OpState>): void {
+  const next = { ...opStateOf(path), ...patch }
+  opStates.set(path, next)
+  opListeners.get(path)?.forEach((l) => l())
+}
+
+export function subscribeOps(path: string, listener: () => void): () => void {
+  if (!opListeners.has(path)) opListeners.set(path, new Set())
+  opListeners.get(path)!.add(listener)
+  return () => void opListeners.get(path)?.delete(listener)
+}
+
+/** Runs `fn` after the repository's queued operations (and before later ones); its result or error is the caller's. */
+export function enqueue<T>(path: string, fn: () => Promise<T>): Promise<T> {
+  const task = opStateOf(path).queue.then(fn)
+  setOpState(path, { queue: task.catch(() => undefined) })
+  return task
+}

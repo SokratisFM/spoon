@@ -30,5 +30,14 @@ export interface TextSides {
   to: string
 }
 
+// Closed Text compare tabs: what was in them is deleted, and their view (unmounting right after) must
+// not save it again.
+const closedTexts = new Set<string>()
+export const textClosed = (id: string): boolean => closedTexts.has(id)
+export function forgetText(id: string, remove: (key: string) => void): void {
+  closedTexts.add(id)
+  remove(textKey(id))
+}
+
 /** The id of a Text compare tab, or null for any other tab. */
 export const compareTextId = (tab: string): string | null => (tab.startsWith(COMPARE_TEXT) ? tab.slice(COMPARE_TEXT.length) : null)

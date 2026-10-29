@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useState } from 'react'
 import type { FileChange } from '../../../shared/types'
 import { fullDate, hueFor, initials } from '../format'
 import { useCachedAsync } from '../hooks'
@@ -39,16 +39,13 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump }: Pro
       )
     )
 
-  // Keep the same file selected when moving between commits that both touch it.
-  useEffect(() => {
-    if (!details) return
-    setFile((prev) => details.files.find((f) => f.path === prev?.path) ?? details.files[0] ?? null)
-  }, [details])
-
   if (!hash) return <div className="empty-state muted">Select a commit.</div>
   if (error) return <div className="empty-state error-text">{error}</div>
   if (!details) return <div className="panel" />
 
+  // The same file stays selected when moving between commits that both touch it; worked out here, so
+  // the diff never asks for the previous commit's file in the new commit.
+  const shown = details.files.find((f) => f.path === file?.path) ?? details.files[0] ?? null
   const [subject, ...body] = details.message.split('\n')
   const authorColor =
     authorColors?.get(details.authorName.toLowerCase()) ?? authorColors?.get(details.authorEmail.toLowerCase())
@@ -101,14 +98,14 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump }: Pro
           </div>
           <FileList
             files={details.files}
-            selected={new Set(file ? [file.path] : [])}
-            focused={file?.path ?? null}
+            selected={new Set(shown ? [shown.path] : [])}
+            focused={shown?.path ?? null}
             onSelect={(_, f) => setFile(f)}
             emptyText="No file changes."
           />
         </div>
       </Split>
-      <DiffView path={path} target={file ? { kind: 'commit', hash: details.hash, file } : null} />
+      <DiffView path={path} target={shown ? { kind: 'commit', hash: details.hash, file: shown } : null} />
     </Split>
   )
 })

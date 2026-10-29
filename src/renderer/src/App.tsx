@@ -15,7 +15,7 @@ import { forgetProject, projectName, rememberProject, useProjects } from './proj
 import { keys, revealLabel } from './platform'
 import { useUpdateState } from './appinfo'
 import { closeMenu, contextMenu, MenuHost } from './menus'
-import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, textKey } from './compare'
+import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, forgetText, textKey } from './compare'
 import * as storage from './storage'
 import { TextCompareView } from './components/TextCompareView'
 import { CompareView } from './components/CompareView'
@@ -139,6 +139,8 @@ export function App() {
 
   const dropTab = useCallback(
     (path: string) => {
+      const textId = compareTextId(path)
+      if (textId) forgetText(textId, (k) => storage.removeItem(k))
       setTabs((t) => {
         const i = t.indexOf(path)
         const next = t.filter((p) => p !== path)

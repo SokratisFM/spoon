@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DiffTarget } from '../../../shared/types'
 import { readStored, usePersistentState } from '../hooks'
 import * as storage from '../storage'
-import { textKey, type TextSides } from '../compare'
+import { textClosed, textKey, type TextSides } from '../compare'
 import { checkJson, formatJson, type JsonCheck } from '../json'
 import { DiffView } from './DiffView'
 import { Split } from './Split'
@@ -76,14 +76,14 @@ export function TextCompareView({ id }: { id: string }) {
   // What's typed is kept per tab; saved once typing pauses, not on every key.
   const [sides, setSides] = useState<TextSides>(() => readStored(textKey(id), { from: '', to: '' }))
   useEffect(() => {
-    const t = setTimeout(() => storage.setItem(textKey(id), JSON.stringify(sides)), 400)
+    const t = setTimeout(() => !textClosed(id) && storage.setItem(textKey(id), JSON.stringify(sides)), 400)
     return () => clearTimeout(t)
   }, [id, sides])
   // …and right away when the tab closes or Spoon quits, so the last edit isn't lost.
   const latest = useRef(sides)
   latest.current = sides
   useEffect(() => {
-    const save = (): void => storage.setItem(textKey(id), JSON.stringify(latest.current))
+    const save = (): void => void (!textClosed(id) && storage.setItem(textKey(id), JSON.stringify(latest.current)))
     window.addEventListener('beforeunload', save)
     return () => {
       save()

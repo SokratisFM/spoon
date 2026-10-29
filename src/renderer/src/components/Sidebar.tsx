@@ -56,16 +56,22 @@ interface TreeNode {
 /** Turns "feature/ui/tabs" style names into folders, like Fork does. */
 function buildTree(refs: Ref[], strip = 0): TreeNode[] {
   const root: TreeNode = { name: '', path: '', children: [] }
+  // Each node's folders by name, so a big remote (thousands of branches) builds in linear time.
+  const folders = new Map<TreeNode, Map<string, TreeNode>>()
   for (const ref of refs) {
     const parts = ref.name.split('/').slice(strip)
     let node = root
     parts.forEach((part, i) => {
       const leaf = i === parts.length - 1
       const p = node.path ? `${node.path}/${part}` : part
-      let child = leaf ? undefined : node.children.find((c) => c.name === part && !c.ref)
+      let child = leaf ? undefined : folders.get(node)?.get(part)
       if (!child) {
         child = { name: part, path: p, children: [], ref: leaf ? ref : undefined }
         node.children.push(child)
+        if (!leaf) {
+          if (!folders.has(node)) folders.set(node, new Map())
+          folders.get(node)!.set(part, child)
+        }
       }
       node = child
     })
@@ -137,18 +143,21 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const q = query.toLowerCase()
   const match = (r: { name: string }): boolean => !q || r.name.toLowerCase().includes(q)
 
-  const { branches, remotes, tags } = useMemo(() => {
+  const { branches, remotes, remoteTrees, tags } = useMemo(() => {
     const heads = repo.refs.filter((r) => r.kind === 'head' && match(r))
     const byRemote = new Map<string, Ref[]>()
     for (const r of repo.refs) {
       if (r.kind !== 'remote' || !match(r)) continue
       const remote = r.name.split('/')[0]
-      byRemote.set(remote, [...(byRemote.get(remote) ?? []), r])
+      const list = byRemote.get(remote)
+      if (list) list.push(r)
+      else byRemote.set(remote, [r])
     }
+    const remoteTrees = new Map([...byRemote].map(([remote, refs]) => [remote, buildTree(refs, 1)]))
     const tagRefs = repo.refs
       .filter((r) => r.kind === 'tag' && match(r))
       .sort((a, b) => byName.compare(b.name, a.name))
-    return { branches: buildTree(heads), remotes: byRemote, tags: tagRefs }
+    return { branches: buildTree(heads), remotes: byRemote, remoteTrees, tags: tagRefs }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo, q])
 
@@ -291,7 +300,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           'remotes',
           'Remotes',
           repo.remotes.length,
-          [...remotes.entries()].map(([remote, refs]) => {
+          [...remotes.keys()].map((remote) => {
             const key = `remote:${remote}`
             return (
               <div key={remote}>
@@ -300,7 +309,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                   <CloudIcon />
                   <span className="side-label">{remote}</span>
                 </div>
-                {isOpen(key) && renderTree(buildTree(refs, 1), 2, key)}
+                {isOpen(key) && renderTree(remoteTrees.get(remote) ?? [], 2, key)}
               </div>
             )
           })

@@ -9,11 +9,17 @@ export interface Commit {
   committerName: string
   commitTime: number
   subject: string
-  /**
-   * Squish branches (renderer only): on a fold row, the hidden commits it stands for; on a kept
-   * commit (bead style), the hidden commits right under it.
-   */
-  squish?: { key: string; count: number; newest: number; oldest: number }
+  /** Squish branches (renderer only): on a fold row, the hidden commits it stands for. */
+  squish?: SquishInfo
+  /** Bead style: the hidden runs right under this commit, one per parent they hang from (a merge can have two). */
+  beads?: (SquishInfo & { parent: number })[]
+}
+
+export interface SquishInfo {
+  key: string
+  count: number
+  newest: number
+  oldest: number
 }
 
 export type RefKind = 'head' | 'remote' | 'tag' | 'stash'
@@ -522,6 +528,8 @@ export interface PendingComment {
   startLine?: number
   startSide?: 'LEFT' | 'RIGHT'
   body: string
+  /** The PR's head commit when it was written: lines refer to that version of the diff. */
+  commitId?: string
 }
 
 export type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES'

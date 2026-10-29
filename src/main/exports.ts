@@ -168,12 +168,13 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
   return links
 }
 
-// Exports are usually ignored by git, so editing one doesn't refresh the repository: they're watched.
+// Exports are usually ignored by git, so editing one doesn't refresh the repository: they're watched,
+// per window (`owner`) and repository, so two windows on one repository don't replace each other's.
 const watchers = new Map<string, { list: FSWatcher[]; timer?: ReturnType<typeof setTimeout> }>()
 
 /** Calls `changed` (at most every half second) when a native file in the linked exports changes. */
-export function watchExports(root: string, dirs: string[], changed: () => void): void {
-  const key = resolve(root)
+export function watchExports(owner: number, root: string, dirs: string[], changed: () => void): void {
+  const key = `${owner}|${resolve(root)}`
   const old = watchers.get(key)
   old?.list.forEach((w) => w.close())
   if (old?.timer) clearTimeout(old.timer)
@@ -195,6 +196,16 @@ export function watchExports(root: string, dirs: string[], changed: () => void):
     }
   }
   watchers.set(key, entry)
+}
+
+/** Stops every watcher a window started (it closed). */
+export function stopWatching(owner: number): void {
+  for (const [key, entry] of watchers) {
+    if (!key.startsWith(`${owner}|`)) continue
+    entry.list.forEach((w) => w.close())
+    if (entry.timer) clearTimeout(entry.timer)
+    watchers.delete(key)
+  }
 }
 
 /** Copies an export's version of a file over its source under Assets/; returns the source's new save time. */

@@ -10,6 +10,8 @@ type Data = Record<string, string>
 let file = ''
 let data: Data = {}
 let timer: NodeJS.Timeout | null = null
+// Once quitting, the window's last changes (sent as it unloads, after before-quit) are written at once.
+let quitting = false
 
 function save(): void {
   if (timer) clearTimeout(timer)
@@ -33,7 +35,12 @@ export function initStore(): void {
   ipcMain.on('store:set', (_e, key: string, value: string | null) => {
     if (value === null) delete data[key]
     else data[key] = value
-    if (!timer) timer = setTimeout(save, 150)
+    if (quitting) save()
+    else if (!timer) timer = setTimeout(save, 150)
   })
-  app.on('before-quit', () => timer && save())
+  app.on('before-quit', () => {
+    quitting = true
+    if (timer) save()
+  })
+  app.on('will-quit', () => timer && save())
 }

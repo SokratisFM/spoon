@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type {
   CheckoutTarget,
   DiscardEntry,
@@ -14,7 +14,19 @@ import type {
 import { useGitHubAccount } from '../github'
 import { PullRequestView } from './PullRequestView'
 import { getSettings, useSettings } from '../settings'
-import { cachedGraph, graphKeyOf, LOG_LIMIT, markLoaded, prStateOf, refsSignatureOf, snapshots } from '../repoCache'
+import {
+  cachedGraph,
+  graphKeyOf,
+  LOG_LIMIT,
+  markLoaded,
+  opStateOf,
+  prStateOf,
+  refsSignatureOf,
+  setOpState,
+  snapshots,
+  subscribeOps,
+  type OpBusy
+} from '../repoCache'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { cleanError, usePersistentState } from '../hooks'
 import { confirm } from '../dialogs'
@@ -68,11 +80,7 @@ export interface Ops {
   review: ((commit?: { hash: string; subject: string }) => void) | null
 }
 
-interface Busy {
-  label: string
-  network: boolean
-  progress?: string
-}
+type Busy = OpBusy
 
 interface Props {
   path: string
@@ -100,8 +108,19 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [selected, setSelected] = useState<string | null>(snap?.selected ?? null)
   const [scrollTo, setScrollTo] = useState<{ hash: string; n: number } | null>(null)
   const [filter, setFilter] = useState('')
-  const [busy, setBusy] = useState<Busy | null>(null)
-  const [opError, setOpError] = useState<{ title: string; message: string } | null>(null)
+  // Kept per repository outside this view (repoCache): survives switching tabs mid-operation.
+  const ops$ = useSyncExternalStore(
+    useCallback((l: () => void) => subscribeOps(path, l), [path]),
+    () => opStateOf(path)
+  )
+  const busy = ops$.busy
+  const opError = ops$.error
+  const setBusy = useCallback(
+    (next: Busy | null | ((b: Busy | null) => Busy | null)) =>
+      setOpState(path, { busy: typeof next === 'function' ? next(opStateOf(path).busy) : next }),
+    [path]
+  )
+  const setOpError = useCallback((error: { title: string; message: string } | null) => setOpState(path, { error }), [path])
   const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
   // A checkout that local changes are in the way of: offers to discard them.
   const [blocked, setBlocked] = useState<{ target: CheckoutTarget; description: string; files: string[]; tree: WorkingTree } | null>(null)
@@ -137,7 +156,6 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [prs, setPrs] = useState<PullSummary[] | null>(prState.prs)
   const [prError, setPrError] = useState<string | null>(prState.error)
   const [selectedPr, setSelectedPr] = usePersistentState<number | null>(`spoon.pr.selected.${path}`, null)
-  const queue = useRef<Promise<unknown>>(Promise.resolve())
   const wasCancelled = useRef(false)
   const latestProgress = useRef('')
   const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -287,7 +305,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     (label, fn, failTitle) => {
       const network = /^(Fetch|Pull|Push)/.test(label)
       // Serialize git writes so quick clicks never collide on index.lock.
-      const task = queue.current.then(async () => {
+      const task = opStateOf(path).queue.then(async () => {
         setBusy({ label, network })
         try {
           await fn()
@@ -303,10 +321,10 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           await load()
         }
       })
-      queue.current = task
+      setOpState(path, { queue: task })
       return task
     },
-    [load]
+    [load, path, setBusy, setOpError]
   )
 
   const checkout = useCallback<Ops['checkout']>(

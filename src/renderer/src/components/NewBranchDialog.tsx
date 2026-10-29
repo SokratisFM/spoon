@@ -72,6 +72,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const [typed, setTyped] = useState<Record<string, string>>({})
   const [checkout, setCheckout] = usePersistentState('spoon.newBranch.checkout', true)
   const [ready, setReady] = useState(false)
+  const [creating, setCreating] = useState(false)
   const firstEmpty = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -159,10 +160,14 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const started = !!key || Object.keys(typed).length > 0
 
   const create = async (): Promise<void> => {
-    if (problem) return
-    onClose()
+    if (problem || creating) return
+    // The dialog stays until it worked, so a failure doesn't lose what was filled in.
+    setCreating(true)
     const ok = await ops.run(`Creating ${name}…`, () => window.spoon.createBranch(path, name, base), 'Couldn’t create the branch')
-    if (ok && checkout) ops.checkout({ kind: 'branch', name }, name)
+    setCreating(false)
+    if (!ok) return
+    onClose()
+    if (checkout) ops.checkout({ kind: 'branch', name }, name)
   }
 
   // Focus goes to the first part still to fill in (the ticket field when there's no ticket yet).
@@ -192,7 +197,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" onClick={create} disabled={!!problem} title={problem ?? undefined}>
+          <button className="btn primary" onClick={create} disabled={!!problem || creating} title={problem ?? undefined}>
             Create branch
           </button>
         </>
