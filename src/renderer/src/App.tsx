@@ -29,7 +29,7 @@ export function App() {
   const update = useUpdateState()
   const [palette, setPalette] = useState(false)
   const [gitHistory, setGitHistory] = useState(false)
-  const [currentMissing, setCurrentMissing] = useState(false)
+  const [missing, setMissing] = useState<{ path: string; missing: boolean } | null>(null)
   const [command, setCommand] = useState<{ name: MenuCommand; n: number } | null>(null)
   const [settingsWindow, setSettingsWindow] = useState<false | SettingsTab>(false)
   const settingsOpen = useRef(false)
@@ -37,6 +37,7 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null)
 
   const current = active && tabs.includes(active) ? active : null
+  const currentMissing = !!current && missing?.path === current && missing.missing
   const currentCompare = current ? compareFiles(current) : null
   const currentText = current ? compareTextId(current) : null
   /** Compare and Text compare tabs aren't repositories. */
@@ -205,8 +206,9 @@ export function App() {
 
   // A tab restored at startup may point at a folder that has since been moved or deleted.
   useEffect(() => {
-    if (!current || !isRepoTab(current)) return setCurrentMissing(false)
-    window.spoon.pathsExist([current]).then(([ok]) => setCurrentMissing(!ok))
+    if (!current || !isRepoTab(current)) return setMissing(null)
+    // Each answer says which tab it's about: a slow one for a tab already switched away from is ignored.
+    window.spoon.pathsExist([current]).then(([ok]) => setMissing({ path: current, missing: !ok }))
   }, [current])
 
   useEffect(() => window.spoon.setMenuItemVisible('review', settings.claudeEnabled), [settings.claudeEnabled])
@@ -216,7 +218,8 @@ export function App() {
 
   // Once the visible tab has had its turn, load the others in the background so switching is instant.
   useEffect(() => {
-    warmTabs(tabs, current)
+    // Only repository tabs: Compare tabs aren't repositories.
+    warmTabs(tabs.filter(isRepoTab), current && isRepoTab(current) ? current : null)
   }, [tabs, current])
 
   // Tab opens the project palette, unless you're typing or a dialog is open.

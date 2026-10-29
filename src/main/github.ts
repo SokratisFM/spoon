@@ -302,12 +302,27 @@ interface RawPull {
   additions: number
   deletions: number
   requested_reviewers: { login: string }[]
+  requested_teams?: { slug: string; organization?: { login: string } }[]
+}
+
+// The teams you're on ("org/team"), for review requests made to a team. Needs the read:org scope;
+// without it, only requests to you by name count. Looked up once per session.
+let myTeams: Promise<Set<string>> | null = null
+function teamsOfMe(): Promise<Set<string>> {
+  myTeams ??= apiAll<{ slug: string; organization: { login: string } }>('/user/teams', 3).then(
+    (teams) => new Set(teams.map((t) => `${t.organization.login}/${t.slug}`.toLowerCase())),
+    () => new Set<string>()
+  )
+  return myTeams
 }
 
 export async function pulls(path: string): Promise<PullSummary[]> {
   const slug = await slugOrThrow(path)
   const me = getAccount()?.login
-  const list = await api<RawPull[]>(`/repos/${slug}/pulls?state=open&per_page=100&sort=updated&direction=desc`)
+  // Every open PR, not only the first 100.
+  const list = await apiAll<RawPull>(`/repos/${slug}/pulls?state=open&sort=updated&direction=desc`)
+  const org = slug.split('/')[0].toLowerCase()
+  const teams = list.some((p) => p.requested_teams?.length) ? await teamsOfMe() : new Set<string>()
   return list.map((p) => ({
     number: p.number,
     title: p.title,
@@ -317,7 +332,9 @@ export async function pulls(path: string): Promise<PullSummary[]> {
     baseRef: p.base.ref,
     updatedAt: p.updated_at,
     url: p.html_url,
-    reviewRequested: p.requested_reviewers.some((r) => r.login === me),
+    reviewRequested:
+      p.requested_reviewers.some((r) => r.login === me) ||
+      !!p.requested_teams?.some((t) => teams.has(`${(t.organization?.login ?? org).toLowerCase()}/${t.slug.toLowerCase()}`)),
     mine: p.user.login === me
   }))
 }

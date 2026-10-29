@@ -148,12 +148,14 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     const byRemote = new Map<string, Ref[]>()
     for (const r of repo.refs) {
       if (r.kind !== 'remote' || !match(r)) continue
-      const remote = r.name.split('/')[0]
+      // Longest match, since a remote's own name may contain a slash.
+      const remote = repo.remotes.filter((x) => r.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0] ?? r.name.split('/')[0]
       const list = byRemote.get(remote)
       if (list) list.push(r)
       else byRemote.set(remote, [r])
     }
-    const remoteTrees = new Map([...byRemote].map(([remote, refs]) => [remote, buildTree(refs, 1)]))
+    // The folders start after the remote's name (which may itself contain a slash).
+    const remoteTrees = new Map([...byRemote].map(([remote, refs]) => [remote, buildTree(refs, remote.split('/').length)]))
     const tagRefs = repo.refs
       .filter((r) => r.kind === 'tag' && match(r))
       .sort((a, b) => byName.compare(b.name, a.name))
@@ -324,7 +326,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               key={t.fullName}
               className="side-item"
               style={{ paddingLeft: '1.85rem' }}
-              onClick={() => onJump(t.target)}
+              onClick={() => (setPicked(null), onJump(t.target))}
               onDoubleClick={() => checkoutRef(t)}
               onContextMenu={(e) => refMenu(e, t)}
             >
@@ -344,7 +346,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
               className="side-item"
               style={{ paddingLeft: '1.85rem' }}
               title={s.message}
-              onClick={() => onJump(s.hash)}
+              onClick={() => (setPicked(null), onJump(s.hash))}
               onContextMenu={(e) => {
                 e.preventDefault()
                 stashMenu(s, repo.path, ops, () => onJump(s.hash))

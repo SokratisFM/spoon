@@ -16,7 +16,7 @@ export function checkJson(text: string): JsonCheck {
   } catch (err) {
     const raw = (err as Error).message
     const at = /position (\d+)/.exec(raw)
-    const pos = at ? Number(at[1]) : text.length
+    const pos = at ? Number(at[1]) : (snippetPosition(raw, text) ?? text.length)
     const before = text.slice(0, pos)
     const line = before.split('\n').length
     const col = pos - before.lastIndexOf('\n')
@@ -26,6 +26,20 @@ export function checkJson(text: string): JsonCheck {
       .replace(/^JSON\.parse: /, '')
     return { json: true, ok: false, message, pos, line, col }
   }
+}
+
+/**
+ * Where V8's position-less errors point: `Unexpected token '}', ..."aaaa": tru}" is not valid JSON`
+ * quotes the text around the token, with 10 characters before it once it's cut at the start ("...").
+ */
+function snippetPosition(message: string, text: string): number | null {
+  const m = /^Unexpected token '(.+?)', (\.\.\.)?"([\s\S]*?)"(?:\.\.\.)? is not valid JSON/.exec(message)
+  if (!m) return null
+  const [, token, cut, snippet] = m
+  const start = text.indexOf(snippet)
+  if (start === -1) return null
+  const within = cut ? 10 : snippet.indexOf(token)
+  return within >= 0 && snippet.startsWith(token, within) ? start + within : null
 }
 
 /** Pretty-printed (two spaces) or compact JSON; the text must be valid JSON. */

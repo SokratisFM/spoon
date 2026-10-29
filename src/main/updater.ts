@@ -106,7 +106,10 @@ export async function checkForUpdates(): Promise<UpdateState> {
     if (res.status === 404) return set({ status: 'current', lastCheck: Date.now() }), state // no release yet
     if (!res.ok) throw new Error(`Update check failed (${res.status}).`)
     const release = verifyManifest(await res.text())
-    const { asset, code } = pickAsset(release, key, process.versions.electron)
+    // A Windows copy that can't write its own resources (installed for all users, under Program Files)
+    // takes the full installer, which asks for permission, instead of a code update that would fail.
+    const electron = process.platform === 'win32' && !resourcesWritable() ? '' : process.versions.electron
+    const { asset, code } = pickAsset(release, key, electron)
     if (!asset || !newer(release.version, app.getVersion())) {
       set({ status: 'current', lastCheck: Date.now() })
       return state
@@ -121,6 +124,17 @@ export async function checkForUpdates(): Promise<UpdateState> {
     busy = false
   }
   return state
+}
+
+function resourcesWritable(): boolean {
+  const probe = join(dirname(process.execPath), 'resources', `.spoon-write-test-${process.pid}`)
+  try {
+    writeFileSync(probe, '')
+    rmSync(probe, { force: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Spoon's code alone when the release runs this Electron, else the full installer. */

@@ -31,7 +31,12 @@ export function TagDialog({ path, repo, commit, commits, ops, github, onClose }:
 
   const trimmed = name.trim()
   const taken = repo.refs.some((r) => r.kind === 'tag' && r.name === trimmed)
-  const invalid = /\s|\.\.|[~^:?*[\\]|^[-/.]|[/.]$|\.lock$|@\{/.test(trimmed)
+  // git check-ref-format's rules: no spaces, control characters or ~ ^ : ? * [ \, no "..", "//" or
+  // "@{", no part that starts with "." or ends in ".lock", not just "@", and no "/" or "." at the ends.
+  const invalid =
+    /[\s\x00-\x1f\x7f]|\.\.|\/\/|[~^:?*[\\]|^[-/.]|[/.]$|@\{/.test(trimmed) ||
+    trimmed === '@' ||
+    trimmed.split('/').some((part) => part.startsWith('.') || part.endsWith('.lock'))
   const problem = taken ? `${trimmed} already exists.` : trimmed && invalid ? 'Tag names can’t have spaces or ~ ^ : ? * [ \\.' : null
   const canCreate = !!trimmed && !problem
 

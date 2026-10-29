@@ -679,7 +679,8 @@ export async function discard(
     const inside = (p: string): string => {
       const abs = resolve(root, p)
       const rel = relative(root, abs)
-      if (!rel || rel.startsWith('..') || isAbsolute(rel) || rel.split(sep)[0] === '.git')
+      // Case-insensitive: on macOS and Windows ".GIT" is the same folder.
+      if (!rel || rel.startsWith('..') || isAbsolute(rel) || rel.split(sep)[0].toLowerCase() === '.git')
         throw new Error(`Refusing to discard a path outside the repository: ${p}`)
       return abs
     }
@@ -1040,14 +1041,28 @@ async function updateSubmoduleNow(cwd: string, submodulePath: string, backupBran
 // ---------- branch cleanup ----------
 
 /**
- * Moves local branches that are only behind their upstream up to it, without checking them out.
- * Refuses (and changes nothing for) any that have commits of their own.
+ * Moves local branches that are only behind their upstream up to it, without checking them out, in
+ * one transaction (all of them or none). Branches that can't move (no upstream, commits of their own,
+ * checked out) are left alone and named in the error afterwards.
  */
 export function fastForwardBranches(cwd: string, names: string[]): Promise<void> {
   return exclusive(cwd, async () => {
     names.forEach((n) => assertArg(n, 'branch'))
-    const upstreams = (await git(cwd, ['rev-parse', '--symbolic-full-name', ...names.map((n) => `${n}@{upstream}`)])).split('\n')
-    await git(cwd, ['fetch', '--quiet', '--no-write-fetch-head', '.', ...names.map((n, i) => `${upstreams[i]}:refs/heads/${n}`)])
+    const head = (await git(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1])).trim()
+    const updates: string[] = []
+    const skipped: string[] = []
+    for (const n of names) {
+      const tip = (await git(cwd, ['rev-parse', '-q', '--verify', `refs/heads/${n}`], [0, 1])).trim()
+      const up = (await git(cwd, ['rev-parse', '-q', '--verify', `${n}@{upstream}`], [0, 1, 128])).trim()
+      if (n === head) skipped.push(`${n} (checked out)`)
+      else if (!tip || !up) skipped.push(`${n} (no upstream)`)
+      else if (tip === up) continue
+      // Only behind: its tip is where the two meet.
+      else if ((await git(cwd, ['merge-base', tip, up], [0, 1])).trim() !== tip) skipped.push(`${n} (has commits of its own)`)
+      else updates.push(`update refs/heads/${n} ${up} ${tip}`)
+    }
+    if (updates.length) await run(cwd, ['update-ref', '--stdin'], { input: `start\n${updates.join('\n')}\nprepare\ncommit\n` })
+    if (skipped.length) throw new Error(`Not fast-forwarded: ${skipped.join(', ')}.${updates.length ? ' The others were.' : ''}`)
   })
 }
 

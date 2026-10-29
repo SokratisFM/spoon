@@ -81,7 +81,7 @@ export function CompareDialog({ home, onCompare, onCompareText, onClose }: Props
         {p ? (
           <>
             <b>{fileName(p)}</b>
-            <span className="muted">{tildify(p.slice(0, p.lastIndexOf('/')), home)}</span>
+            <span className="muted">{tildify(p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))), home)}</span>
           </>
         ) : (
           <>

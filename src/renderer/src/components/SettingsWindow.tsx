@@ -62,7 +62,19 @@ function TabPage({ tab }: { tab: Tab }) {
   return <AboutTab />
 }
 
+// Lookups the tabs need (gh login, Claude, Atlassian, IDE schemes): once each time Settings opens,
+// not again whenever a search remounts the tabs.
+let lookups = new Map<string, Promise<unknown>>()
+function once<T>(key: string, load: () => Promise<T>): Promise<T> {
+  if (!lookups.has(key)) lookups.set(key, load())
+  return lookups.get(key) as Promise<T>
+}
+
 export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
+  useState(() => {
+    lookups = new Map() // fresh answers for this opening
+    return null
+  })
   const [tab, setTab] = useState<Tab>(initialTab)
   const info = useAppInfo()
   const tabsRef = useSlidingIndicator<HTMLDivElement>(tab)
@@ -1074,7 +1086,7 @@ function AccountsTab() {
   const [switching, setSwitching] = useState(false)
 
   useEffect(() => {
-    window.spoon.ghCliLogin().then(setCliLogin)
+    once('ghCliLogin', () => window.spoon.ghCliLogin()).then(setCliLogin)
   }, [])
 
   const attempt = async (label: string, fn: () => Promise<unknown>): Promise<void> => {
@@ -1358,7 +1370,7 @@ function TicketBranchField() {
 
 function ClaudeField() {
   const s = useSettings()
-  const { data: avail } = useAsync(() => window.spoon.claudeAvailability(), [])
+  const { data: avail } = useAsync(() => once('claude', () => window.spoon.claudeAvailability()), [])
   const found = avail ? [avail.desktop && 'the Claude app', avail.cli && 'Claude Code'].filter(Boolean).join(' and ') : ''
   return (
     <div className="field jira-field">
@@ -1384,7 +1396,7 @@ function MainLibField() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    window.spoon.atlassianAccount().then(setAccount)
+    once('atlassian', () => window.spoon.atlassianAccount()).then(setAccount)
   }, [])
   const url = (key: 'mainlibChangelogUrl' | 'mainlibInstructionsUrl', label: string, hint: string, def: string) => (
     <div className="field">
@@ -1704,7 +1716,7 @@ const SOURCE_LABEL: Record<SyntaxPalette['source'], string> = { rider: 'Rider', 
  */
 function SyntaxSourceField() {
   const s = useSettings()
-  const { data: found } = useAsync(() => ideSchemes(true), [])
+  const { data: found } = useAsync(() => once('ideSchemes', () => ideSchemes(true)), [])
   const [error, setError] = useState<string | null>(null)
   const current = s.syntaxPalette
   const options = [...(found ?? [])]

@@ -25,7 +25,8 @@ import {
   setOpState,
   snapshots,
   subscribeOps,
-  type OpBusy
+  type OpBusy,
+  type OpState
 } from '../repoCache'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { cleanError, usePersistentState } from '../hooks'
@@ -123,7 +124,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const setOpError = useCallback((error: { title: string; message: string } | null) => setOpState(path, { error }), [path])
   const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
   // A checkout that local changes are in the way of: offers to discard them.
-  const [blocked, setBlocked] = useState<{ target: CheckoutTarget; description: string; files: string[]; tree: WorkingTree } | null>(null)
+  const blocked = ops$.blocked ?? null
+  const setBlocked = useCallback((b: OpState['blocked']) => setOpState(path, { blocked: b }), [path])
   // ⌘↵ / ⌥⌘↵ from the menu: commit, optionally followed by a push.
   const [commitRequest, setCommitRequest] = useState<{ push: boolean; n: number } | null>(null)
   const clearCommitRequest = useCallback(() => setCommitRequest(null), [])

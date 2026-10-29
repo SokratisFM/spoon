@@ -22,7 +22,8 @@ const toSlash = (p: string): string => p.split(sep).join('/')
 function inside(root: string, rel: string): string {
   const abs = resolve(root, rel)
   const r = relative(root, abs)
-  if (!r || r.startsWith('..') || isAbsolute(r) || r.split(sep)[0] === '.git') throw new Error(`Not inside the repository: ${rel}`)
+  // Case-insensitive: on macOS and Windows ".GIT" is the same folder.
+  if (!r || r.startsWith('..') || isAbsolute(r) || r.split(sep)[0].toLowerCase() === '.git') throw new Error(`Not inside the repository: ${rel}`)
   return abs
 }
 

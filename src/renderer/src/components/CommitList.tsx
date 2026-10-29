@@ -52,6 +52,9 @@ interface Badge {
 /** Groups refs per commit, folding "origin/main" into "main" when both point at the same commit. */
 function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
   const map = new Map<string, Badge[]>()
+  // Longest match, since a remote's own name may contain a slash.
+  const remoteOf = (name: string): string | undefined =>
+    repo.remotes.filter((x) => name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0]
   const byHash = new Map<string, Ref[]>()
   for (const r of repo.refs) byHash.set(r.target, [...(byHash.get(r.target) ?? []), r])
 
@@ -60,10 +63,10 @@ function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
     const folded = new Set<string>()
     for (const r of refs.filter((x) => x.kind === 'head')) {
       const remotes = refs
-        .filter((x) => x.kind === 'remote' && x.name.slice(x.name.indexOf('/') + 1) === r.name)
+        .filter((x) => x.kind === 'remote' && remoteOf(x.name) && x.name.slice(remoteOf(x.name)!.length + 1) === r.name)
         .map((x) => {
           folded.add(x.name)
-          return x.name.split('/')[0]
+          return remoteOf(x.name)!
         })
       badges.push({
         key: r.fullName,
@@ -77,8 +80,7 @@ function badgesByCommit(repo: RepoState): Map<string, Badge[]> {
     }
     for (const r of refs) {
       if (r.kind === 'remote' && !folded.has(r.name)) {
-        // Longest match, since a remote's own name may contain a slash.
-        const remote = repo.remotes.filter((x) => r.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0]
+        const remote = remoteOf(r.name)
         badges.push({
           key: r.fullName,
           label: r.name,
@@ -765,7 +767,8 @@ function GraphCell({
   fold?: boolean
 }) {
   // Each row is only as wide as its own lanes, so the text starts right after the graph (like Fork).
-  const width = laneW * Math.min(row.width, MAX_GRAPH_LANES) + laneW * 0.5
+  // Lines past MAX_GRAPH_LANES are clipped, but a commit's own dot is always drawn, however far out.
+  const width = laneW * Math.max(Math.min(row.width, MAX_GRAPH_LANES), row.col + 1) + laneW * 0.5
   const x = (col: number): number => laneW * col + laneW / 2 + laneW * 0.25
   const mid = rowH / 2
   const stroke = Math.max(1.5, rowH * 0.06)

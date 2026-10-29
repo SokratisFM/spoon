@@ -147,8 +147,10 @@ const files = readdirSync(out).filter((f) => f !== 'SHA256SUMS').sort()
 const sums = files.map((f) => `${createHash('sha256').update(readFileSync(join(out, f))).digest('hex')}  ${f}`)
 writeFileSync(join(out, 'SHA256SUMS'), sums.join('\n') + '\n')
 
+// Single-quoted for the shell: nothing inside ($, backticks, !) is expanded when it's pasted.
+const sh = (text) => `'${text.replaceAll("'", `'\\''`)}'`
 console.log(`\nRelease ${version} is in ${out}`)
 for (const f of [...files, 'SHA256SUMS']) console.log(`  ${f.padEnd(34)} ${(statSync(join(out, f)).size / 1048576).toFixed(1)} MB`)
-console.log(`\nTo publish (when ready):\n  gh release create v${version} --repo ${repo} --title "Spoon ${version}" --notes ${JSON.stringify(notes || `Spoon ${version}`)} ${join(out, '*')}`)
+console.log(`\nTo publish (when ready):\n  gh release create v${version} --repo ${repo} --title "Spoon ${version}" --notes ${sh(notes || `Spoon ${version}`)} ${sh(out)}/*`)
 console.log(`\nInstall commands:\n  macOS:   curl -fsSL https://github.com/${repo}/releases/latest/download/install.sh | sh`)
 console.log(`  Windows: irm https://github.com/${repo}/releases/latest/download/install.ps1 | iex`)

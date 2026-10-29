@@ -148,6 +148,15 @@ export function PullRequestView({ path, number, ops, onJump }: Props) {
                 // GitHub would reject the whole review (or put them on the wrong lines), so they're
                 // left out, after asking. They stay pending.
                 const stale = pending.filter((c) => c.commitId && c.commitId !== pr.headSha)
+                // GitHub rejects a comment review with no body and no comments.
+                if (event === 'COMMENT' && !body.trim() && stale.length === pending.length) {
+                  setActionError(
+                    pending.length
+                      ? 'Nothing left to send: every pending comment was written before the latest push. Re-place them on the new diff, or add a comment.'
+                      : 'Nothing to send: write a comment first.'
+                  )
+                  return
+                }
                 if (stale.length) {
                   const ok = await confirm({
                     message: `${stale.length} pending comment${stale.length === 1 ? ' was' : 's were'} written before the latest push`,

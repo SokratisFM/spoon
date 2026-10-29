@@ -1,7 +1,7 @@
 // Per-repo state kept outside React, so switching tabs draws immediately: the last loaded repo,
 // working tree, history and built graph, plus commit details, commit diffs and pull requests.
 // Open tabs are also loaded in the background, so even the first switch to a tab isn't cold.
-import type { Commit, CommitDetails, DiffResult, PullSummary, RepoState, WorkingTree } from '../../shared/types'
+import type { CheckoutTarget, Commit, CommitDetails, DiffResult, PullSummary, RepoState, WorkingTree } from '../../shared/types'
 import { buildGraph, type ColorRules, type Graph } from './graph'
 import { getSettings, reservedPrefixes, type Settings } from './settings'
 
@@ -122,6 +122,8 @@ async function prefetch(path: string): Promise<void> {
     graph: prev?.commits === commits ? prev.graph : undefined,
     graphKey: prev?.commits === commits ? prev.graphKey : undefined
   }
+  // The tab itself may have loaded meanwhile (it was opened): its snapshot is fresher than this one.
+  if (snapshots.get(path) !== prev) return
   snapshots.set(path, snap)
   // The tab opens with this commit selected; have its details ready too.
   const sel = snap.selected
@@ -189,6 +191,8 @@ export interface OpState {
   error: { title: string; message: string } | null
   /** git writes run one after another, so quick clicks never collide on index.lock. */
   queue: Promise<unknown>
+  /** A checkout local changes got in the way of: the files to offer to discard. */
+  blocked?: { target: CheckoutTarget; description: string; files: string[]; tree: WorkingTree } | null
 }
 // Per repository and outside React: an operation outlives its tab being switched away, and its
 // progress (or the error it ends with) is there when the tab is shown again.
