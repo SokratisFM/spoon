@@ -150,7 +150,10 @@ export function MainLibDialog({
         await work[i]()
         setTasks((t) => t.map((x, k) => (k === i ? { ...x, state: 'done' } : x)))
       } catch (err) {
-        setTasks((t) => t.map((x, k) => (k === i ? { ...x, state: 'failed', error: cleanError(err) } : x)))
+        // The later steps depend on this one: they're skipped, so the dialog can be closed.
+        setTasks((t) =>
+          t.map((x, k) => (k === i ? { ...x, state: 'failed', error: cleanError(err) } : k > i && x.state === 'todo' ? { ...x, state: 'skipped' } : x))
+        )
         break
       } finally {
         if (i < 2) onDone()
@@ -168,6 +171,7 @@ export function MainLibDialog({
     )
   }
 
+  const finished = tasks.every((t) => t.state !== 'todo' && t.state !== 'working')
   const footer = (() => {
     if (step === 'version')
       return (
@@ -205,7 +209,6 @@ export function MainLibDialog({
           </button>
         </>
       )
-    const finished = tasks.every((t) => t.state !== 'todo' && t.state !== 'working')
     return (
       <button className="btn primary" disabled={!finished} onClick={onClose}>
         Done
@@ -214,7 +217,7 @@ export function MainLibDialog({
   })()
 
   return (
-    <Modal title={`Update ${sub.name}`} onClose={step === 'progress' ? () => undefined : onClose} wide footer={footer}>
+    <Modal title={`Update ${sub.name}`} onClose={step === 'progress' && !finished ? () => undefined : onClose} wide footer={footer}>
       <div className="ml">
         <div className="ml-sub muted">
           {repoName} · {sub.path}

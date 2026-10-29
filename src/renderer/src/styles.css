@@ -6760,3 +6760,40 @@ kbd.setting-key {
   gap: 0.6rem;
   margin-top: 0.4rem;
 }
+
+/* ---------- Unity exports ---------- */
+
+.export-state {
+  flex: none;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 0.3rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.8em;
+}
+.export-state.export-newer {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+}
+.export-state.source-newer {
+  background: var(--bg-hover, color-mix(in srgb, var(--text) 8%, transparent));
+  color: var(--text-muted);
+}
+.badge.export-platform.android {
+  color: var(--add-text);
+}
+.badge.export-platform.ios {
+  color: var(--accent-fg);
+}
+.exports-summary {
+  padding-top: 0.5rem;
+}
+.export-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.exports-auto {
+  margin-bottom: 0.35rem;
+  color: var(--text-muted);
+}

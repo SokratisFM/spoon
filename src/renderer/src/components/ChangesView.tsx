@@ -306,8 +306,10 @@ interface CommitBoxProps {
 function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHandled }: CommitBoxProps) {
   // The draft survives restarts and tab switches, like Fork.
   const [draft, setDraft] = usePersistentState(`spoon.draft.${path}`, { subject: '', body: '' })
-  const [amend, setAmend] = useState(false)
-  const beforeAmend = useRef<{ subject: string; body: string } | null>(null)
+  // While Amend is on: the draft from before it (put back when it's turned off). Kept with the draft,
+  // so switching views or tabs doesn't turn Amend off and lose that draft.
+  const [beforeAmend, setBeforeAmend] = usePersistentState<{ subject: string; body: string } | null>(`spoon.amend.${path}`, null)
+  const amend = beforeAmend !== null
   const subjectRef = useRef<HTMLInputElement>(null)
   // Holding ⌥ turns the button into Commit and Push, like Fork.
   const [alt, setAlt] = useState(false)
@@ -329,17 +331,16 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
   // Bumped on every toggle, so a slow headMessage() from an earlier "on" can't land after "off".
   const amendSeq = useRef(0)
   const toggleAmend = async (on: boolean): Promise<void> => {
-    setAmend(on)
     const seq = ++amendSeq.current
     if (on) {
-      beforeAmend.current = draft
+      setBeforeAmend(draft)
       const msg = await window.spoon.headMessage(path)
       if (seq !== amendSeq.current) return
       const [subject, ...rest] = msg.split('\n')
       setDraft({ subject, body: rest.join('\n').replace(/^\n+/, '') })
-    } else if (beforeAmend.current) {
-      setDraft(beforeAmend.current)
-      beforeAmend.current = null
+    } else if (beforeAmend) {
+      setDraft(beforeAmend)
+      setBeforeAmend(null)
     }
   }
 
@@ -365,8 +366,7 @@ function CommitBox({ path, stagedCount, pushedTo, ops, commitRequest, onCommitHa
       })
     if (ok) {
       setDraft({ subject: '', body: '' })
-      setAmend(false)
-      beforeAmend.current = null
+      setBeforeAmend(null)
       if (push && canPush) ops.push()
     }
   }

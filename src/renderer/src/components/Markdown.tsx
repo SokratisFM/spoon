@@ -2,10 +2,24 @@ import { useMemo } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
+// A PR body is someone else's HTML: nothing that could restyle the app, draw over it or post a form.
+// Task-list checkboxes (input type=checkbox) stay; they're disabled by marked.
+const PURIFY = {
+  FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'dialog', 'template', 'link', 'meta'],
+  FORBID_ATTR: ['style', 'popover', 'popovertarget', 'popovertargetaction', 'formaction', 'form']
+}
+
+// Of inputs, only (disabled) task-list checkboxes survive.
+DOMPurify.addHook('uponSanitizeElement', (node, data) => {
+  if (data.tagName !== 'input' || !(node instanceof HTMLInputElement)) return
+  if (node.type !== 'checkbox') node.remove()
+  else node.disabled = true
+})
+
 /** GitHub-flavored Markdown from PR descriptions and comments, sanitized; links open in the browser. */
 export function Markdown({ text, className = '' }: { text: string; className?: string }) {
   const html = useMemo(
-    () => DOMPurify.sanitize(marked.parse(text || '', { gfm: true, breaks: true, async: false }) as string),
+    () => DOMPurify.sanitize(marked.parse(text || '', { gfm: true, breaks: true, async: false }) as string, PURIFY),
     [text]
   )
   if (!text.trim()) return <p className={`md muted ${className}`}>No description provided.</p>

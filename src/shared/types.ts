@@ -18,6 +18,29 @@ export interface Commit {
 
 export type RefKind = 'head' | 'remote' | 'tag' | 'stash'
 
+export type ExportPlatform = 'android' | 'ios'
+
+/** An exported Android or iOS project inside a Unity repository. */
+export interface ExportCandidate {
+  dir: string // relative to the repository, e.g. "Builds/Android"
+  platform: ExportPlatform
+  /** How many of its native files have a source under Assets/. */
+  files: number
+}
+
+/** One exported native file and its Unity source (both relative to the repository). */
+export interface ExportLink {
+  platform: ExportPlatform
+  export: string
+  source: string
+  /** linked: the export is a symlink to the source; else a copy, the same or with one side edited. */
+  state: 'linked' | 'same' | 'export-newer' | 'source-newer'
+  /** When the export's copy was last saved: an edit already brought back (or set aside) keeps its time. */
+  exportMtime: number
+  /** When the source was last saved: tells Spoon's own bring-back apart from your edits in Assets. */
+  sourceMtime: number
+}
+
 export interface JiraIssue {
   summary: string
   /** "Bug", "Story", "Task"… */
@@ -648,6 +671,17 @@ export interface SpoonApi {
   atlassianConnect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount>
   atlassianDisconnect(): Promise<void>
   confluencePage(url: string): Promise<ConfluencePage>
+  /** Unity projects: exported Android/iOS projects and their native files' sources under Assets/. */
+  isUnityProject(path: string): Promise<boolean>
+  findExports(path: string): Promise<ExportCandidate[]>
+  scanExports(path: string, dirs: string[]): Promise<ExportLink[]>
+  /** Watches the linked exports (an empty list stops); onExportsChanged hears about edits in them. */
+  watchExports(path: string, dirs: string[]): Promise<void>
+  onExportsChanged(handler: (repo: string) => void): () => void
+  /** Resolves to the source's new save time. */
+  exportBringBack(path: string, exp: string, src: string): Promise<number>
+  /** Replaces the export's copy with a link to the source; one that differs only with `force`. */
+  exportRelink(path: string, exp: string, src: string, force?: boolean): Promise<void>
   /** A ticket's title and type through the connected Atlassian account, or null. */
   jiraIssue(site: string, key: string): Promise<JiraIssue | null>
   readClipboard(): Promise<string>

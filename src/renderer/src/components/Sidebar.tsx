@@ -27,6 +27,7 @@ import {
 } from './Icons'
 import { contextMenu } from '../menus'
 import { stashMenu, stashTitle } from './stashMenu'
+import { UnityExports } from './UnityExports'
 
 interface Props {
   repo: RepoState
@@ -374,6 +375,8 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             canFastForward
           />
         ),
+
+    exports: <UnityExports repo={repo} ops={ops} section={section} query={query} />
   }
 
   return (

@@ -15,7 +15,7 @@
 //        npm run release -- --notes "What changed" [--full] [--skip-win] [--skip-mac] [--prev latest.json]
 // --full forces full installers; --prev reads the previous manifest from a file instead of GitHub.
 // Nothing is uploaded; the command to publish is printed at the end.
-import { createHash, createPrivateKey, sign } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -48,19 +48,33 @@ const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 const electron = JSON.parse(readFileSync(join(root, 'node_modules', 'electron', 'package.json'), 'utf8')).version
 const downloadUrl = (tag, file) => `https://github.com/${repo}/releases/download/${tag}/${file}`
 
-// The previous release's manifest says which Electron it ran on and where its installers are.
+// The previous release's manifest says which Electron it ran on and where its installers are. Its
+// links are signed again into this release, so it has to carry our own signature.
 async function previousRelease() {
+  let text
   try {
-    const text = option('--prev')
-      ? readFileSync(option('--prev'), 'utf8')
-      : await (await fetch(`https://github.com/${repo}/releases/latest/download/latest.json`)).text()
-    return JSON.parse(JSON.parse(text).payload)
+    const res = option('--prev') ? null : await fetch(`https://github.com/${repo}/releases/latest/download/latest.json`)
+    if (res && !res.ok) return null // no release yet
+    text = option('--prev') ? readFileSync(option('--prev'), 'utf8') : await res.text()
   } catch {
     return null
   }
+  const { payload, signature } = JSON.parse(text)
+  const publicKey = createPublicKey(createPrivateKey(readFileSync(keyFile)))
+  if (typeof payload !== 'string' || !verify(null, Buffer.from(payload), publicKey, Buffer.from(String(signature), 'base64'))) {
+    console.error('The previous release’s latest.json isn’t signed with your release key. Not building on it; use --full.')
+    process.exit(1)
+  }
+  return JSON.parse(payload)
 }
-const prev = await previousRelease()
-const full = flag('--full') || !prev?.full || prev.electron !== electron
+const prev = flag('--full') ? null : await previousRelease()
+const full = !prev?.full || prev.electron !== electron
+// A code-only release must carry every platform's code: a platform without it would be offered the
+// older full installer carried over from an earlier release.
+if (!full && (flag('--skip-mac') || flag('--skip-win'))) {
+  console.error('--skip-mac / --skip-win only work with a full release (--full).')
+  process.exit(1)
+}
 if (!full) console.log(`Electron ${electron} is unchanged since ${prev.version}: code-only release, installers stay in ${prev.version}.`)
 
 rmSync(out, { recursive: true, force: true })
@@ -72,7 +86,7 @@ const builder = (platformArgs) =>
 
 const describe = (path, url) => {
   const data = readFileSync(path)
-  return { file: path.split(/[\\/]/).pop(), url, sha256: createHash('sha256').update(data).digest('hex'), size: data.length }
+  return { file: path.split(/[\\/]/).pop(), url, version, sha256: createHash('sha256').update(data).digest('hex'), size: data.length }
 }
 // Full installers per platform (in this release, or carried over from the last full one) and code.
 const installers = full ? {} : { ...prev.full }

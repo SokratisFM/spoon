@@ -11,6 +11,7 @@ import * as claude from './claude'
 import * as history from './history'
 import * as atlassian from './atlassian'
 import * as ide from './ide'
+import * as unityExports from './exports'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
@@ -18,6 +19,16 @@ import type { ClaudeLaunch, NewPull, NewRelease, NewTagOptions, DiscardEntry, De
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
+
+// One Spoon per data folder: a second copy would overwrite the first one's state, and its updater
+// would delete an update the first one has staged. Opening it again brings the running one forward.
+const primary = app.requestSingleInstanceLock()
+if (!primary) app.quit()
+app.on('second-instance', () => {
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.focus()
+})
 
 // Unexpected errors in the background go to spoon.log in the data folder instead of a blocking
 // "JavaScript error in the main process" dialog.
@@ -230,6 +241,18 @@ function registerIpc(): void {
   )
   ipcMain.handle('atlassian:disconnect', () => atlassian.disconnect())
   ipcMain.handle('atlassian:page', (_e, url: string) => atlassian.page(url))
+  ipcMain.handle('unity:isProject', (_e, path: string) => unityExports.isUnityProject(path))
+  ipcMain.handle('unity:findExports', (_e, path: string) => unityExports.findExports(path))
+  ipcMain.handle('unity:scanExports', (_e, path: string, dirs: string[]) => unityExports.scanExports(path, dirs))
+  ipcMain.handle('unity:watchExports', (e, path: string, dirs: string[]) =>
+    unityExports.watchExports(path, dirs, () => {
+      if (!e.sender.isDestroyed()) e.sender.send('unity:exportsChanged', path)
+    })
+  )
+  ipcMain.handle('unity:bringBack', (_e, path: string, exp: string, src: string) => unityExports.bringBack(path, exp, src))
+  ipcMain.handle('unity:relink', (_e, path: string, exp: string, src: string, force: boolean) =>
+    unityExports.relink(path, exp, src, force)
+  )
   ipcMain.handle('atlassian:jiraIssue', (_e, site: string, key: string) => atlassian.jiraIssue(site, key))
   ipcMain.handle('clipboard:readText', () => clipboard.readText())
   ipcMain.handle('mainlib:state', (_e, path: string, sub: string, prefix: string) => git.mainlibState(path, sub, prefix))
@@ -341,6 +364,7 @@ app.on('web-contents-created', (_e, contents) => {
 })
 
 app.whenReady().then(() => {
+  if (!primary) return
   initStore()
   buildMenu()
   initUpdater()

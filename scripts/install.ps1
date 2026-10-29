@@ -37,7 +37,8 @@ if ($exe -and (Get-Checked '/Spoon-[0-9][^ /]*-win-x64-code\.zip\s*$' $code)) {
   $unpacked = Join-Path $env:TEMP 'Spoon-code'
   if (Test-Path $unpacked) { Remove-Item $unpacked -Recurse -Force }
   Expand-Archive $code $unpacked
-  robocopy (Join-Path $unpacked 'resources') (Join-Path $exe.DirectoryName 'resources') /MIR /NJH /NJS /NP | Out-Null
+  robocopy (Join-Path $unpacked 'resources') (Join-Path $exe.DirectoryName 'resources') /MIR /R:3 /W:1 /NJH /NJS /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { Write-Host 'Couldn''t lay the latest code over the install; Spoon will update itself.' }
   Remove-Item $code, $unpacked -Recurse -Force
 }
 if ($exe) { Start-Process $exe.FullName }

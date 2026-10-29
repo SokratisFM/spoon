@@ -60,7 +60,7 @@ export async function launch(l: ClaudeLaunch): Promise<void> {
       'clear',
       `prompt="$(cat ${sq(promptFile)})"`,
       `rm -f ${sq(promptFile)} ${sq(script)}`,
-      `exec ${sq(cli)} ${args} "$prompt"`,
+      `exec ${sq(cli)} ${args} -- "$prompt"`, // -- : a prompt starting with "-" is still the prompt
       ''
     ].join('\n')
   )

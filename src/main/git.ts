@@ -90,7 +90,9 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
   return new Promise((done, reject) => {
     // Cancellable commands get their own process group: `fetch --all`, `pull` and `submodule update`
     // run further git processes, and cancel() has to end those too.
-    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args], {
+    // Diffs must look the same whatever the user's git config says: they're parsed, and some are fed
+    // back to `git apply` (hunk staging, partial discard).
+    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false', ...args], {
       cwd,
       env: opts.env ? { ...env, ...opts.env } : env,
       detached: !!opts.cancellable && process.platform !== 'win32'
@@ -564,7 +566,7 @@ export async function workingTree(cwd: string): Promise<WorkingTree> {
 async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number): Promise<{ out: string; truncated: boolean }> {
   const { file } = target
   const paths = file.oldPath ? [file.oldPath, file.path] : [file.path]
-  const common = ['--no-color', '--no-ext-diff', '-M']
+  const common = ['--no-color', '--no-ext-diff', '--no-textconv', '-M']
   const diffOf = (args: string[], okCodes = [0]): Promise<{ out: string; truncated: boolean }> =>
     exec(cwd, ['diff', ...common, ...args], { okCodes, maxBytes })
 
@@ -741,7 +743,7 @@ export async function discard(
     if (fromIndex.length) await withPaths(cwd, ['restore', '--worktree'], fromIndex)
     if (whole.length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged', '--worktree'], whole)
     for (const p of partial) {
-      const staged = await run(cwd, ['diff', '--cached', '--binary', '--', p])
+      const staged = await run(cwd, ['diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv', '--', p])
       const reversed = await run(cwd, ['apply', '-R', '--whitespace=nowarn', '-'], { input: staged }).then(
         () => true,
         () => false
@@ -1306,7 +1308,7 @@ async function rebaseInteractiveNow(cwd: string, onto: string, steps: RebaseStep
     if (s.action === 'reword' && s.message?.trim()) {
       const file = join(dir, `message-${i}.txt`)
       writeFileSync(file, s.message.trim() + '\n')
-      lines.push(`pick ${s.hash}`, `exec git commit --amend --allow-empty --no-verify --cleanup=strip -F ${shPath(file)}`)
+      lines.push(`pick ${s.hash}`, `exec git commit --amend --allow-empty --no-verify --cleanup=whitespace -F ${shPath(file)}`)
     } else {
       lines.push(`${s.action === 'reword' ? 'pick' : s.action} ${s.hash}`)
     }

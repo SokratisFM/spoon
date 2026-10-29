@@ -67,7 +67,8 @@ export function runAt(hash: string, commits: Commit[], repo: RepoState): Group |
 export function squishCommits(commits: Commit[], repo: RepoState, style: SquishStyle, squished: (key: string) => boolean): Commit[] {
   const drop = new Set<string>()
   const rewired = new Map<string, Commit>() // kept commit above a group → its new self
-  const folds = new Map<string, Commit>() // kept commit above a group → the fold row under it
+  // Kept commit above a group → the fold rows under it (a merge can have a hidden run on each parent).
+  const folds = new Map<string, Commit[]>()
   for (const { key, members, above, first } of findGroups(commits, repo)) {
     if (!squished(key)) continue
     const c = members[0]
@@ -81,7 +82,7 @@ export function squishCommits(commits: Commit[], repo: RepoState, style: SquishS
       ...(style === 'bead' ? { squish: info } : {})
     })
     if (style === 'fold')
-      folds.set(above.hash, {
+      folds.set(above.hash, [...(folds.get(above.hash) ?? []), {
         hash: target,
         parents: [first.hash],
         authorName: '',
@@ -91,15 +92,14 @@ export function squishCommits(commits: Commit[], repo: RepoState, style: SquishS
         commitTime: c.commitTime,
         subject: '',
         squish: info
-      })
+      }])
   }
   if (!drop.size) return commits
   const out: Commit[] = []
   for (const c of commits) {
     if (drop.has(c.hash)) continue
     out.push(rewired.get(c.hash) ?? c)
-    const fold = folds.get(c.hash)
-    if (fold) out.push(fold)
+    out.push(...(folds.get(c.hash) ?? []))
   }
   return out
 }

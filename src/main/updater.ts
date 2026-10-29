@@ -28,6 +28,8 @@ interface Asset {
   file: string
   /** Where to download it; without one, `file` is next to latest.json. */
   url?: string
+  /** The version it installs (full installers can come from an earlier release). */
+  version?: string
   sha256: string
   size: number
 }
@@ -125,7 +127,11 @@ export async function checkForUpdates(): Promise<UpdateState> {
 export function pickAsset(release: Release, key: PlatformKey, electron: string): { asset?: Asset; code: boolean } {
   const code = release.code?.[key]
   if (code && release.electron === electron) return { asset: code, code: true }
-  return { asset: release.full?.[key] ?? release.assets[key], code: false }
+  const full = release.full?.[key] ?? release.assets[key]
+  // A full installer carried over from an earlier release that isn't newer than this copy would only
+  // install an older Spoon (and be offered again and again).
+  if (full?.version && !newer(full.version, app.getVersion())) return { code: false }
+  return { asset: full, code: false }
 }
 
 async function download(url: string, asset: Asset): Promise<string> {
@@ -292,7 +298,7 @@ $backup = "$res.backup"
 try {
   if (Test-Path $backup) { Remove-Item $backup -Recurse -Force }
   Copy-Item $res $backup -Recurse
-  robocopy (Join-Path ${q(staged)} 'resources') $res /MIR /NJH /NJS /NP | Out-Null
+  robocopy (Join-Path ${q(staged)} 'resources') $res /MIR /R:3 /W:1 /NJH /NJS /NP | Out-Null
   if ($LASTEXITCODE -ge 8) { throw 'copy failed' }
   Remove-Item $backup -Recurse -Force
 } catch {
@@ -348,7 +354,11 @@ export function initUpdater(): void {
     return
   }
   // Leftovers from an update that's already installed.
-  if (existsSync(updatesDir())) rmSync(updatesDir(), { recursive: true, force: true })
+  try {
+    if (existsSync(updatesDir())) rmSync(updatesDir(), { recursive: true, force: true })
+  } catch {
+    // still in use (Windows, right after an update): cleared next time
+  }
   setTimeout(() => void checkForUpdates(), 10_000)
   setInterval(() => void checkForUpdates(), CHECK_EVERY_MS)
 }

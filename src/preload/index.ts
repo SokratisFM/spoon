@@ -99,6 +99,17 @@ const api: SpoonApi = {
   atlassianConnect: (email, token, pageUrl) => ipcRenderer.invoke('atlassian:connect', email, token, pageUrl),
   atlassianDisconnect: () => ipcRenderer.invoke('atlassian:disconnect'),
   confluencePage: (url) => ipcRenderer.invoke('atlassian:page', url),
+  isUnityProject: (path) => ipcRenderer.invoke('unity:isProject', path),
+  findExports: (path) => ipcRenderer.invoke('unity:findExports', path),
+  scanExports: (path, dirs) => ipcRenderer.invoke('unity:scanExports', path, dirs),
+  watchExports: (path, dirs) => ipcRenderer.invoke('unity:watchExports', path, dirs),
+  onExportsChanged: (handler) => {
+    const listener = (_e: unknown, repo: string): void => handler(repo)
+    ipcRenderer.on('unity:exportsChanged', listener)
+    return () => ipcRenderer.removeListener('unity:exportsChanged', listener)
+  },
+  exportBringBack: (path, exp, src) => ipcRenderer.invoke('unity:bringBack', path, exp, src),
+  exportRelink: (path, exp, src, force) => ipcRenderer.invoke('unity:relink', path, exp, src, force),
   jiraIssue: (site, key) => ipcRenderer.invoke('atlassian:jiraIssue', site, key),
   readClipboard: () => ipcRenderer.invoke('clipboard:readText'),
   mainlibState: (path, sub, prefix) => ipcRenderer.invoke('mainlib:state', path, sub, prefix),
