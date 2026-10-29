@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { FileChange, FileStatus } from '../../../shared/types'
 import { splitPath } from '../format'
@@ -104,6 +104,16 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
   const indexOf = useMemo(() => new Map(files.map((f, i) => [f.path, i])), [files])
   const toggle = (dir: string): void =>
     setCollapsed(collapsed.has(dir) ? collapsedList.filter((d) => d !== dir) : [...collapsedList, dir])
+  const setOpen = (dir: string, open: boolean): void => {
+    if (open === !collapsed.has(dir)) return
+    setCollapsed(open ? collapsedList.filter((d) => d !== dir) : [...collapsedList, dir])
+  }
+  // In the tree, the keyboard can sit on a folder row too (selecting everything in it).
+  const [focusDir, setFocusDir] = useState<string | null>(null)
+  const pickDir = (r: Extract<Row, { kind: 'dir' }>): void => {
+    setFocusDir(r.path)
+    onSelect(new Set(r.files.map((f) => f.path)), r.files[0])
+  }
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -120,6 +130,7 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
   const click = (index: number, e: React.MouseEvent): void => {
     // ⌃-click on a Mac is a right-click; the context menu decides what it applies to.
     if (isMac && e.ctrlKey && e.button === 0) return
+    setFocusDir(null)
     const f = files[index]
     if (e.shiftKey) {
       const [a, b] = [Math.min(anchor.current, index), Math.max(anchor.current, index)]
@@ -149,6 +160,44 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
       onSelect(new Set(allFiles.map((f) => f.path)), allFiles.find((f) => f.path === focused) ?? allFiles[0])
       return
     }
+    if (tree && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      // Like a Finder or IDE tree: ↑/↓ move over files and folders, ← collapses a folder (or goes to
+      // the folder of a file, collapsing it), → expands a folder (or goes into an open one).
+      e.preventDefault()
+      const at = focusDir !== null ? rows.findIndex((r) => r.kind === 'dir' && r.path === focusDir) : rows.findIndex((r) => r.kind === 'file' && r.file.path === focused)
+      const row = rows[at]
+      const go = (i: number): void => {
+        const r = rows[i]
+        if (!r) return
+        if (r.kind === 'dir') pickDir(r)
+        else {
+          setFocusDir(null)
+          anchor.current = indexOf.get(r.file.path) ?? 0
+          onSelect(new Set([r.file.path]), r.file)
+        }
+        virtualizer.scrollToIndex(i)
+      }
+      const parentOf = (i: number): number => {
+        for (let j = i - 1; j >= 0; j--) if (rows[j].kind === 'dir' && rows[j].depth < rows[i].depth) return j
+        return -1
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') return go(at < 0 ? 0 : Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1))))
+      if (!row) return
+      if (e.key === 'ArrowLeft') {
+        if (row.kind === 'dir' && !collapsed.has(row.path)) return setOpen(row.path, false)
+        const parent = parentOf(at)
+        if (parent < 0) return
+        const dir = rows[parent] as Extract<Row, { kind: 'dir' }>
+        // From a file its folder closes over it; from a closed folder it's just a step up.
+        if (row.kind === 'file') setOpen(dir.path, false)
+        pickDir(dir)
+        virtualizer.scrollToIndex(parent)
+        return
+      }
+      if (row.kind !== 'dir') return
+      if (collapsed.has(row.path)) return setOpen(row.path, true)
+      return go(at + 1)
+    }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     e.preventDefault()
     const pos = files.findIndex((f) => f.path === focused)
@@ -174,12 +223,13 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
             return (
               <div
                 key={`dir:${r.path}`}
-                className={`file-row dir ${all ? 'selected' : ''}`}
+                className={`file-row dir ${all ? 'selected' : ''} ${focusDir === r.path ? 'focused' : ''}`}
                 style={{ transform: `translateY(${v.start}px)`, height: rowH, ...indent }}
                 // A folder selects everything in it (so Stage, Discard and the menu act on all of it).
                 onMouseDown={(e) => {
                   if (isMac && e.ctrlKey && e.button === 0) return
                   if (e.button === 2 && all) return
+                  setFocusDir(r.path)
                   onSelect(inside, r.files[0])
                 }}
                 onDoubleClick={() => onActivate?.(r.files)}
@@ -211,7 +261,7 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
             <div
               key={`${f.status}:${f.path}`}
               data-path={f.path}
-              className={`file-row ${selected.has(f.path) ? 'selected' : ''} ${f.path === focused ? 'focused' : ''}`}
+              className={`file-row ${selected.has(f.path) ? 'selected' : ''} ${f.path === focused && focusDir === null ? 'focused' : ''}`}
               style={{ transform: `translateY(${v.start}px)`, height: rowH, ...(tree ? { paddingLeft: `calc(0.6rem + ${r.depth * 1.1}rem + 1.25rem)` } : {}) }}
               onMouseDown={(e) => click(index, e)}
               onDoubleClick={() => onActivate?.([f])}

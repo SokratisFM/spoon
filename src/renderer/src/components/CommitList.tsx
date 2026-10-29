@@ -30,6 +30,8 @@ interface Props {
   onDeleteBranch: (ref: Ref) => void
   /** Squish branches: shows a squished group's commits again. */
   onExpand: (key: string) => void
+  /** ← / →: fold or open the run of the selected commit's branch. */
+  onFoldRun: (hash: string, fold: boolean) => void
 }
 
 interface Badge {
@@ -110,7 +112,8 @@ export const CommitList = memo(function CommitList({
   ops,
   fresh,
   onDeleteBranch,
-  onExpand
+  onExpand,
+  onFoldRun
 }: Props) {
   const settings = useSettings()
   const rowH = rowHeight(settings)
@@ -204,6 +207,11 @@ export const CommitList = memo(function CommitList({
     if ((e.key === 'Backspace' || e.key === 'Delete') && selected) {
       e.preventDefault()
       pickLocalBranch(selected, 'Delete').then((ref) => ref && onDeleteBranch(ref))
+      return
+    }
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && selected && !q) {
+      e.preventDefault()
+      onFoldRun(selected, e.key === 'ArrowLeft')
       return
     }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return

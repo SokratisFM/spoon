@@ -22,7 +22,7 @@ import { Split } from './Split'
 import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
-import { FOLD, groupOf, squishCommits } from '../squish'
+import { FOLD, groupOf, runAt, squishCommits } from '../squish'
 import type { Graph } from '../graph'
 
 const NO_GROUPS = new Set<string>()
@@ -471,8 +471,10 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   // Keyed on what the graph depends on, not the repo object: status-only refreshes and tab
   // switches reuse the built graph instead of laying out 5000 rows again.
   const graphKey = graphKeyOf(repo, settings)
-  // Squish branches: the history as drawn (not while filtering), and the groups opened again.
+  // Squish branches: the history as drawn (not while filtering). With squishing on, every run is
+  // squished but the ones opened again; with it off, only the runs folded with ← are.
   const [unsquished, setUnsquished] = useState<Set<string>>(NO_GROUPS)
+  const [folded, setFolded] = useState<Set<string>>(NO_GROUPS)
   // Turning squishing off and on (or changing its style) closes the opened groups again; only on a
   // change, so opening the tab doesn't squish the history twice.
   const squishSetting = `${settings.squishBranches}|${settings.squishStyle}`
@@ -480,24 +482,46 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   if (lastSquishSetting.current !== squishSetting) {
     lastSquishSetting.current = squishSetting
     if (unsquished.size) setUnsquished(NO_GROUPS)
+    if (folded.size) setFolded(NO_GROUPS)
   }
-  const squishing = settings.squishBranches && !filter.trim()
+  const squishing = (settings.squishBranches || folded.size > 0) && !filter.trim()
+  const squishedRun = (all: boolean, opened: Set<string>, closed: Set<string>) => (key: string): boolean =>
+    all ? !opened.has(key) : closed.has(key)
   // The squished history and its graph are kept per repository, so switching tabs reuses them.
   const squished = useMemo(() => {
     if (!squishing || !repoRef.current) return null
-    const opened = [...unsquished].sort().join(',')
+    const opened = `${settings.squishBranches}|${[...unsquished].sort().join(',')}|${[...folded].sort().join(',')}`
     const hit = squishCache.get(path)
     if (hit && hit.commits === commits && hit.graphKey === graphKey && hit.style === settings.squishStyle && hit.opened === opened)
       return hit
-    const next = { commits, graphKey, style: settings.squishStyle, opened, shown: squishCommits(commits, repoRef.current, settings.squishStyle, unsquished), graph: null as Graph | null }
+    const next = { commits, graphKey, style: settings.squishStyle, opened, shown: squishCommits(commits, repoRef.current, settings.squishStyle, squishedRun(settings.squishBranches, unsquished, folded)), graph: null as Graph | null }
     squishCache.set(path, next)
     return next
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, commits, graphKey, squishing, settings.squishStyle, unsquished])
+  }, [path, commits, graphKey, squishing, settings.squishBranches, settings.squishStyle, unsquished, folded])
   const shown = squished?.shown ?? commits
   const unsquishedRef = useRef(unsquished)
   unsquishedRef.current = unsquished
-  const unsquish = useCallback((key: string) => setUnsquished((s) => new Set(s).add(key)), [])
+  const foldedRef = useRef(folded)
+  foldedRef.current = folded
+  const without = (set: Set<string>, key: string): Set<string> => new Set([...set].filter((k) => k !== key))
+  /** Opens a squished run, whichever way it was squished. */
+  const unsquish = useCallback((key: string) => {
+    if (getSettings().squishBranches) setUnsquished((s) => new Set(s).add(key))
+    else setFolded((s) => without(s, key))
+  }, [])
+  /** ← and → on a commit: fold or open the run of its branch it's in, or that it starts or ends. */
+  const foldRun = useCallback((hash: string, fold: boolean) => {
+    const run = repoRef.current ? runAt(hash, lastLog.current, repoRef.current) : null
+    if (!run) return
+    const all = getSettings().squishBranches
+    if (fold) {
+      if (all) setUnsquished((s) => without(s, run.key))
+      else setFolded((s) => new Set(s).add(run.key))
+      // A commit that's about to be hidden hands the selection to the run's latest one.
+      if (run.members.some((m) => m.hash === hash)) setSelected(run.above.hash)
+    } else unsquish(run.key)
+  }, [unsquish])
   // A fold row opens instead of being selected.
   const select = useCallback(
     (hash: string) => (hash.startsWith(FOLD) ? unsquish(hash.slice(FOLD.length)) : setSelected(hash)),
@@ -538,9 +562,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       const s = getSettings()
       const key =
         s.squishBranches && repoRef.current
-          ? groupOf(hash, lastLog.current, squishCommits(lastLog.current, repoRef.current, s.squishStyle, unsquishedRef.current))
-          : null
-      if (key) setUnsquished((u) => new Set(u).add(key))
+          ? groupOf(hash, lastLog.current, squishCommits(lastLog.current, repoRef.current, s.squishStyle, squishedRun(true, unsquishedRef.current, foldedRef.current)))
+          : foldedRef.current.size && repoRef.current
+            ? groupOf(hash, lastLog.current, squishCommits(lastLog.current, repoRef.current, s.squishStyle, squishedRun(false, unsquishedRef.current, foldedRef.current)))
+            : null
+      if (key) unsquish(key)
       setSelected(hash)
       setScrollTo({ hash, n: Date.now() })
     },
@@ -775,6 +801,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
                 selected={selected}
                 onSelect={select}
                 onExpand={unsquish}
+                onFoldRun={foldRun}
                 scrollTo={scrollTo}
                 filter={filter}
                 truncated={commits.length >= LOG_LIMIT}
