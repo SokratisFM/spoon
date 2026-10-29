@@ -17,15 +17,18 @@ case "$(uname -m)" in
   arm64) ARCH=arm64 ;;
   *) ARCH=x64 ;;
 esac
-ZIP="Spoon-mac-$ARCH.zip"
-
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-echo "Downloading Spoon…"
-curl -fL --progress-bar "$BASE/$ZIP" -o "$TMP/Spoon.zip"
+# The release's checksum list names its one zip per chip (Spoon-<version>-mac-<chip>.zip).
 curl -fsSL "$BASE/SHA256SUMS" -o "$TMP/SHA256SUMS"
-expected=$(grep " $ZIP\$" "$TMP/SHA256SUMS" | cut -d' ' -f1)
+line=$(grep -E " Spoon-[0-9][^ ]*-mac-$ARCH\.zip\$" "$TMP/SHA256SUMS" | head -n 1)
+ZIP=$(echo "$line" | cut -d' ' -f3)
+expected=$(echo "$line" | cut -d' ' -f1)
+[ -n "$ZIP" ] || { echo "This release has no Mac download for $ARCH."; exit 1; }
+
+echo "Downloading $ZIP…"
+curl -fL --progress-bar "$BASE/$ZIP" -o "$TMP/Spoon.zip"
 actual=$(shasum -a 256 "$TMP/Spoon.zip" | cut -d' ' -f1)
 if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
   echo "The download doesn't match its checksum. Nothing was installed."

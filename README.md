@@ -42,8 +42,10 @@ npm version minor --no-git-tag-version
 npm run release -- --notes "What changed"
 ```
 
-This builds into `dist.noindex/release/<version>/`: Mac zips and DMGs for Apple Silicon and Intel,
+This builds into `dist.noindex/release/<version>/`: one Mac zip each for Apple Silicon and Intel,
 the Windows installer, `latest.json` (the signed update manifest), `SHA256SUMS` and the install scripts.
+Each platform's file is uploaded once: the install scripts find theirs in `SHA256SUMS`, the updater
+in `latest.json`.
 It prints the `gh release create` command to publish them; nothing is uploaded automatically.
 
 Installing for the first time:
@@ -52,7 +54,7 @@ Installing for the first time:
 - Windows (PowerShell): `irm https://github.com/<owner>/<repo>/releases/latest/download/install.ps1 | iex`
 
 Both verify checksums and avoid the "unidentified developer" / SmartScreen prompts that browser
-downloads of unsigned apps get. A DMG downloaded in a browser works too, after **Open Anyway** once in
+downloads of unsigned apps get. A zip downloaded in a browser works too, after **Open Anyway** once in
 System Settings → Privacy & Security.
 
 From then on Spoon checks every few hours, downloads updates in the background, and shows

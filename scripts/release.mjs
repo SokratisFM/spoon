@@ -1,9 +1,10 @@
 // Builds a Spoon release into dist.noindex/release/<version>/, ready to upload to GitHub Releases:
-//   Spoon-<v>-mac-arm64.zip/.dmg  Apple Silicon, and -mac-x64 for Intel; ad-hoc signed
+//   Spoon-<v>-mac-arm64.zip       Apple Silicon, and -mac-x64 for Intel; ad-hoc signed
 //   Spoon-<v>-win-x64-setup.exe   per-user NSIS installer
-//   Spoon-mac-arm64.zip, Spoon-mac-x64.zip, Spoon-win-x64-setup.exe   stable names for the install scripts
 //   latest.json                   update manifest, signed with your release key (scripts/keygen.mjs)
 //   SHA256SUMS, install.sh, install.ps1
+// One file per platform: the install scripts find theirs in SHA256SUMS and the updater in
+// latest.json, so no copies under fixed names and no DMGs (the install command doesn't need them).
 //
 // Usage: npm version <patch|minor|major> --no-git-tag-version, then
 //        npm run release -- --notes "What changed" [--skip-win] [--skip-mac]
@@ -46,10 +47,9 @@ const builder = (platformArgs) =>
   run(npx, ['electron-builder', ...platformArgs, '--publish', 'never', `-c.directories.output=${work}`])
 
 const assets = {}
-const add = (key, src, stableName) => {
+const add = (key, src) => {
   const file = src.split(/[\\/]/).pop()
   copyFileSync(src, join(out, file))
-  if (stableName) copyFileSync(src, join(out, stableName))
   if (key) {
     const data = readFileSync(src)
     assets[key] = { file, sha256: createHash('sha256').update(data).digest('hex'), size: data.length }
@@ -58,15 +58,12 @@ const add = (key, src, stableName) => {
 
 if (!flag('--skip-mac')) {
   // One build per chip: each download is half the size of a universal app.
-  builder(['--mac', 'zip', 'dmg', '--arm64', '--x64'])
-  for (const arch of ['arm64', 'x64']) {
-    add(`darwin-${arch}`, join(work, `Spoon-${version}-mac-${arch}.zip`), `Spoon-mac-${arch}.zip`)
-    add(null, join(work, `Spoon-${version}-mac-${arch}.dmg`))
-  }
+  builder(['--mac', 'zip', '--arm64', '--x64'])
+  for (const arch of ['arm64', 'x64']) add(`darwin-${arch}`, join(work, `Spoon-${version}-mac-${arch}.zip`))
 }
 if (!flag('--skip-win')) {
   builder(['--win', 'nsis', '--x64'])
-  add('win32-x64', join(work, `Spoon-${version}-win-x64-setup.exe`), 'Spoon-win-x64-setup.exe')
+  add('win32-x64', join(work, `Spoon-${version}-win-x64-setup.exe`))
 }
 
 // Signed manifest: the app only installs updates whose payload verifies against its public key.

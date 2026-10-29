@@ -8,12 +8,17 @@ $ProgressPreference = 'SilentlyContinue'
 $base = if ($env:SPOON_DOWNLOAD_BASE) { $env:SPOON_DOWNLOAD_BASE } else { 'https://github.com/__REPO__/releases/latest/download' }
 $setup = Join-Path $env:TEMP 'Spoon-Setup.exe'
 
-Write-Host 'Downloading Spoon...'
-Invoke-WebRequest "$base/Spoon-win-x64-setup.exe" -OutFile $setup -UseBasicParsing
+# The release's checksum list names its installer (Spoon-<version>-win-x64-setup.exe).
 $sums = (Invoke-WebRequest "$base/SHA256SUMS" -UseBasicParsing).Content
 if ($sums -is [byte[]]) { $sums = [Text.Encoding]::UTF8.GetString($sums) }
-$line = ($sums -split "`n") | Where-Object { $_ -match ' Spoon-win-x64-setup\.exe\s*$' } | Select-Object -First 1
-$expected = if ($line) { ($line -split ' ')[0].Trim().ToLower() } else { '' }
+$line = ($sums -split "`n") | Where-Object { $_ -match ' Spoon-[0-9][^ ]*-win-x64-setup\.exe\s*$' } | Select-Object -First 1
+if (-not $line) { throw 'This release has no Windows installer.' }
+$parts = $line.Trim() -split '\s+'
+$expected = $parts[0].ToLower()
+$file = $parts[-1]
+
+Write-Host "Downloading $file..."
+Invoke-WebRequest "$base/$file" -OutFile $setup -UseBasicParsing
 $actual = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLower()
 if (-not $expected -or $expected -ne $actual) {
   Remove-Item $setup -Force
