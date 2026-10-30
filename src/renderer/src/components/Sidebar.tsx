@@ -389,7 +389,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           />
         ),
 
-    exports: <UnityExports repo={repo} ops={ops} section={section} query={query} onOpenRepo={props.onOpenRepo} />
+    exports: <UnityExports repo={repo} section={section} query={query} onOpenRepo={props.onOpenRepo} />
   }
 
   return (

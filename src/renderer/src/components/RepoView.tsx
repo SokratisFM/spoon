@@ -206,6 +206,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       })
       setRefreshN((n) => n + 1)
       markLoaded(path)
+      // Background work that follows repositories (Unity exports) rescans.
+      window.dispatchEvent(new CustomEvent<string>('spoon:repo-loaded', { detail: path }))
     } catch (err) {
       setError(cleanError(err))
     }
@@ -239,6 +241,15 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   useEffect(() => {
     load()
   }, [load])
+
+  // Files changed by background work (Unity exports bringing back edits or adding new files).
+  useEffect(() => {
+    const on = (e: Event): void => {
+      if ((e as CustomEvent<string[]>).detail.includes(path)) load()
+    }
+    window.addEventListener('spoon:repo-changed', on)
+    return () => window.removeEventListener('spoon:repo-changed', on)
+  }, [load, path])
 
   useEffect(() => {
     // Refocusing right after a refresh (e.g. closing a dialog) doesn't need another one.

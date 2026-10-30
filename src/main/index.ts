@@ -273,6 +273,8 @@ function registerIpc(): void {
     })
   })
   ipcMain.handle('unity:bringBack', (_e, path: string, exp: string, src: string) => unityExports.bringBack(path, exp, src))
+  ipcMain.handle('unity:newFiles', (_e, path: string, dirs: string[]) => unityExports.newExportFiles(path, dirs))
+  ipcMain.handle('unity:add', (_e, path: string, exp: string, folder: string) => unityExports.addToSource(path, exp, folder))
   ipcMain.handle('unity:relink', (_e, path: string, exp: string, src: string, force: boolean) =>
     unityExports.relink(path, exp, src, force)
   )

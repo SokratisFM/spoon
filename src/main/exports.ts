@@ -5,9 +5,10 @@
 // lists the ones that differ, and can bring an edit back or replace the copy with a link to the
 // source (what Unity's "Symlink Sources" build setting does at export time).
 import { existsSync, watch, type FSWatcher } from 'node:fs'
-import { lstat, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { ExportCandidate, ExportLink, ExportPlatform } from '../shared/types'
+import type { ExportCandidate, ExportFolder, ExportLink, ExportNew, ExportPlatform } from '../shared/types'
 
 // Only code is paired. Manifests, Gradle files, properties and resources are rewritten while Unity
 // exports (its own steps and plug-ins' build scripts fill in app ids, package lists…), so their
@@ -311,4 +312,152 @@ export async function relink(root: string, exp: string, src: string, force = fal
       ? new Error('Windows only lets apps create links with Developer Mode on (Settings → System → For developers).')
       : err
   }
+}
+
+// ---------- files made in Android Studio or Xcode ----------
+
+const isDir = (abs: string): Promise<boolean> => stat(abs).then((st) => st.isDirectory(), () => false)
+
+/** A folder new files can go to, named like a source (relative to the repository, or absolute). */
+function folderOf(root: string, abs: string): ExportFolder {
+  const inRepo = toSlash(relative(root, abs))
+  const repo = repoOf(join(abs, '_')) || root
+  return {
+    id: inRepo.startsWith('..') || isAbsolute(inRepo) ? toSlash(abs) : inRepo,
+    repo: toSlash(repo),
+    rel: toSlash(relative(repo, abs))
+  }
+}
+
+/** The .androidlib plug-in folders in an Android export. */
+async function androidLibs(root: string, dir: string): Promise<string[]> {
+  const out: string[] = []
+  for (const parent of [dir, `${dir}/unityLibrary`])
+    for (const name of await readdir(join(root, parent)).catch(() => [] as string[])) if (name.endsWith('.androidlib')) out.push(`${parent}/${name}`)
+  return out
+}
+
+/**
+ * Native files made in an export after Unity wrote it (a new class in Android Studio, a new file in
+ * Xcode), with no source of their own yet. Each comes with the folders it most likely belongs in:
+ * where the files next to it come from, and for iOS the folder its path names (Libraries/<path> is
+ * <path> in Assets or a package). Unity's own files were written with the export, so they're left out.
+ */
+export async function newExportFiles(root: string, dirs: string[]): Promise<ExportNew[]> {
+  const index = await sourceIndex(root)
+  const roots = await sourceRoots(root)
+  const out: ExportNew[] = []
+  for (const dir of dirs) {
+    inside(root, dir)
+    const platform = await platformOf(join(root, dir))
+    if (!platform) continue
+    const paired = await pairs(root, dir, platform, index)
+    const pairedSet = new Set(paired.map((p) => p.exp))
+    // Export folder → the source folders its paired files come from, and how many from each.
+    const near = new Map<string, Map<string, number>>()
+    for (const p of paired) {
+      const m = near.get(dirname(p.exp)) ?? new Map<string, number>()
+      m.set(dirname(p.src.abs), (m.get(dirname(p.src.abs)) ?? 0) + 1)
+      near.set(dirname(p.exp), m)
+    }
+    const subtrees =
+      platform === 'ios'
+        ? [`${dir}/Libraries`]
+        : [`${dir}/unityLibrary/src/main/java`, `${dir}/unityLibrary/src/main/kotlin`, ...(await androidLibs(root, dir))]
+    const files: { exp: string; born: number; saved: number }[] = []
+    for (const sub of subtrees) {
+      for (const r of await walk(join(root, sub), (x) => NATIVE.has(extname(x).toLowerCase()), sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)) {
+        const info = await lstat(join(root, sub, r)).catch(() => null)
+        if (info?.isFile()) files.push({ exp: `${sub}/${r}`, born: info.birthtimeMs || info.ctimeMs, saved: info.mtimeMs })
+      }
+    }
+    if (!files.length) continue
+    // When Unity last wrote the export: it gives every file it writes the same save time, so it's
+    // the most common one (to the minute; the end of that run). A file made and saved more than
+    // two minutes later is someone else's; an older file that's still there (its source was
+    // removed) or one of Unity's own that was edited afterwards isn't new.
+    // Counted on the copies Unity made of sources (Unity's own files when every source is linked).
+    const copies = files.filter((f) => pairedSet.has(f.exp))
+    const basis = copies.length ? copies : files
+    const minutes = new Map<number, number>()
+    for (const f of basis) minutes.set(Math.floor(f.saved / 60_000), (minutes.get(Math.floor(f.saved / 60_000)) ?? 0) + 1)
+    const mode = [...minutes].sort((a, b) => b[1] - a[1])[0][0] * 60_000
+    const exported = Math.max(...basis.filter((f) => Math.abs(f.saved - mode) < 300_000).map((f) => f.saved))
+    for (const f of files) {
+      if (pairedSet.has(f.exp) || f.saved < exported + 120_000 || f.born < exported + 120_000) continue
+      const folders = new Map<string, number>(near.get(dirname(f.exp)) ?? [])
+      if (platform === 'ios') {
+        const r = f.exp.slice(`${dir}/Libraries/`.length)
+        for (const sr of roots) {
+          const rest = !sr.ios ? r : r.startsWith(`${sr.ios}/`) ? r.slice(sr.ios.length + 1) : null
+          const d = rest === null ? null : join(sr.abs, dirname(rest))
+          if (d && !folders.has(d) && (await isDir(d))) folders.set(d, 0)
+        }
+      } else {
+        // In an .androidlib, the same path inside the plug-in's folder in Assets.
+        const m = /^(.*\/([^/]+\.androidlib))\/(.*)$/.exec(f.exp)
+        const lib = m && index.find((s) => s.id.includes(`/${m[2]}/`))
+        if (m && lib) {
+          const base = lib.abs.slice(0, lib.abs.indexOf(`${sep}${m[2]}${sep}`) + m[2].length + 1)
+          const d = join(base, dirname(m[3]))
+          if (!folders.has(d) && (await isDir(d))) folders.set(d, 0)
+        }
+      }
+      const list = [...folders].sort((a, b) => b[1] - a[1]).map(([abs]) => folderOf(root, abs))
+      // Certain: one folder, and a .meta to copy there (so nothing needs a person's eye).
+      const only = folders.size === 1 ? [...folders.keys()][0] : null
+      out.push({ platform, export: f.exp, folders: list, certain: !!only && !!(await metaToCopy(only, f.exp)) })
+    }
+  }
+  return out
+}
+
+/**
+ * Writes a .meta for a new native file, copied from one next to it (same type first) so it gets the
+ * same plug-in settings (which platforms), with a GUID of its own. False when there's none to copy:
+ * then Unity makes one the next time it opens the project.
+ */
+async function writeMeta(folder: string, file: string): Promise<boolean> {
+  if (existsSync(`${file}.meta`)) return true
+  const text = await metaToCopy(folder, file)
+  if (!text) return false
+  await writeFile(`${file}.meta`, text.replace(/^guid: [0-9a-f]{32}/m, `guid: ${randomBytes(16).toString('hex')}`))
+  return true
+}
+
+/** The .meta of a native file in `folder` to base a new one on (the same type first), or null. */
+async function metaToCopy(folder: string, file: string): Promise<string | null> {
+  const metas = (await readdir(folder).catch(() => [] as string[])).filter(
+    (n) => n.endsWith('.meta') && NATIVE.has(extname(n.slice(0, -'.meta'.length)).toLowerCase())
+  )
+  const ext = extname(file).toLowerCase()
+  for (const pick of [...metas.filter((n) => extname(n.slice(0, -'.meta'.length)).toLowerCase() === ext), ...metas]) {
+    const text = await readFile(join(folder, pick), 'utf8').catch(() => '')
+    if (/^guid: [0-9a-f]{32}\s*$/m.test(text)) return text
+  }
+  return null
+}
+
+/**
+ * Adds a file made in an export to a source folder (in Assets or a local package), with a .meta, and
+ * makes the export's copy a link to it, so later edits go straight into the repository.
+ */
+export async function addToSource(root: string, exp: string, folder: string): Promise<{ source: string; meta: boolean }> {
+  const e = inside(root, exp)
+  if (!(await lstat(e)).isFile()) throw new Error(`${basename(exp)} isn’t a file of its own in the export.`)
+  const dest = isAbsolute(folder) ? resolve(folder) : inside(root, folder)
+  if (!(await sourceRoots(root)).some((r) => dest === r.abs || dest.startsWith(r.abs + sep)))
+    throw new Error('Pick a folder in Assets or in a local package.')
+  if (!(await isDir(dest))) throw new Error(`${folder} isn’t a folder.`)
+  const file = join(dest, basename(e))
+  if (existsSync(file)) throw new Error(`There’s already a ${basename(e)} in that folder.`)
+  await copyFile(e, file)
+  const meta = await writeMeta(dest, file)
+  await rm(e)
+  try {
+    await symlink(relative(dirname(e), file), e, 'file')
+  } catch {
+    await copyFile(file, e) // links need Developer Mode on Windows: the export keeps a copy then
+  }
+  return { source: folderOf(root, dest).id + '/' + basename(e), meta }
 }

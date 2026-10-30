@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.37.2 — 2026-10-30
+
+- **New:** Unity exports: files you make in Android Studio or Xcode show up in the Exports section. Spoon suggests the folder each one belongs in (where the files next to it come from), and Add copies it there with a `.meta` file (copied from a file next to it, with its own GUID) and links the export to it, so it's ready to commit and later edits go straight into the repository. Unity's own files and leftovers from earlier exports aren't listed. With "Bring edits and new files back by themselves" on, a new file whose folder is certain (one folder fits, with a `.meta` to copy) is added by itself and shows up in Local Changes; the rest wait in the list for you to pick a folder. This works whichever tab you're looking at: with the Unity project open in any tab (or a submodule of it, such as MainLib), its exports are watched in the background, and the tab showing the changed files refreshes by itself.
+
 ## 0.36.3 — 2026-10-30
 
 - **New:** Simple Mode, for teammates who don't use git themselves, such as artists. A project shows only the files they changed, as preview cards (images, Photoshop files and more), and walks them through it: check your changes, describe them, Save & share. History is a timeline of saves: open any file as it was, or put it back. Turn it on per project in Settings → Simple Mode, where you can also fix the branch to work on, show only one folder (say `Assets/Art`), and lock it with a PIN. The Simple/Full switch in the title bar flips between the two views.

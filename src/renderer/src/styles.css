@@ -7778,3 +7778,15 @@ kbd.setting-key {
   margin: 0.2rem 0;
   font-size: 0.9em;
 }
+
+.export-state.export-new {
+  color: var(--add);
+  font-weight: 700;
+}
+.export-path {
+  overflow-wrap: anywhere;
+}
+.add-other-folder {
+  display: block;
+  margin-top: 0.4rem;
+}

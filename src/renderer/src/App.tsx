@@ -8,6 +8,7 @@ import { GitHistoryDialog } from './components/GitHistoryDialog'
 import { warmTabs } from './repoCache'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
 import { askPin, PinHost, setSimpleConfig, useSimpleConfig } from './simpleMode'
+import { runAgents, useLinkedExports } from './exportsAgent'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
 import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, NewBranchIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
@@ -74,6 +75,19 @@ export function App() {
   simpleOnRef.current = !!simple?.on
   /** Compare and Text compare tabs aren't repositories. */
   const isRepoTab = (t: string): boolean => !compareFiles(t) && !compareTextId(t)
+  // Unity exports are watched (and edits made in them brought back) for every open repository that
+  // has them linked, and for the Unity project a submodule tab (Assets/MainLib) is part of.
+  const linked = useLinkedExports()
+  const exportRepos = [
+    ...new Set(
+      tabs.filter(isRepoTab).flatMap((t) => {
+        const up: string[] = []
+        for (let p = t; p.includes('/') && p !== '/'; p = p.slice(0, p.lastIndexOf('/')) || '/') up.push(p)
+        return up.filter(linked)
+      })
+    )
+  ]
+  useEffect(() => runAgents(exportRepos), [exportRepos.join('\n')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Comparing two files: a Compare tab, from the menu's picker, a drop on the window or any part of
   // the app (requestCompare).

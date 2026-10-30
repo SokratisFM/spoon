@@ -59,6 +59,23 @@ export interface ExportLink {
   sourceMtime: number
 }
 
+/** A folder a new native file can go to: its id (like ExportLink.source), its repository and path there. */
+export interface ExportFolder {
+  id: string
+  repo: string
+  rel: string
+}
+
+/** A native file made in an export (in Android Studio or Xcode) that has no source yet. */
+export interface ExportNew {
+  platform: ExportPlatform
+  export: string
+  /** Where it most likely belongs, most likely first; empty when Spoon can't tell. */
+  folders: ExportFolder[]
+  /** Only one folder fits and a .meta can be made there: it can be added without asking. */
+  certain: boolean
+}
+
 export interface JiraIssue {
   summary: string
   /** "Bug", "Story", "Task"… */
@@ -713,6 +730,10 @@ export interface SpoonApi {
   exportBringBack(path: string, exp: string, src: string): Promise<number>
   /** Replaces the export's copy with a link to the source; one that differs only with `force`. */
   exportRelink(path: string, exp: string, src: string, force?: boolean): Promise<void>
+  /** Native files made in the exports that have no source yet. */
+  exportNewFiles(path: string, dirs: string[]): Promise<ExportNew[]>
+  /** Adds a new export file to a source folder (with a .meta), linking the export to it. */
+  exportAdd(path: string, exp: string, folder: string): Promise<{ source: string; meta: boolean }>
   /** A ticket's title and type through the connected Atlassian account, or null. */
   jiraIssue(site: string, key: string): Promise<JiraIssue | null>
   readClipboard(): Promise<string>
