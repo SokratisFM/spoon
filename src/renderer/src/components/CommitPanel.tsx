@@ -59,7 +59,7 @@ async function fileMenu(path: string, d: CommitDetails, f: FileChange, ops: Ops)
   } else if (choice === 'restore' && at) {
     const ok = await confirm({
       message: deleted ? `Restore ${f.path}?` : `Put the ${short} version of ${f.path} in your working copy?`,
-      detail: `${deleted ? `It's brought back as it was before ${short} deleted it.` : 'The file’s current contents are replaced.'} It shows up in Local Changes as an unstaged change you can discard.`,
+      detail: `${deleted ? `It's brought back as it was before ${short} deleted it.` : 'The file’s current contents are replaced.'} It shows up in Local Changes; uncommitted changes to it go to the Trash first, so you can get them back.`,
       confirmLabel: 'Restore',
       risky: true
     })

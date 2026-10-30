@@ -12,7 +12,8 @@ import { runAgents, useLinkedExports } from './exportsAgent'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
 import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, NewBranchIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
-import { choose, DialogHost } from './dialogs'
+import { choose, confirm, DialogHost } from './dialogs'
+import { unsavedEdits } from './components/FileEditor'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
 import { useAppInfo, useUpdateState } from './appinfo'
@@ -503,6 +504,8 @@ export function App() {
       if (e.key !== 'Tab' || !e.ctrlKey || e.metaKey || e.altKey) return
       e.preventDefault()
       e.stopPropagation()
+      // Not while the file popup has unsaved edits: switching tabs would close it.
+      if (unsavedEdits()) return
       cycleRef.current(e.shiftKey ? -1 : 1)
     }
     window.addEventListener('keydown', onKey, true) // capture: works even while typing in a field
@@ -579,6 +582,7 @@ export function App() {
         if (cmd === 'zoom-in') updateSettings({ uiScale: settings.uiScale + SCALE_STEP })
         else if (cmd === 'zoom-out') updateSettings({ uiScale: settings.uiScale - SCALE_STEP })
         else if (cmd === 'zoom-reset') resetScale()
+        else if ((cmd === 'open-repo' || cmd === 'find-project') && unsavedEdits()) return
         else if (cmd === 'open-repo') pickRepo()
         else if (cmd === 'find-project') setPalette(true)
         else if (cmd === 'git-history') {
@@ -594,6 +598,36 @@ export function App() {
       }),
     [settings.uiScale, pickRepo]
   )
+
+  // Background work (Unity exports) reports failures here, whichever tab is showing.
+  useEffect(() => {
+    const on = (e: Event): void => setToast((e as CustomEvent<string>).detail)
+    window.addEventListener('spoon:toast', on)
+    return () => window.removeEventListener('spoon:toast', on)
+  }, [])
+
+  // Closing the window (or quitting) with unsaved edits in the file popup asks first.
+  useEffect(() => {
+    let leaving = false
+    const onUnload = (e: BeforeUnloadEvent): void => {
+      const name = unsavedEdits()
+      if (!name || leaving) return
+      e.preventDefault()
+      e.returnValue = false
+      void confirm({
+        message: `Close Spoon without saving ${name}?`,
+        detail: 'Your edits to it are thrown away.',
+        confirmLabel: 'Don’t Save',
+        risky: true
+      }).then((ok) => {
+        if (!ok) return
+        leaving = true
+        window.spoon.closeWindow()
+      })
+    }
+    window.addEventListener('beforeunload', onUnload)
+    return () => window.removeEventListener('beforeunload', onUnload)
+  }, [])
 
   useEffect(() => {
     if (!toast) return

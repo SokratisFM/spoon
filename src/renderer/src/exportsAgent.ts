@@ -26,6 +26,12 @@ export interface ExportsState {
   wrote: Record<string, number>
   /** New files set aside ("Leave Out"). */
   skipped: string[]
+  /**
+   * Per export copy, the source's content hash when the two were last the same: an edit in the
+   * export is only brought back by itself while the source is still that (otherwise both changed,
+   * say a teammate's fix was pulled, and it's yours to decide).
+   */
+  base: Record<string, string>
 }
 
 const fileName = (p: string): string => p.split('/').pop() ?? p
@@ -57,7 +63,8 @@ export function exportsState(path: string): ExportsState {
       error: null,
       handled: readStored(key('handled', path), {}),
       wrote: readStored(key('wrote', path), {}),
-      skipped: readStored(key('skipNew', path), [])
+      skipped: readStored(key('skipNew', path), []),
+      base: readStored(key('base', path), {})
     }
     states.set(path, s)
   }
@@ -72,6 +79,7 @@ function update(path: string, patch: Partial<ExportsState>): void {
   if ('handled' in patch) save('handled', path, next.handled)
   if ('wrote' in patch) save('wrote', path, next.wrote)
   if ('skipped' in patch) save('skipNew', path, next.skipped)
+  if ('base' in patch) save('base', path, next.base)
   notify()
 }
 
@@ -98,6 +106,20 @@ export function useLinkedExports(): (path: string) => boolean {
 }
 let linkedVersion = 0
 
+// ---------- generations ----------
+
+// Bumped when a repository's exports are linked differently or its agent stops: work started before
+// (a scan, a queued bring-back) then does nothing.
+const gens = new Map<string, number>()
+const genOf = (path: string): number => gens.get(path) ?? 0
+const bump = (path: string): void => void gens.set(path, genOf(path) + 1)
+
+/** An automatic step failed: shown in the Exports section and as a toast, whichever tab is showing. */
+function reportFailure(path: string, message: string): void {
+  update(path, { error: message })
+  window.dispatchEvent(new CustomEvent<string>('spoon:toast', { detail: `${path.split('/').pop()}: ${message}` }))
+}
+
 // ---------- repositories changing ----------
 
 /** Tells the repository views (this one, a submodule, a package's) that files changed under them. */
@@ -110,14 +132,17 @@ function changed(paths: string[]): void {
  * work, with its busy label, and git's error kept for when its tab shows. Repositories it touched
  * refresh afterwards.
  */
-function run(path: string, label: string, fn: () => Promise<unknown>, failTitle: string, touched: string[]): Promise<boolean> {
+function run(path: string, label: string, fn: () => Promise<unknown>, failTitle: string, touched: string[], auto = false): Promise<boolean> {
   const task = opStateOf(path).queue.then(async () => {
     setOpState(path, { busy: { label, network: false } })
     try {
       await fn()
       return true
     } catch (err) {
-      setOpState(path, { error: { title: failTitle, message: cleanError(err) } })
+      // Automatic steps report in the Exports section and a toast (the Unity project's tab may not
+      // be showing); what you asked for shows its error right away.
+      if (auto) reportFailure(path, `${failTitle}: ${cleanError(err)}`)
+      else setOpState(path, { error: { title: failTitle, message: cleanError(err) } })
       return false
     } finally {
       setOpState(path, { busy: null })
@@ -155,30 +180,61 @@ export function scan(path: string): Promise<void> {
 }
 
 async function scanOnce(path: string): Promise<void> {
+  const gen = genOf(path)
   const dirs = exportsState(path).dirs
   if (!dirs?.length) return update(path, { links: null, added: [] })
   try {
     const found = await window.spoon.scanExports(path, dirs)
     // The repository's status leaves out changes inside submodules (Assets/MainLib…), and a local
     // package can be a repository of its own: each source is checked against its own repository.
+    // When that status can't be read, every source in it counts as changed (never overwritten).
     const dirty = new Set<string>()
-    for (const dir of new Set(found.map((l) => l.sourceRepo))) {
-      const tree = await window.spoon.workingTree(dir).catch(() => ({ staged: [], unstaged: [] }))
-      for (const f of [...tree.staged, ...tree.unstaged]) dirty.add(`${dir}/${f.path}`)
+    const problems: string[] = []
+    for (const dir of new Set(found.map((l) => l.sourceRepo).filter(Boolean))) {
+      try {
+        const tree = await window.spoon.workingTree(dir)
+        for (const f of [...tree.staged, ...tree.unstaged]) dirty.add(`${dir}/${f.path}`)
+      } catch (err) {
+        for (const l of found) if (l.sourceRepo === dir) dirty.add(l.sourcePath)
+        problems.push(`Couldn’t read ${dir.split('/').pop()}’s changes, so its files aren’t brought back by themselves: ${cleanError(err)}`)
+      }
     }
-    const added = await window.spoon.exportNewFiles(path, dirs).catch(() => [])
+    let added: ExportNew[] = []
+    try {
+      added = await window.spoon.exportNewFiles(path, dirs)
+    } catch (err) {
+      problems.push(`Couldn’t look for new files in the exports: ${cleanError(err)}`)
+    }
+    // Linked differently (or stopped) meanwhile: these results are for the old setup.
+    if (genOf(path) !== gen) return
+    // Copies that match their source: what an edit in them is measured against.
+    const s = exportsState(path)
+    const base = { ...s.base }
+    for (const l of found) if (l.state === 'same' && l.sourceHash) base[l.export] = l.sourceHash
     setExportSources(path, Object.fromEntries(found.map((l) => [l.sourcePath, l.export])))
-    update(path, { links: found, added, dirty, error: null })
+    update(path, { links: found, added, dirty, base, error: problems.join('\n') || null })
     autoApply(path)
   } catch (err) {
-    update(path, { error: cleanError(err) })
+    if (genOf(path) === gen) update(path, { error: cleanError(err) })
   }
 }
 
 // ---------- actions ----------
 
-/** Uncommitted changes in the source that only Spoon made don't count: those are earlier bring-backs. */
-export const yours = (s: ExportsState, l: ExportLink): boolean => s.dirty.has(l.sourcePath) && s.wrote[l.source] !== l.sourceMtime
+/**
+ * The source has changes of yours that a bring-back would overwrite: uncommitted changes, or no
+ * history to fall back on (untracked, ignored, outside any repository). Changes only Spoon made
+ * (earlier bring-backs) don't count.
+ */
+export const yours = (s: ExportsState, l: ExportLink): boolean =>
+  (!l.sourceRepo || !l.sourceTracked || s.dirty.has(l.sourcePath)) && s.wrote[l.source] !== l.sourceMtime
+
+/**
+ * An edit in an export that's safe to bring back without asking: the copy was saved after Unity's
+ * export run, the source is still what it was when the two last matched, and it has no changes of yours.
+ */
+const autoSafe = (s: ExportsState, l: ExportLink): boolean =>
+  l.state === 'export-newer' && !l.inRun && !!l.sourceHash && s.base[l.export] === l.sourceHash && !yours(s, l)
 
 /** Edits made in an export: newer than the source, and not brought back or set aside yet. */
 export const editedOf = (s: ExportsState): ExportLink[] =>
@@ -190,11 +246,18 @@ export function markHandled(path: string, list: ExportLink[]): void {
 }
 
 export function setDirs(path: string, dirs: string[] | null): void {
-  update(path, { dirs, links: null, added: [] })
+  bump(path)
+  update(path, { dirs, links: null, added: [], error: null })
   if (!dirs) setExportSources(path, null)
   linkedVersion++
   notify()
-  void scan(path)
+  // A running agent watches the new folders (App starts or stops it when linking makes it needed).
+  const agent = agents.get(path)
+  if (agent && dirs?.length) {
+    agent.stop()
+    agents.set(path, start(path))
+    started.set(path, JSON.stringify(dirs))
+  } else void scan(path)
 }
 
 export function setAuto(path: string, auto: boolean): void {
@@ -206,24 +269,37 @@ export function skipNew(path: string, exp: string): void {
   update(path, { skipped: [...exportsState(path).skipped, exp] })
 }
 
-// Automatic bring-backs and adds that failed, by the export copy's save time (-1 for a new file):
-// not tried again (and the error not shown again) until the export is saved again.
+// Automatic bring-backs and adds that failed, by the export file's save time: not tried again (and
+// the error not shown again) until it's saved again.
 const failed = new Map<string, Record<string, number>>()
 const failedOf = (path: string): Record<string, number> => failed.get(path) ?? (failed.set(path, {}), failed.get(path)!)
 
 export function bringBackNow(path: string, list: ExportLink[], label: string, auto = false): Promise<boolean> {
+  const gen = genOf(path)
+  let done = list
   return run(
     path,
     label,
     async () => {
-      const times: Record<string, number> = {}
-      for (const l of list) times[l.source] = await window.spoon.exportBringBack(path, l.export, l.source)
+      // An automatic one waits its turn behind other git work: by then it may no longer apply.
+      if (auto) {
+        const s = exportsState(path)
+        if (genOf(path) !== gen || !s.auto) return (done = [])
+        done = list.filter((l) => s.handled[l.export] !== l.exportMtime)
+      }
+      if (!done.length) return
+      // Main checks each file is still as scanned (else it fails, and the next scan looks again).
+      const times = await window.spoon.exportBringBack(
+        path,
+        done.map((l) => ({ exp: l.export, src: l.source, exportMtime: l.exportMtime, sourceMtime: l.sourceMtime }))
+      )
       update(path, { wrote: { ...exportsState(path).wrote, ...times } })
     },
     'Bring back failed',
-    list.map((l) => l.sourceRepo)
+    list.map((l) => l.sourceRepo).filter(Boolean),
+    auto
   ).then((ok) => {
-    if (ok) markHandled(path, list)
+    if (ok) markHandled(path, done)
     else if (auto) for (const l of list) failedOf(path)[l.export] = l.exportMtime
     void scan(path)
     return ok
@@ -252,9 +328,10 @@ export async function addNew(path: string, n: ExportNew, folder: string, auto = 
     auto ? `Adding ${fileName(n.export)} from the export…` : `Adding ${fileName(n.export)}…`,
     async () => Object.assign(result, await window.spoon.exportAdd(path, n.export, folder)),
     auto ? 'Couldn’t add a new file from the export' : 'Couldn’t add the file',
-    touched ? [touched] : []
+    touched ? [touched] : [],
+    auto
   )
-  if (!ok && auto) failedOf(path)[n.export] = -1
+  if (!ok && auto) failedOf(path)[n.export] = n.saved
   void scan(path)
   return { ok, meta: result.meta }
 }
@@ -266,8 +343,8 @@ function autoApply(path: string): void {
   const s = exportsState(path)
   if (!s.auto || applying.has(path)) return
   const f = failedOf(path)
-  const edits = editedOf(s).filter((l) => !yours(s, l) && f[l.export] !== l.exportMtime)
-  const fresh = s.added.filter((n) => n.certain && !s.skipped.includes(n.export) && f[n.export] === undefined)
+  const edits = editedOf(s).filter((l) => autoSafe(s, l) && f[l.export] !== l.exportMtime)
+  const fresh = s.added.filter((n) => n.certain && !s.skipped.includes(n.export) && f[n.export] !== n.saved)
   if (!edits.length && !fresh.length) return
   applying.add(path)
   void (async () => {
@@ -300,7 +377,9 @@ function start(path: string): Agent {
     clearTimeout(timer)
     timer = setTimeout(() => void scan(path), 300)
   }
-  window.spoon.watchExports(path, dirs)
+  void window.spoon.watchExports(path, dirs).then((missing) => {
+    if (missing.length) reportFailure(path, `Not watching ${missing.join(', ')}: ${missing.length === 1 ? 'it isn’t' : 'they aren’t'} there. Export again, or change the linked exports.`)
+  })
   const off = window.spoon.onExportsChanged((repo) => repo === path && soon())
   // A refresh of this repository, a submodule of it or a source's repository (a commit, a checkout).
   const onLoaded = (e: Event): void => {
@@ -312,6 +391,7 @@ function start(path: string): Agent {
   soon()
   return {
     stop: () => {
+      bump(path)
       clearTimeout(timer)
       off()
       window.removeEventListener('spoon:repo-loaded', onLoaded)

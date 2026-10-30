@@ -4,6 +4,16 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.37.3 — 2026-10-30
+
+- **Fixed:** Unity exports no longer bring an export's copy back over a source that changed too (a teammate's fix you pulled, say): only when the source is still what it was when the two last matched. Copies still as Unity's export wrote them, and sources with changes of yours (uncommitted, untracked, ignored or outside git), aren't touched by themselves, and every source Spoon overwrites is copied to the Trash first.
+- **Fixed:** Unity exports: a bring-back checks the files haven't changed since Spoon looked and waits for git work in their repository; when a repository's status can't be read, nothing in it is overwritten; Unity's own files edited in Android Studio or Xcode are no longer taken for new ones; changing the linked exports watches the new folders; and problems show in the Exports section and as a notice, whichever tab is showing.
+- **Fixed:** The file popup doesn't overwrite a file that changed on disk since you opened it (it asks to reload or overwrite), ⌘S does nothing when nothing changed, files that aren't UTF-8 are no longer damaged by saving (they aren't edited there), mixed line endings are pointed out, and big files stay quick to type in.
+- **Fixed:** Unsaved edits in the file popup aren't lost by switching tabs, opening another project or closing Spoon: it asks first.
+- **Fixed:** The file popup and previews only open files inside the repository (not through a link to somewhere else, or into .git), and old versions of Git LFS files come back as the file, not its pointer. Opening an old version from history only opens documents and media.
+- **Fixed:** Restoring an old version of a file copies your uncommitted changes to it to the Trash first.
+- **Fixed:** Simple Mode: ⌘↵ pressed on History no longer saves and shares later by itself; Pull and Push shortcuts respect "needs a developer" and the wrong-branch lock; putting back or bringing back a file brings its Unity .meta too; and a change to hundreds of files stays quick (previews made a few at a time, cards shown a page at a time).
+
 ## 0.37.2 — 2026-10-30
 
 - **New:** Unity exports: files you make in Android Studio or Xcode show up in the Exports section. Spoon suggests the folder each one belongs in (where the files next to it come from), and Add copies it there with a `.meta` file (copied from a file next to it, with its own GUID) and links the export to it, so it's ready to commit and later edits go straight into the repository. Unity's own files and leftovers from earlier exports aren't listed. With "Bring edits and new files back by themselves" on, a new file whose folder is certain (one folder fits, with a `.meta` to copy) is added by itself and shows up in Local Changes; the rest wait in the list for you to pick a folder. This works whichever tab you're looking at: with the Unity project open in any tab (or a submodule of it, such as MainLib), its exports are watched in the background, and the tab showing the changed files refreshes by itself.

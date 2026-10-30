@@ -100,7 +100,7 @@ const api: SpoonApi = {
   atlassianDisconnect: () => ipcRenderer.invoke('atlassian:disconnect'),
   confluencePage: (url) => ipcRenderer.invoke('atlassian:page', url),
   readWorkingFile: (path, rel) => ipcRenderer.invoke('file:read', path, rel),
-  writeWorkingFile: (path, rel, text, eol) => ipcRenderer.invoke('file:write', path, rel, text, eol),
+  writeWorkingFile: (path, rel, text, eol, expect) => ipcRenderer.invoke('file:write', path, rel, text, eol, expect),
   fileAtCommit: (path, hash, rel) => ipcRenderer.invoke('file:atCommit', path, hash, rel),
   fileAtCommitToTemp: (path, hash, rel) => ipcRenderer.invoke('file:atCommitToTemp', path, hash, rel),
   restoreFileFrom: (path, hash, rel) => ipcRenderer.invoke('file:restore', path, hash, rel),
@@ -116,7 +116,7 @@ const api: SpoonApi = {
     ipcRenderer.on('unity:exportsChanged', listener)
     return () => ipcRenderer.removeListener('unity:exportsChanged', listener)
   },
-  exportBringBack: (path, exp, src) => ipcRenderer.invoke('unity:bringBack', path, exp, src),
+  exportBringBack: (path, items) => ipcRenderer.invoke('unity:bringBack', path, items),
   exportRelink: (path, exp, src, force) => ipcRenderer.invoke('unity:relink', path, exp, src, force),
   exportNewFiles: (path, dirs) => ipcRenderer.invoke('unity:newFiles', path, dirs),
   exportAdd: (path, exp, folder) => ipcRenderer.invoke('unity:add', path, exp, folder),

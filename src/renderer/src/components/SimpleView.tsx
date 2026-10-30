@@ -54,6 +54,10 @@ interface SimpleFile {
  */
 function foldMetas(files: SimpleFile[]): { files: SimpleFile[]; folderMetas: SimpleFile[] } {
   const byPath = new Map(files.map((f) => [f.path, { ...f }]))
+  // Every folder that has a changed file (not a .meta) somewhere in it.
+  const folders = new Set<string>()
+  for (const f of files)
+    if (!f.path.endsWith('.meta')) for (let i = f.path.lastIndexOf('/'); i > 0; i = f.path.lastIndexOf('/', i - 1)) folders.add(f.path.slice(0, i))
   const folderMetas: SimpleFile[] = []
   const out: SimpleFile[] = []
   for (const f of byPath.values()) {
@@ -64,7 +68,7 @@ function foldMetas(files: SimpleFile[]): { files: SimpleFile[]; folderMetas: Sim
         asset.meta = f
         continue
       }
-      if (files.some((g) => g.path.startsWith(owner + '/') && !g.path.endsWith('.meta'))) {
+      if (folders.has(owner)) {
         folderMetas.push(f)
         continue
       }
@@ -77,6 +81,8 @@ function foldMetas(files: SimpleFile[]): { files: SimpleFile[]; folderMetas: Sim
 /** A file's paths and its .meta's, for staging. */
 const pathsOf = (f: SimpleFile): string[] => [f.path, ...(f.oldPath ? [f.oldPath] : []), ...(f.meta ? pathsOf(f.meta) : [])]
 const entriesOf = (f: SimpleFile): DiscardEntry[] => [...f.entries, ...(f.meta?.entries ?? [])]
+
+const CARDS = 150
 
 const KIND_LABEL: Record<Kind, string> = { new: 'New', changed: 'Changed', removed: 'Removed', renamed: 'Renamed', conflict: 'Needs help' }
 
@@ -117,8 +123,35 @@ function plain(label: string): string {
 
 // ---------- previews ----------
 
-// What was drawn last, so a card that remounts (or refreshes) shows it straight away.
+// What was drawn last, so a card that remounts (or refreshes) shows it straight away; the most
+// recently used few hundred only (they're data URLs).
 const thumbs = new Map<string, string | null>()
+const THUMBS_MAX = 300
+const remember = (key: string, url: string | null): void => {
+  thumbs.delete(key)
+  thumbs.set(key, url)
+  if (thumbs.size > THUMBS_MAX) thumbs.delete(thumbs.keys().next().value as string)
+}
+
+// A few previews made at a time: a folder of hundreds of changed images doesn't start hundreds at once.
+const THUMB_JOBS = 4
+let running = 0
+const waiting: (() => void)[] = []
+function oneAtATime<T>(job: () => Promise<T>): Promise<T> {
+  return new Promise<T>((done, fail) => {
+    const go = (): void => {
+      running++
+      job()
+        .then(done, fail)
+        .finally(() => {
+          running--
+          waiting.shift()?.()
+        })
+    }
+    if (running < THUMB_JOBS) go()
+    else waiting.push(go)
+  })
+}
 
 function useThumbnail(repo: string, file: string, hash: string | null, refreshN: number, size: number): string | null {
   const key = `${repo}|${hash ?? 'wt'}|${file}|${size}`
@@ -127,9 +160,10 @@ function useThumbnail(repo: string, file: string, hash: string | null, refreshN:
   useEffect(() => {
     if (!want) return
     let live = true
-    window.spoon.fileThumbnail(repo, file, hash, size).then(
+    // A card scrolled away (or gone) before its turn doesn't ask at all.
+    oneAtATime(() => (live ? window.spoon.fileThumbnail(repo, file, hash, size) : Promise.resolve(thumbs.get(key) ?? null))).then(
       (u) => {
-        thumbs.set(key, u)
+        remember(key, u)
         if (live) setUrl(u)
       },
       () => undefined
@@ -218,6 +252,14 @@ export function SimpleView(p: Props) {
       window.removeEventListener('focus', tick)
     }
   }, [path])
+
+  // ⌘↵ on History shows My changes instead of saving: it's never kept for later.
+  useEffect(() => {
+    if (!p.commitRequest || tab === 'changes') return
+    p.onCommitHandled()
+    setTab('changes')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.commitRequest])
 
   const switchToWork = (): void => {
     const name = config.branch
@@ -364,6 +406,8 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
   }
   const toggleType = (id: string): void =>
     setSimpleConfig(path, { hiddenTypes: hiddenTypes.has(id) ? config.hiddenTypes.filter((t) => t !== id) : [...config.hiddenTypes, id] })
+  // Cards are shown a page at a time: a change to thousands of files stays quick.
+  const [limit, setLimit] = useState(CARDS)
   // Files left out of the next save (unticked); new files are in by default.
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
   const [message, setMessage] = usePersistentState(`spoon.simple.message.${path}`, '')
@@ -393,10 +437,12 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
   }
   const saveRef = useRef(save)
   saveRef.current = save
-  // ⌘↵ does the main button's job, ⌥⌘↵ always saves and shares.
+  // ⌘↵ does the main button's job, ⌥⌘↵ always saves and shares; only a request made while this shows.
+  const mountedAt = useRef(Date.now())
   useEffect(() => {
     if (!p.commitRequest) return
     p.onCommitHandled()
+    if (p.commitRequest.n < mountedAt.current) return
     void saveRef.current(p.commitRequest.push || config.shareOnSave)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.commitRequest])
@@ -425,7 +471,9 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
 
   const open = (f: SimpleFile): void => {
     if (f.kind === 'removed') {
-      if (repo.headHash) void window.spoon.openAtCommit(path, repo.headHash, f.path)
+      if (!repo.headHash) return
+      if (isPreviewable(f.path)) void window.spoon.openAtCommit(path, repo.headHash, f.path)
+      else openFileEditor({ repo: path, file: f.path, at: { hash: repo.headHash, label: 'last save' }, show: 'commit' })
     } else if (isPreviewable(f.path)) void window.spoon.openWithDefaultApp(path, f.path)
     else openFileEditor({ repo: path, file: f.path })
   }
@@ -523,7 +571,7 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
       </div>
 
       <div className={config.view === 'list' ? 'simple-list' : 'simple-cards'}>
-        {files.map((f) => {
+        {files.slice(0, limit).map((f) => {
           const { dir, name } = splitPath(f.path)
           const on = !excluded.has(f.path) && f.kind !== 'conflict'
           return (
@@ -559,6 +607,11 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
           )
         })}
       </div>
+      {files.length > limit && (
+        <button className="btn simple-more" onClick={() => setLimit((l) => l + CARDS)}>
+          Show {Math.min(CARDS, files.length - limit)} more of {files.length - limit}
+        </button>
+      )}
       {(hidden > 0 || hiddenByType > 0) && (
         <p className="faint simple-hidden">
           {[
@@ -792,10 +845,20 @@ function SaveRow(p: {
       if (!from) return
       const ok = await confirm({
         message: f.status === 'D' ? `Bring back ${name}?` : `Put back ${name} as it was in this save?`,
-        detail: `Your current ${name} is replaced. It then shows up under My changes, where you can save it, or undo it to go back.`,
-        confirmLabel: f.status === 'D' ? 'Bring Back' : 'Put Back'
+        detail: `Your current ${name} is replaced (if you changed it since your last save, that version goes to the Trash first). It then shows up under My changes, where you can save it.`,
+        confirmLabel: f.status === 'D' ? 'Bring Back' : 'Put Back',
+        risky: true
       })
-      if (ok) p.ops.run(`Restoring ${name}…`, () => window.spoon.restoreFileFrom(path, from, f.path), 'Couldn’t put the file back')
+      if (ok)
+        p.ops.run(
+          `Restoring ${name}…`,
+          async () => {
+            await window.spoon.restoreFileFrom(path, from, f.path)
+            // Its Unity .meta too, so it keeps its GUID and whatever uses it still finds it.
+            if (!f.path.endsWith('.meta')) await window.spoon.restoreFileFrom(path, from, `${f.path}.meta`).catch(() => undefined)
+          },
+          'Couldn’t put the file back'
+        )
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [path, c.hash]
@@ -803,7 +866,7 @@ function SaveRow(p: {
   const openVersion = (f: FileChange): void => {
     const at = f.status === 'D' ? c.parents[0] : c.hash
     if (!at) return
-    if (isPreviewable(f.path) || f.status === 'D') void window.spoon.openAtCommit(path, at, f.path)
+    if (isPreviewable(f.path)) void window.spoon.openAtCommit(path, at, f.path)
     else openFileEditor({ repo: path, file: f.path, at: { hash: at, label: 'this save' }, show: 'commit' })
   }
 

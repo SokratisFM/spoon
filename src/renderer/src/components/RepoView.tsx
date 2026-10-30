@@ -135,6 +135,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   // ⌘↵ / ⌥⌘↵ from the menu: commit, optionally followed by a push.
   const [commitRequest, setCommitRequest] = useState<{ push: boolean; n: number } | null>(null)
   const clearCommitRequest = useCallback(() => setCommitRequest(null), [])
+  // Switching between Simple Mode and the full view drops a ⌘↵ neither of them took.
+  const [lastSimpleOn, setLastSimpleOn] = useState(simpleOn)
+  if (lastSimpleOn !== simpleOn) {
+    setLastSimpleOn(simpleOn)
+    setCommitRequest(null)
+  }
   const [discardRequest, setDiscardRequest] = useState(0)
   const clearDiscardRequest = useCallback(() => setDiscardRequest(0), [])
   const refsSignature = useRef(snap?.refsSignature ?? '')
@@ -519,6 +525,10 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     if (overlayOpen() && command.name !== 'refresh') return
     // Simple Mode has no commit list, tags, branches or reviews; Pull and Push need no questions.
     if (simpleOn) {
+      // Like Simple Mode's own buttons: nothing while the project is stuck or on the wrong branch.
+      const stuck = !!repo && (!!repo.operation || !!repo.rebase || tree.unstaged.some((f) => f.status === 'U'))
+      const wrongBranch = !!simple?.branch && repo?.headBranch !== simple.branch
+      if ((command.name === 'pull' || command.name === 'push') && (stuck || wrongBranch || !repo?.headBranch)) return
       if (command.name === 'pull') return getLatest()
       if (command.name === 'push') return ops.push()
       if (['filter-commits', 'new-tag', 'new-branch', 'review', 'discard'].includes(command.name)) return

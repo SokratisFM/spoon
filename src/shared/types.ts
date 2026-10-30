@@ -28,8 +28,14 @@ export type RefKind = 'head' | 'remote' | 'tag' | 'stash'
 export interface FileContent {
   text: string | null
   binary: boolean
+  /** Text, but not UTF-8 (Windows-1252, UTF-16…): shown read-only, since saving would damage it. */
+  notUtf8?: boolean
   size: number
   eol: 'lf' | 'crlf'
+  /** Lines end in different ways: saving makes them all `eol`. */
+  mixedEol?: boolean
+  /** When the working copy was last saved (to notice it changing on disk). */
+  mtime?: number
 }
 
 export type ExportPlatform = 'android' | 'ios'
@@ -48,9 +54,16 @@ export interface ExportLink {
   export: string
   /** Relative to the repository, or absolute for a local package outside it. */
   source: string
-  /** The source's absolute path, and the git repository it's in (this one, a submodule or a package's). */
+  /** The source's absolute path, and the git repository it's in (this one, a submodule or a package's; '' for none). */
   sourcePath: string
   sourceRepo: string
+  /** git tracks the source: an untracked, ignored or repository-less one is never overwritten by itself. */
+  sourceTracked: boolean
+  /** Content hashes of a copy and its source (not for links). */
+  exportHash?: string
+  sourceHash?: string
+  /** The copy is as Unity's export run wrote it (not edited since, whatever the save times say). */
+  inRun?: boolean
   /** linked: the export is a symlink to the source; else a copy, the same or with one side edited. */
   state: 'linked' | 'same' | 'export-newer' | 'source-newer'
   /** When the export's copy was last saved: an edit already brought back (or set aside) keeps its time. */
@@ -70,6 +83,8 @@ export interface ExportFolder {
 export interface ExportNew {
   platform: ExportPlatform
   export: string
+  /** When the file was last saved: a failed automatic add is tried again once it's saved again. */
+  saved: number
   /** Where it most likely belongs, most likely first; empty when Spoon can't tell. */
   folders: ExportFolder[]
   /** Only one folder fits and a .meta can be made there: it can be added without asking. */
@@ -710,7 +725,8 @@ export interface SpoonApi {
   confluencePage(url: string): Promise<ConfluencePage>
   /** The quick file popup: working copies, versions at a commit, restoring one, the default app. */
   readWorkingFile(path: string, rel: string): Promise<FileContent>
-  writeWorkingFile(path: string, rel: string, text: string, eol: 'lf' | 'crlf'): Promise<void>
+  /** Resolves to the new save time; with `expect` (the save time it was read at) a file changed on disk since fails with CHANGED_ON_DISK. */
+  writeWorkingFile(path: string, rel: string, text: string, eol: 'lf' | 'crlf', expect?: number): Promise<number>
   fileAtCommit(path: string, hash: string, rel: string): Promise<FileContent>
   fileAtCommitToTemp(path: string, hash: string, rel: string): Promise<string>
   restoreFileFrom(path: string, hash: string, rel: string): Promise<void>
@@ -724,10 +740,10 @@ export interface SpoonApi {
   findExports(path: string): Promise<ExportCandidate[]>
   scanExports(path: string, dirs: string[]): Promise<ExportLink[]>
   /** Watches the linked exports (an empty list stops); onExportsChanged hears about edits in them. */
-  watchExports(path: string, dirs: string[]): Promise<void>
+  watchExports(path: string, dirs: string[]): Promise<string[]>
   onExportsChanged(handler: (repo: string) => void): () => void
-  /** Resolves to the source's new save time. */
-  exportBringBack(path: string, exp: string, src: string): Promise<number>
+  /** Copies exports' edits over their sources (each checked unchanged since the scan, and copied to the Trash first); resolves to the sources' new save times. */
+  exportBringBack(path: string, items: { exp: string; src: string; exportMtime: number; sourceMtime: number }[]): Promise<Record<string, number>>
   /** Replaces the export's copy with a link to the source; one that differs only with `force`. */
   exportRelink(path: string, exp: string, src: string, force?: boolean): Promise<void>
   /** Native files made in the exports that have no source yet. */

@@ -1,8 +1,8 @@
 // Thin wrapper over the git CLI. Every call shells out to `git` with machine-readable
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
@@ -191,7 +191,7 @@ export function cancel(cwd: string): void {
 // index.lock (or worse, interleave a checkout with a commit).
 const locks = new Map<string, Promise<unknown>>()
 
-function exclusive<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+export function exclusive<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
   const key = repoKey(cwd)
   const task = (locks.get(key) ?? Promise.resolve()).catch(() => undefined).then(fn)
   const tail = task.catch(() => undefined)
@@ -1562,41 +1562,99 @@ export function repoFile(cwd: string, rel: string): string {
   const root = resolve(cwd)
   const abs = resolve(root, rel)
   const r = relative(root, abs)
-  if (!r || r.startsWith('..') || isAbsolute(r) || r.split(sep)[0].toLowerCase() === '.git')
+  if (!r || r === '..' || r.startsWith(`..${sep}`) || isAbsolute(r) || r.split(sep)[0].toLowerCase() === '.git')
     throw new Error(`Not a file in this repository: ${rel}`)
   return abs
 }
 
-function contentOf(data: Buffer, size = data.length): FileContent {
-  const binary = data.subarray(0, 8000).includes(0)
-  if (binary || size > MAX_EDIT_BYTES) return { text: null, binary, size, eol: 'lf' }
-  const text = data.toString('utf8')
-  return { text, binary: false, size, eol: /\r\n/.test(text) ? 'crlf' : 'lf' }
+/**
+ * repoFile, and where it really is: a link (or a linked folder) must lead to a file inside the
+ * repository and outside any .git folder, so the popup never reads or writes outside it. Unity
+ * export links point into Assets, so they still work. Returns the path as given (writes go through
+ * the link, which stays a link).
+ */
+export async function realRepoFile(cwd: string, rel: string): Promise<string> {
+  const abs = repoFile(cwd, rel)
+  const root = await realpath(resolve(cwd))
+  // A file that doesn't exist (yet, or any more) is checked by its nearest folder that does.
+  let real = await realpath(abs).catch(() => null)
+  for (let dir = dirname(abs), rest = basename(abs); !real; rest = join(basename(dir), rest), dir = dirname(dir)) {
+    const base = await realpath(dir).catch(() => null)
+    if (base) real = join(base, rest)
+    else if (dirname(dir) === dir) real = abs
+  }
+  const r = relative(root, real)
+  if (!r || r === '..' || r.startsWith(`..${sep}`) || isAbsolute(r) || r.split(sep).some((part) => part.toLowerCase() === '.git'))
+    throw new Error(`${rel} leads outside the repository (it’s a link to ${real}).`)
+  return abs
 }
 
-/** The working copy of a file (null text when binary or too big to edit here). */
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+function contentOf(data: Buffer, size = data.length, mtime = 0): FileContent {
+  const binary = data.subarray(0, 8000).includes(0)
+  if (binary || size > MAX_EDIT_BYTES) return { text: null, binary, size, eol: 'lf', mtime }
+  let text: string
+  try {
+    // Strict: a file in another encoding (Windows-1252, UTF-16…) would be damaged by saving it as UTF-8.
+    text = utf8.decode(data)
+  } catch {
+    return { text: null, binary: false, notUtf8: true, size, eol: 'lf', mtime }
+  }
+  // The editor uses \n; saving puts back the ending most lines had. Mixed endings are flagged, since
+  // saving makes them all the same.
+  const crlf = (text.match(/\r\n/g) ?? []).length
+  const lf = (text.match(/\n/g) ?? []).length - crlf
+  const cr = (text.match(/\r(?!\n)/g) ?? []).length
+  return { text, binary: false, size, eol: crlf > lf ? 'crlf' : 'lf', mixedEol: (crlf > 0 && lf > 0) || cr > 0, mtime }
+}
+
+/** The working copy of a file (null text when binary, not UTF-8 or too big to edit here). */
 export async function readWorkingFile(cwd: string, rel: string): Promise<FileContent> {
-  const abs = repoFile(cwd, rel)
+  const abs = await realRepoFile(cwd, rel)
   const info = await stat(abs)
   if (!info.isFile()) throw new Error(`${rel} isn’t a file.`)
-  return contentOf(info.size > MAX_EDIT_BYTES ? Buffer.alloc(0) : await readFile(abs), info.size)
+  return contentOf(info.size > MAX_EDIT_BYTES ? Buffer.alloc(0) : await readFile(abs), info.size, info.mtimeMs)
 }
 
-/** Saves the working copy; `eol` puts back the file's own line endings (the editor uses \n). */
-export async function writeWorkingFile(cwd: string, rel: string, text: string, eol: 'lf' | 'crlf'): Promise<void> {
-  const abs = repoFile(cwd, rel)
-  await writeFile(abs, eol === 'crlf' ? text.replace(/\r?\n/g, '\r\n') : text)
-}
-
-/** A file's bytes in a commit (raw: binary files stay intact). */
-function blobAt(cwd: string, hash: string, rel: string): Promise<Buffer> {
-  return new Promise<Buffer>((done, fail) => {
-    const chunks: Buffer[] = []
-    const child = spawn('git', ['cat-file', 'blob', `${hash}:${rel}`], { cwd, env })
-    child.stdout.on('data', (b: Buffer) => chunks.push(b))
-    child.on('error', fail)
-    child.on('close', (code) => (code === 0 ? done(Buffer.concat(chunks)) : fail(new Error(`${rel} isn’t in that commit.`))))
+/**
+ * Saves the working copy; `eol` puts back the file's own line endings (the editor uses \n). With
+ * `expect` (the save time it was read at), a file changed on disk since isn't overwritten: it fails
+ * with "CHANGED_ON_DISK". Resolves to the new save time.
+ */
+export async function writeWorkingFile(cwd: string, rel: string, text: string, eol: 'lf' | 'crlf', expect?: number): Promise<number> {
+  const abs = await realRepoFile(cwd, rel)
+  return exclusive(cwd, async () => {
+    if (expect !== undefined && (await stat(abs)).mtimeMs !== expect) throw new Error('CHANGED_ON_DISK')
+    // Written in place (not a new file renamed over it): a Unity export's link stays a link.
+    await writeFile(abs, eol === 'crlf' ? text.replace(/\r?\n/g, '\r\n') : text)
+    return (await stat(abs)).mtimeMs
   })
+}
+
+/**
+ * A file's contents in a commit, as checkout would write them (Git LFS files come back as the file,
+ * not the pointer), into `out` (a file path) or as bytes. Falls back to the raw blob when a filter
+ * isn't available.
+ */
+function blobAt(cwd: string, hash: string, rel: string, out?: string): Promise<Buffer> {
+  const read = (args: string[]): Promise<Buffer> =>
+    new Promise<Buffer>((done, fail) => {
+      const chunks: Buffer[] = []
+      const child = spawn('git', args, { cwd, env })
+      const sink = out ? createWriteStream(out) : null
+      if (sink) child.stdout.pipe(sink)
+      else child.stdout.on('data', (b: Buffer) => chunks.push(b))
+      let err = ''
+      child.stderr.on('data', (b: Buffer) => (err += b.toString()))
+      child.on('error', fail)
+      child.on('close', (code) => {
+        const finish = (): void => (code === 0 ? done(Buffer.concat(chunks)) : fail(new Error(err.trim() || `${rel} isn’t in that commit.`)))
+        if (sink) sink.end(finish)
+        else finish()
+      })
+    })
+  return read(['cat-file', '--filters', `${hash}:${rel}`]).catch(() => read(['cat-file', 'blob', `${hash}:${rel}`]))
 }
 
 /** A file as it was in a commit. */
@@ -1606,23 +1664,72 @@ export async function fileAtCommit(cwd: string, hash: string, rel: string): Prom
   const size = Number((await git(cwd, ['cat-file', '-s', `${hash}:${rel}`])).trim())
   if (size > MAX_EDIT_BYTES) return { text: null, binary: false, size, eol: 'lf' }
   const data = await blobAt(cwd, hash, rel)
-  return contentOf(data, size)
+  return contentOf(data, data.length)
 }
 
-/** A commit's version of a file in a temporary folder, for comparing it with files on disk. */
+/** A commit's version of a file in a temporary folder, for comparing it with files on disk (streamed, not held in memory). */
 export async function fileAtCommitToTemp(cwd: string, hash: string, rel: string): Promise<string> {
   assertHash(hash)
   repoFile(cwd, rel)
   const dir = await mkdtemp(join(tmpdir(), 'spoon-at-'))
   const out = join(dir, `${hash.slice(0, 7)}-${basename(rel)}`)
-  const data = await blobAt(cwd, hash, rel)
-  await writeFile(out, data)
+  try {
+    await blobAt(cwd, hash, rel, out)
+  } catch (err) {
+    await rm(dir, { recursive: true, force: true })
+    throw err
+  }
   return out
 }
 
-/** Puts a commit's version of a file in the working copy (an unstaged change; the index is left alone). */
-export function restoreFileFrom(cwd: string, hash: string, rel: string): Promise<void> {
+/** The files git tracks in a repository, relative to it. */
+export async function trackedFiles(cwd: string): Promise<Set<string>> {
+  return new Set((await git(cwd, ['ls-files', '-z'])).split('\0').filter(Boolean))
+}
+
+/** The size of a file in a commit (of its blob: a Git LFS file's pointer). */
+export async function sizeAtCommit(cwd: string, hash: string, rel: string): Promise<number> {
   assertHash(hash)
-  repoFile(cwd, rel)
-  return exclusive(cwd, () => git(cwd, ['restore', `--source=${hash}`, '--worktree', '--', rel]).then(() => undefined))
+  return Number((await git(cwd, ['cat-file', '-s', `${hash}:${rel}`])).trim())
+}
+
+/**
+ * Copies files (absolute paths, with the path to keep each under) into one folder called `label` and
+ * moves that to the Trash: the way back for something Spoon is about to overwrite.
+ */
+export async function backupToTrash(files: { abs: string; rel: string }[], label: string, trash: (abs: string) => Promise<void>): Promise<void> {
+  const present: { abs: string; rel: string }[] = []
+  for (const f of files) if ((await stat(f.abs).catch(() => null))?.isFile()) present.push(f)
+  if (!present.length) return
+  const dir = await mkdtemp(join(tmpdir(), 'spoon-backup-'))
+  try {
+    const box = join(dir, label)
+    for (const f of present) {
+      await mkdir(dirname(join(box, f.rel)), { recursive: true })
+      await cp(f.abs, join(box, f.rel))
+    }
+    await trash(box)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+export const backupStamp = (): string => {
+  const d = new Date()
+  const two = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())}.${two(d.getSeconds())}`
+}
+
+/**
+ * Puts a commit's version of a file in the working copy (an unstaged change; the index is left
+ * alone). Uncommitted changes to it are first copied to the Trash, so they can be got back.
+ */
+export async function restoreFileFrom(cwd: string, hash: string, rel: string, trash: (abs: string) => Promise<void>): Promise<void> {
+  assertHash(hash)
+  const abs = await realRepoFile(cwd, rel)
+  return exclusive(cwd, async () => {
+    const changed = (await git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', rel])).trim()
+    if (changed) await backupToTrash([{ abs, rel: basename(rel) }], `${basename(resolve(cwd))} – before restoring ${basename(rel)} ${backupStamp()}`, trash)
+    await git(cwd, ['restore', `--source=${hash}`, '--worktree', '--', rel])
+  })
 }

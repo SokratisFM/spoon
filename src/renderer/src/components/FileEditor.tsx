@@ -2,10 +2,11 @@
 // commit's files, Exports) or ⌘E. The working copy can be edited and saved; a commit's version is
 // shown read-only, with Restore to put it back in the working copy.
 import { useEffect, useRef, useState } from 'react'
+import { Text } from '@codemirror/state'
 import type { FileContent } from '../../../shared/types'
 import { Modal } from './Modal'
 import type { Ops } from './RepoView'
-import { confirm } from '../dialogs'
+import { choose, confirm } from '../dialogs'
 import { cleanError } from '../hooks'
 import { useSettings } from '../settings'
 import { detectLanguage, LANGUAGES, paletteVars } from '../syntax'
@@ -26,6 +27,11 @@ export interface FileEditRequest {
 export function openFileEditor(req: FileEditRequest): void {
   window.dispatchEvent(new CustomEvent<FileEditRequest>('spoon:edit-file', { detail: req }))
 }
+
+// The file with unsaved edits in the popup, if any: switching tabs, opening another project or
+// closing the window asks first (they'd take the popup away).
+let unsaved: string | null = null
+export const unsavedEdits = (): string | null => unsaved
 
 /** Asks the visible view to open its selected file (⌘E); it answers with openFileEditor. */
 export const OPEN_SELECTED_FILE = 'spoon:open-selected-file'
@@ -55,9 +61,12 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
   const [side, setSide] = useState<Side>(req.show === 'commit' && at ? 'commit' : 'working')
   const [working, setWorking] = useState<Loaded | null>(null)
   const [commit, setCommit] = useState<Loaded | null>(null)
-  // The working copy as saved, and as it is in the editor now.
-  const [saved, setSaved] = useState('')
-  const [draft, setDraft] = useState('')
+  // The working copy as saved (and its save time on disk), and as it is in the editor now: kept as
+  // documents, compared without copying them out on every keystroke.
+  const savedDoc = useRef<Text>(Text.empty)
+  const draftDoc = useRef<Text>(Text.empty)
+  const savedAt = useRef<number | undefined>(undefined)
+  const [edited, setEdited] = useState(false)
   const [cursor, setCursor] = useState({ line: 1, col: 1 })
   const [saving, setSaving] = useState(false)
   const box = useRef<HTMLDivElement>(null)
@@ -69,15 +78,23 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
   const dir = file.slice(0, file.length - name.length).replace(/\/$/, '')
   const langId = detectLanguage(file)
   const langLabel = LANGUAGES.find(([id]) => id === langId)?.[1] ?? null
-  const dirty = side === 'working' && working && 'content' in working && draft !== saved
+  const dirty = side === 'working' && !!working && 'content' in working && edited
+  useEffect(() => {
+    unsaved = dirty ? name : null
+    return () => {
+      unsaved = null
+    }
+  }, [dirty, name])
 
   const loadWorking = async (): Promise<void> => {
     try {
       const content = await window.spoon.readWorkingFile(repo, file)
       setWorking({ content })
-      const text = (content.text ?? '').replace(/\r\n/g, '\n')
-      setSaved(text)
-      setDraft(text)
+      const doc = Text.of((content.text ?? '').replace(/\r\n?/g, '\n').split('\n'))
+      savedDoc.current = doc
+      draftDoc.current = doc
+      savedAt.current = content.mtime
+      setEdited(false)
     } catch (err) {
       const msg = cleanError(err)
       setWorking(/ENOENT|no such file/i.test(msg) ? { missing: true } : { error: msg })
@@ -97,7 +114,11 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
   useEffect(() => {
     if (!box.current) return
     const ed = createEditor(box.current, {
-      onChange: (text) => sideRef.current === 'working' && setDraft(text),
+      onChange: (doc) => {
+        if (sideRef.current !== 'working') return
+        draftDoc.current = doc
+        setEdited(!doc.eq(savedDoc.current))
+      },
       onCursor: (line, col) => setCursor({ line, col }),
       onSave: () => void saveRef.current()
     })
@@ -111,20 +132,55 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
   useEffect(() => {
     const ed = editor.current
     if (!ed || !shown || !('content' in shown) || shown.content.text === null) return
-    ed.setText(side === 'working' ? draft : shown.content.text.replace(/\r\n/g, '\n'))
+    ed.setText(side === 'working' ? draftDoc.current.toString() : shown.content.text.replace(/\r\n?/g, '\n'))
     ed.setReadOnly(side !== 'working')
     if (side === 'working') ed.view.focus()
     // Only when the side or what's loaded changes; typing updates `draft` from the editor itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [side, shown])
 
-  const save = async (): Promise<void> => {
-    if (!editable || saving || !working || !('content' in working)) return
-    const text = editor.current?.view.state.doc.toString() ?? draft
+  const save = async (overwrite = false): Promise<void> => {
+    // ⌘S with nothing edited does nothing (it would write the file back as it was read).
+    if (!editable || saving || !working || !('content' in working) || (!edited && !overwrite)) return
+    const doc = editor.current?.view.state.doc ?? draftDoc.current
     setSaving(true)
-    const ok = await ops.run(`Saving ${name}…`, () => window.spoon.writeWorkingFile(repo, file, text, working.content.eol), 'Couldn’t save the file')
+    let changedOnDisk = false
+    const ok = await ops.run(
+      `Saving ${name}…`,
+      async () => {
+        try {
+          savedAt.current = await window.spoon.writeWorkingFile(repo, file, doc.toString(), working.content.eol, overwrite ? undefined : savedAt.current)
+        } catch (err) {
+          if (!/CHANGED_ON_DISK/.test(String(err))) throw err
+          changedOnDisk = true
+        }
+      },
+      'Couldn’t save the file'
+    )
     setSaving(false)
-    if (ok) setSaved(text)
+    if (changedOnDisk) {
+      // Saved elsewhere since it was opened (another app, a pull): never overwritten without asking.
+      const choice = await choose({
+        title: `${name} changed on disk`,
+        detail: 'It was saved by something else since you opened it here. Overwrite it with your version, or reload it (your edits here are thrown away)?',
+        buttons: [
+          { id: 'cancel', label: 'Cancel' },
+          { id: 'reload', label: 'Reload' },
+          { id: 'overwrite', label: 'Overwrite', kind: 'warn' }
+        ],
+        cancelId: 'cancel'
+      })
+      if (choice === 'overwrite') return save(true)
+      if (choice === 'reload') {
+        await loadWorking()
+        editor.current?.setText(draftDoc.current.toString())
+      }
+      return
+    }
+    if (ok && !changedOnDisk) {
+      savedDoc.current = doc
+      setEdited(!draftDoc.current.eq(doc))
+    }
   }
   const saveRef = useRef(save)
   saveRef.current = save
@@ -160,8 +216,8 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
     const ok = await confirm({
       message: `Put the ${at.label} version of ${name} in your working copy?`,
       detail: dirty
-        ? 'Your unsaved edits are thrown away, and the file’s current contents are replaced (an unstaged change you can discard).'
-        : 'The file’s current contents are replaced: it shows up in Local Changes as an unstaged change you can discard.',
+        ? 'Your unsaved edits here are thrown away, and the file’s current contents are replaced. Uncommitted changes to it go to the Trash first, so you can get them back.'
+        : 'The file’s current contents are replaced; it shows up in Local Changes. Uncommitted changes to it go to the Trash first, so you can get them back.',
       confirmLabel: 'Restore',
       risky: true
     })
@@ -185,7 +241,12 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
       <div className="fe-info error-text">{shown.error}</div>
     ) : shown.content.text === null ? (
       <div className="fe-info muted">
-        {shown.content.binary ? 'A binary file' : 'Too big to edit here'} ({sizeText(shown.content.size)}).{' '}
+        {shown.content.binary
+          ? 'A binary file'
+          : shown.content.notUtf8
+            ? 'Text that isn’t UTF-8, so it isn’t edited here (saving would damage it)'
+            : 'Too big to edit here'}{' '}
+        ({sizeText(shown.content.size)}).{' '}
         {side === 'working' && (
           <button className="link-btn" onClick={openDefault}>
             Open with Default App
@@ -220,6 +281,11 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
           <>
             <span className="fe-status muted">
               {dirty && <span className="fe-dirty">● Edited · </span>}
+              {side === 'working' && shown && 'content' in shown && shown.content.mixedEol && (
+                <span className="fe-dirty" title="Some lines end with CRLF and others with LF (or CR): saving gives them all the same ending.">
+                  Mixed line endings: saving makes them {shown.content.eol === 'crlf' ? 'CRLF' : 'LF'} ·{' '}
+                </span>
+              )}
               {editable || (side === 'commit' && shown && 'content' in shown && shown.content.text !== null)
                 ? `Line ${cursor.line}, column ${cursor.col}${shown && 'content' in shown ? ` · ${shown.content.eol === 'crlf' ? 'CRLF' : 'LF'}` : ''}${side === 'commit' ? ' · read-only' : ''}`
                 : ''}
@@ -243,15 +309,16 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
               <button
                 className="btn"
                 onClick={() => {
-                  editor.current?.setText(saved)
-                  setDraft(saved)
+                  editor.current?.setText(savedDoc.current.toString())
+                  draftDoc.current = savedDoc.current
+                  setEdited(false)
                 }}
               >
                 Revert
               </button>
             )}
             {side === 'working' && (
-              <button className="btn primary" disabled={!dirty || saving} onClick={save}>
+              <button className="btn primary" disabled={!dirty || saving} onClick={() => save()}>
                 Save <kbd className="keyed-key">⌘S</kbd>
               </button>
             )}

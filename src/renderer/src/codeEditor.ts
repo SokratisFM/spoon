@@ -1,7 +1,7 @@
 // The code editor in the quick file popup: CodeMirror with Spoon's syntax colors (the same --syn-*
 // slots the diffs use, so an imported IDE scheme applies here too) and a language per file type,
 // each loaded only when a file of that type is opened.
-import { Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, type Extension, type Text } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
@@ -81,10 +81,10 @@ export interface CodeEditor {
   setLanguage(ext: Extension): void
 }
 
-/** An editor in `parent`; `onChange` hears about edits, `onCursor` about the caret's line and column. */
+/** An editor in `parent`; `onChange` hears about edits (the document itself: copying it out is up to the caller), `onCursor` about the caret's line and column. */
 export function createEditor(
   parent: HTMLElement,
-  opts: { onChange: (text: string) => void; onCursor: (line: number, col: number) => void; onSave: () => void }
+  opts: { onChange: (doc: Text) => void; onCursor: (line: number, col: number) => void; onSave: () => void }
 ): CodeEditor {
   const readOnly = new Compartment()
   const language = new Compartment()
@@ -109,7 +109,7 @@ export function createEditor(
         readOnly.of(EditorState.readOnly.of(ro)),
         language.of(lang),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) opts.onChange(u.state.doc.toString())
+          if (u.docChanged) opts.onChange(u.state.doc)
           if (u.docChanged || u.selectionSet) {
             const head = u.state.selection.main.head
             const line = u.state.doc.lineAt(head)

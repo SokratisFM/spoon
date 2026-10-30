@@ -169,7 +169,11 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
             className="side-item"
             style={{ paddingLeft: '1.85rem' }}
             title={`Edited in the export:\n${l.export}\n${
-              yours(l) ? `\n${l.source} has uncommitted changes too, so it wasn’t replaced by itself.\n` : ''
+              yours(l)
+                ? `\n${l.source} has changes of yours too (uncommitted, or not tracked by git), so it isn’t replaced by itself.\n`
+                : st.base[l.export] !== l.sourceHash
+                  ? `\n${l.source} changed too since the two last matched (a pull, say), so it isn’t replaced by itself: compare them first.\n`
+                  : ''
             }\nClick to compare; right-click for more.`}
             onClick={() => requestCompare(abs(l.source), abs(l.export))}
             onContextMenu={(e) => menu(e, l)}
@@ -177,7 +181,7 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
             <span className="export-state export-newer">↩</span>
             <span className="side-label">{fileName(l.export)}</span>
             {yours(l) && (
-              <span className="badge warn" title="Assets has uncommitted changes to it too">
+              <span className="badge warn" title="The source has changes of yours too (uncommitted, or not tracked by git)">
                 both
               </span>
             )}

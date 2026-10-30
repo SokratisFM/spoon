@@ -245,14 +245,16 @@ function registerIpc(): void {
   ipcMain.handle('atlassian:disconnect', () => atlassian.disconnect())
   ipcMain.handle('atlassian:page', (_e, url: string) => atlassian.page(url))
   ipcMain.handle('file:read', (_e, path: string, rel: string) => git.readWorkingFile(path, rel))
-  ipcMain.handle('file:write', (_e, path: string, rel: string, text: string, eol: 'lf' | 'crlf') =>
-    git.writeWorkingFile(path, rel, text, eol)
+  ipcMain.handle('file:write', (_e, path: string, rel: string, text: string, eol: 'lf' | 'crlf', expect?: number) =>
+    git.writeWorkingFile(path, rel, text, eol, expect)
   )
   ipcMain.handle('file:atCommit', (_e, path: string, hash: string, rel: string) => git.fileAtCommit(path, hash, rel))
   ipcMain.handle('file:atCommitToTemp', (_e, path: string, hash: string, rel: string) => git.fileAtCommitToTemp(path, hash, rel))
-  ipcMain.handle('file:restore', (_e, path: string, hash: string, rel: string) => git.restoreFileFrom(path, hash, rel))
+  ipcMain.handle('file:restore', (_e, path: string, hash: string, rel: string) =>
+    git.restoreFileFrom(path, hash, rel, (p) => shell.trashItem(p))
+  )
   // Resolves to an error message, or "" when it opened.
-  ipcMain.handle('file:openDefault', (_e, path: string, rel: string) => shell.openPath(git.repoFile(path, rel)))
+  ipcMain.handle('file:openDefault', async (_e, path: string, rel: string) => shell.openPath(await git.realRepoFile(path, rel)))
   ipcMain.handle('file:thumbnail', (_e, path: string, rel: string, hash: string | null, size: number) => thumbnails.thumbnail(path, rel, hash, size))
   ipcMain.handle('file:openAtCommit', (_e, path: string, hash: string, rel: string) => thumbnails.openAtCommit(path, hash, rel))
   ipcMain.handle('unity:isProject', (_e, path: string) => unityExports.isUnityProject(path))
@@ -268,11 +270,11 @@ function registerIpc(): void {
         unityExports.stopWatching(owner)
       })
     }
-    unityExports.watchExports(owner, path, dirs, () => {
+    return unityExports.watchExports(owner, path, dirs, () => {
       if (!e.sender.isDestroyed()) e.sender.send('unity:exportsChanged', path)
     })
   })
-  ipcMain.handle('unity:bringBack', (_e, path: string, exp: string, src: string) => unityExports.bringBack(path, exp, src))
+  ipcMain.handle('unity:bringBack', (_e, path: string, items: unityExports.BringBackItem[]) => unityExports.bringBack(path, items))
   ipcMain.handle('unity:newFiles', (_e, path: string, dirs: string[]) => unityExports.newExportFiles(path, dirs))
   ipcMain.handle('unity:add', (_e, path: string, exp: string, folder: string) => unityExports.addToSource(path, exp, folder))
   ipcMain.handle('unity:relink', (_e, path: string, exp: string, src: string, force: boolean) =>

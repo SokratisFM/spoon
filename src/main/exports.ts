@@ -4,9 +4,11 @@
 // (under Assets/, or in a local package: Packages/<name>/ or a "file:" package in the manifest),
 // lists the ones that differ, and can bring an edit back or replace the copy with a link to the
 // source (what Unity's "Symlink Sources" build setting does at export time).
-import { existsSync, watch, type FSWatcher } from 'node:fs'
+import { existsSync, readFileSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { copyFile, lstat, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { app, shell } from 'electron'
+import * as git from './git'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ExportCandidate, ExportFolder, ExportLink, ExportNew, ExportPlatform } from '../shared/types'
 
@@ -212,35 +214,66 @@ export async function findExports(root: string): Promise<ExportCandidate[]> {
   return Promise.all(dirs.map(async (x) => ({ ...x, files: (await pairs(root, x.dir, x.platform, index)).length })))
 }
 
+/**
+ * When Unity last wrote an export, from its files' save times: it gives every file it writes the
+ * same one, so it's the most common (to the minute; the end of that run). Null with no files.
+ */
+function runTime(saves: number[]): number | null {
+  if (!saves.length) return null
+  const minutes = new Map<number, number>()
+  for (const t of saves) minutes.set(Math.floor(t / 60_000), (minutes.get(Math.floor(t / 60_000)) ?? 0) + 1)
+  const mode = [...minutes].sort((a, b) => b[1] - a[1])[0][0] * 60_000
+  return Math.max(...saves.filter((t) => Math.abs(t - mode) < 300_000))
+}
+/** Saved by Unity's export run (not edited since): within a couple of minutes of it. */
+const RUN_SLACK = 120_000
+
+const hashOf = (data: Buffer): string => createHash('sha1').update(data).digest('hex')
+
 /** How each linked export's native files compare with their sources. */
 export async function scanExports(root: string, dirs: string[]): Promise<ExportLink[]> {
   const index = await sourceIndex(root)
   const links: ExportLink[] = []
+  // Which sources git tracks, per repository: an untracked or ignored source has no history to fall
+  // back on, so it's never overwritten by itself.
+  const tracked = new Map<string, Set<string> | null>()
+  const isTracked = async (repo: string, abs: string): Promise<boolean> => {
+    if (!repo) return false
+    if (!tracked.has(repo)) tracked.set(repo, await git.trackedFiles(repo).catch(() => null))
+    return tracked.get(repo)?.has(toSlash(relative(repo, abs))) ?? false
+  }
   for (const dir of dirs) {
     inside(root, dir)
     const platform = await platformOf(join(root, dir))
     if (!platform) continue
+    const found: ExportLink[] = []
     for (const { exp, src } of await pairs(root, dir, platform, index)) {
       const e = join(root, exp)
       const s = src.abs
-      const where = { platform, export: exp, source: src.id, sourcePath: toSlash(s), sourceRepo: toSlash(repoOf(s) || root) }
+      const repo = repoOf(s)
+      const where = { platform, export: exp, source: src.id, sourcePath: toSlash(s), sourceRepo: toSlash(repo), sourceTracked: await isTracked(repo, s) }
       try {
         const info = await lstat(e)
         if (info.isSymbolicLink()) {
-          links.push({ ...where, state: 'linked', exportMtime: 0, sourceMtime: 0 })
+          found.push({ ...where, state: 'linked', exportMtime: 0, sourceMtime: 0 })
           continue
         }
         const [a, b, sInfo] = await Promise.all([readFile(e), readFile(s), stat(s)])
-        if (a.equals(b)) links.push({ ...where, state: 'same', exportMtime: info.mtimeMs, sourceMtime: sInfo.mtimeMs })
+        const hashes = { exportHash: hashOf(a), sourceHash: hashOf(b) }
+        if (a.equals(b)) found.push({ ...where, ...hashes, state: 'same', exportMtime: info.mtimeMs, sourceMtime: sInfo.mtimeMs })
         else {
           // Whichever was saved last is the one that changed (an export is written all at once).
           const newer = info.mtimeMs > sInfo.mtimeMs ? 'export-newer' : 'source-newer'
-          links.push({ ...where, state: newer, exportMtime: info.mtimeMs, sourceMtime: sInfo.mtimeMs })
+          found.push({ ...where, ...hashes, state: newer, exportMtime: info.mtimeMs, sourceMtime: sInfo.mtimeMs })
         }
       } catch {
         // gone while scanning (an export being rewritten): left out until the next scan
       }
     }
+    // Copies still as Unity's export run wrote them weren't edited, whatever their save time says.
+    const run = runTime(found.filter((l) => l.state !== 'linked').map((l) => l.exportMtime))
+    for (const l of found) if (run !== null && l.state !== 'linked') l.inRun = l.exportMtime <= run + RUN_SLACK
+    links.push(...found)
   }
   return links
 }
@@ -249,16 +282,20 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
 // per window (`owner`) and repository, so two windows on one repository don't replace each other's.
 const watchers = new Map<string, { list: FSWatcher[]; timer?: ReturnType<typeof setTimeout> }>()
 
-/** Calls `changed` (at most every half second) when a native file in the linked exports changes. */
-export function watchExports(owner: number, root: string, dirs: string[], changed: () => void): void {
+/**
+ * Calls `changed` (at most every half second) when a native file in the linked exports changes.
+ * Resolves to the folders that can't be watched (missing); a watcher that fails is started again.
+ */
+export function watchExports(owner: number, root: string, dirs: string[], changed: () => void): string[] {
   const key = `${owner}|${resolve(root)}`
   const old = watchers.get(key)
   old?.list.forEach((w) => w.close())
   if (old?.timer) clearTimeout(old.timer)
   watchers.delete(key)
-  if (!dirs.length) return
+  if (!dirs.length) return []
   const entry: { list: FSWatcher[]; timer?: ReturnType<typeof setTimeout> } = { list: [] }
-  for (const dir of dirs) {
+  const missing: string[] = []
+  const start = (dir: string): boolean => {
     try {
       const w = watch(inside(root, dir), { recursive: true }, (_event, file) => {
         const f = String(file ?? '')
@@ -266,13 +303,26 @@ export function watchExports(owner: number, root: string, dirs: string[], change
         clearTimeout(entry.timer)
         entry.timer = setTimeout(changed, 500)
       })
-      w.on('error', () => w.close())
+      // Lost (the folder was replaced by a new export, say): watch it again once it's back, and rescan.
+      w.on('error', () => {
+        w.close()
+        entry.list = entry.list.filter((x) => x !== w)
+        const retry = (): void => {
+          if (watchers.get(key) !== entry) return
+          if (start(dir)) changed()
+          else setTimeout(retry, 5000)
+        }
+        setTimeout(retry, 2000)
+      })
       entry.list.push(w)
+      return true
     } catch {
-      // the export folder is gone (deleted, or not exported yet)
+      return false
     }
   }
+  for (const dir of dirs) if (!start(dir)) missing.push(dir)
   watchers.set(key, entry)
+  return missing
 }
 
 /** Stops every watcher a window started (it closed). */
@@ -285,12 +335,47 @@ export function stopWatching(owner: number): void {
   }
 }
 
-/** Copies an export's version of a file over its source; returns the source's new save time. */
-export async function bringBack(root: string, exp: string, src: string): Promise<number> {
-  const e = inside(root, exp)
-  const s = await sourcePath(root, src)
-  if (!(await lstat(e)).isSymbolicLink()) await writeFile(s, await readFile(e)) // a link is the source itself
-  return (await stat(s)).mtimeMs
+export interface BringBackItem {
+  exp: string
+  src: string
+  /** The save times the scan saw: if either file changed since, it's left alone. */
+  exportMtime: number
+  sourceMtime: number
+}
+
+/**
+ * Copies exports' versions of files over their sources; resolves to each source's new save time.
+ * Each source is checked first (still there, unchanged since the scan) and copied to the Trash, so
+ * it can be got back; the write waits for any git command in the source's repository.
+ */
+export async function bringBack(root: string, items: BringBackItem[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {}
+  const checked: { e: string; s: string; item: BringBackItem }[] = []
+  for (const item of items) {
+    const e = inside(root, item.exp)
+    const s = await sourcePath(root, item.src)
+    const [eInfo, sInfo] = await Promise.all([lstat(e), stat(s).catch(() => null)])
+    if (!sInfo) throw new Error(`${item.src} isn’t there any more.`)
+    if (eInfo.isSymbolicLink()) continue // a link is the source itself
+    if (eInfo.mtimeMs !== item.exportMtime || sInfo.mtimeMs !== item.sourceMtime)
+      throw new Error(`${basename(item.src)} or its export copy changed since Spoon looked. Look again and retry.`)
+    checked.push({ e, s, item })
+  }
+  if (!checked.length) return out
+  await git.backupToTrash(
+    checked.map((c) => ({ abs: c.s, rel: c.item.src.startsWith('/') ? basename(c.s) : c.item.src })),
+    `${basename(root)} – before bringing back from the export ${git.backupStamp()}`,
+    (p) => shell.trashItem(p)
+  )
+  for (const c of checked) {
+    out[c.item.src] = await git.exclusive(repoOf(c.s) || root, async () => {
+      // Once more right before writing: a checkout or pull queued ahead of this may have changed it.
+      if ((await stat(c.s)).mtimeMs !== c.item.sourceMtime) throw new Error(`${basename(c.item.src)} changed while waiting. Look again and retry.`)
+      await writeFile(c.s, await readFile(c.e))
+      return (await stat(c.s)).mtimeMs
+    })
+  }
+  return out
 }
 
 /**
@@ -327,6 +412,41 @@ function folderOf(root: string, abs: string): ExportFolder {
     repo: toSlash(repo),
     rel: toSlash(relative(repo, abs))
   }
+}
+
+// The files each export run left, by export folder (in Spoon's own data, not in the export).
+interface RunSnapshot {
+  run: number
+  files: string[]
+  /** Taken before anything in the export was edited: what's not in it is surely new. */
+  trusted: boolean
+}
+const runsFile = (): string => join(app.getPath('userData'), 'export-runs.json')
+let runs: Record<string, RunSnapshot> | null = null
+
+function snapshotOf(absDir: string, run: number, files: { exp: string; saved: number }[]): RunSnapshot {
+  if (!runs) {
+    try {
+      runs = JSON.parse(readFileSync(runsFile(), 'utf8')) as Record<string, RunSnapshot>
+    } catch {
+      runs = {}
+    }
+  }
+  const known = runs[absDir]
+  if (known && run <= known.run + RUN_SLACK) return known
+  // A run Spoon hasn't seen: what's there now that the run (or an earlier one) wrote.
+  const snap = {
+    run,
+    files: files.filter((f) => f.saved <= run + RUN_SLACK).map((f) => f.exp),
+    trusted: !files.some((f) => f.saved > run + RUN_SLACK)
+  }
+  runs[absDir] = snap
+  try {
+    writeFileSync(runsFile(), JSON.stringify(runs))
+  } catch {
+    // kept for this session
+  }
+  return snap
 }
 
 /** The .androidlib plug-in folders in an Android export. */
@@ -372,19 +492,18 @@ export async function newExportFiles(root: string, dirs: string[]): Promise<Expo
       }
     }
     if (!files.length) continue
-    // When Unity last wrote the export: it gives every file it writes the same save time, so it's
-    // the most common one (to the minute; the end of that run). A file made and saved more than
-    // two minutes later is someone else's; an older file that's still there (its source was
-    // removed) or one of Unity's own that was edited afterwards isn't new.
-    // Counted on the copies Unity made of sources (Unity's own files when every source is linked).
+    // When Unity last wrote the export (counted on the copies it made of sources; on Unity's own
+    // files when every source is linked), and which files that run left: those aren't new, even
+    // once edited (Android Studio and Xcode save by replacing the file, so its creation time is no
+    // help). The list is taken when Spoon first sees a run; if files were already edited by then,
+    // it can't tell edited from new, so nothing is added without asking.
     const copies = files.filter((f) => pairedSet.has(f.exp))
-    const basis = copies.length ? copies : files
-    const minutes = new Map<number, number>()
-    for (const f of basis) minutes.set(Math.floor(f.saved / 60_000), (minutes.get(Math.floor(f.saved / 60_000)) ?? 0) + 1)
-    const mode = [...minutes].sort((a, b) => b[1] - a[1])[0][0] * 60_000
-    const exported = Math.max(...basis.filter((f) => Math.abs(f.saved - mode) < 300_000).map((f) => f.saved))
+    const exported = runTime((copies.length ? copies : files).map((f) => f.saved))!
+    const snap = snapshotOf(join(root, dir), exported, files)
+    const before = new Set(snap.files)
     for (const f of files) {
-      if (pairedSet.has(f.exp) || f.saved < exported + 120_000 || f.born < exported + 120_000) continue
+      if (pairedSet.has(f.exp) || before.has(f.exp) || f.saved < snap.run + RUN_SLACK) continue
+      if (!snap.trusted && f.born < snap.run + RUN_SLACK) continue // probably one of Unity's, edited
       const folders = new Map<string, number>(near.get(dirname(f.exp)) ?? [])
       if (platform === 'ios') {
         const r = f.exp.slice(`${dir}/Libraries/`.length)
@@ -406,7 +525,7 @@ export async function newExportFiles(root: string, dirs: string[]): Promise<Expo
       const list = [...folders].sort((a, b) => b[1] - a[1]).map(([abs]) => folderOf(root, abs))
       // Certain: one folder, and a .meta to copy there (so nothing needs a person's eye).
       const only = folders.size === 1 ? [...folders.keys()][0] : null
-      out.push({ platform, export: f.exp, folders: list, certain: !!only && !!(await metaToCopy(only, f.exp)) })
+      out.push({ platform, export: f.exp, saved: f.saved, folders: list, certain: snap.trusted && !!only && !!(await metaToCopy(only, f.exp)) })
     }
   }
   return out
