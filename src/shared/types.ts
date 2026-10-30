@@ -97,6 +97,28 @@ export interface JiraIssue {
   type: string
 }
 
+export interface JiraProject {
+  id: string
+  key: string
+  name: string
+}
+
+/** What a new ticket in a project can be: its types and the fix versions not released yet. */
+export interface JiraProjectMeta {
+  types: { id: string; name: string }[]
+  versions: { id: string; name: string; releaseDate: string | null }[]
+}
+
+export interface JiraNewIssue {
+  project: string
+  typeId: string
+  summary: string
+  /** Markdown; turned into Jira's format. */
+  description: string
+  fixVersionId: string | null
+  assignToMe: boolean
+}
+
 export interface Ref {
   name: string // short name, e.g. "main", "origin/main", "v1.0"
   fullName: string // e.g. "refs/heads/main"
@@ -377,6 +399,8 @@ export interface PullDraftInfo {
 
 export interface AtlassianAccount {
   email: string
+  /** A separate token is set for Jira (scoped tokens cover one app each). */
+  jiraToken?: boolean
 }
 
 export interface ConfluencePage {
@@ -677,6 +701,10 @@ export interface SpoonApi {
   /** Closes the window the way its close button would. */
   /** `afterUnsaved`: closing after "Don't Save" on unsaved edits; a quit that was held up goes on. */
   closeWindow(afterUnsaved?: boolean): void
+  /** Unsaved edits held up closing, and the person chose to stay: a quit that was under way is off. */
+  quitCancelled(): void
+  /** Removes Spoon's old temporary files, except folders holding one of `keep` (files compare tabs show). */
+  cleanTemp(keep: string[]): Promise<void>
   /** A background fetch that never waits for (or holds up) other git work; skipped while some runs. */
   fetchQuietly(path: string): Promise<void>
   revealInFinder(path: string): Promise<void>
@@ -724,6 +752,10 @@ export interface SpoonApi {
   claudeAvailability(): Promise<ClaudeAvailability>
   atlassianAccount(): Promise<AtlassianAccount | null>
   atlassianConnect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount>
+  /** A new token for the connected account (same email and site); resolves to what it can do. */
+  atlassianUpdateToken(token: string, pageUrl: string): Promise<{ confluence: boolean; jira: boolean }>
+  /** Sets (checked with Jira first) or removes (null) a separate token for Jira. */
+  atlassianSetJiraToken(token: string | null, site: string): Promise<void>
   atlassianDisconnect(): Promise<void>
   confluencePage(url: string): Promise<ConfluencePage>
   /** The quick file popup: working copies, versions at a commit, restoring one, the default app. */
@@ -750,13 +782,19 @@ export interface SpoonApi {
   /** Copies exports' edits over their sources (each checked unchanged since the scan, and copied to the Trash first); resolves to the sources' new save times. */
   exportBringBack(path: string, items: { exp: string; src: string; exportMtime: number; sourceMtime: number }[]): Promise<Record<string, number>>
   /** Replaces the export's copy with a link to the source; one that differs only with `force`. */
-  exportRelink(path: string, exp: string, src: string, force?: boolean): Promise<void>
+  /** Replaces exports' copies with links to their sources (checked as pairs together). */
+  exportRelink(path: string, items: { exp: string; src: string }[], force?: boolean): Promise<void>
   /** Native files made in the exports that have no source yet. */
   exportNewFiles(path: string, dirs: string[]): Promise<ExportNew[]>
   /** Adds a new export file to a source folder (with a .meta), linking the export to it. */
   exportAdd(path: string, exp: string, folder: string): Promise<{ source: string; meta: boolean }>
   /** A ticket's title and type through the connected Atlassian account, or null. */
   jiraIssue(site: string, key: string): Promise<JiraIssue | null>
+  /** Creating tickets: the projects you can create in, a project's types and fix versions, extra required fields, and the ticket itself. */
+  jiraProjects(site: string): Promise<JiraProject[]>
+  jiraProjectMeta(site: string, project: string): Promise<JiraProjectMeta>
+  jiraRequiredFields(site: string, project: string, typeId: string): Promise<{ id: string; name: string }[]>
+  jiraCreate(site: string, issue: JiraNewIssue): Promise<{ key: string; url: string }>
   readClipboard(): Promise<string>
   /** Fetches the submodule and lists its version branches (prefix like "candidates/"). */
   mainlibState(path: string, submodulePath: string, prefix: string): Promise<MainLibState>

@@ -205,8 +205,9 @@ export function exclusive<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
  * or spaces (".git.", ".git "), or its short name (GIT~1).
  */
 export function isGitPart(part: string): boolean {
-  const p = part.toLowerCase().replace(/[. ]+$/, '')
-  return p === '.git' || p === 'git~1'
+  // Windows also reaches it as ".git::$INDEX_ALLOCATION" (a stream name) and by short names GIT~1, GIT~2…
+  const p = part.toLowerCase().split(':')[0].replace(/[. ]+$/, '')
+  return p === '.git' || /^git~\d+$/.test(p)
 }
 
 /** A path relative to a root that stays inside it (and out of any .git folder), or false. */
@@ -923,7 +924,12 @@ export async function fetch(cwd: string, prune: boolean, onProgress: (l: string)
  */
 export async function fetchQuietly(cwd: string): Promise<void> {
   if (locks.has(repoKey(cwd))) return
-  await run(cwd, ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', 'fetch', '--all', '--quiet'])
+  // No FETCH_HEAD (a pull running meanwhile reads it), no pruning (whatever fetch.prune says), no
+  // submodules: it only brings in what the remotes have.
+  await run(cwd, [
+    '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
+    'fetch', '--all', '--quiet', '--no-write-fetch-head', '--no-prune', '--no-prune-tags', '--no-recurse-submodules'
+  ])
 }
 
 export function pull(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<void> {
@@ -1712,10 +1718,12 @@ export async function fileAtCommitToTemp(cwd: string, hash: string, rel: string)
  * Removes Spoon's temporary folders (old versions of files opened or compared, backups on their way
  * to the Trash) left from earlier runs: anything over a day old, so files still open aren't pulled away.
  */
-export async function cleanTempFolders(): Promise<void> {
+export async function cleanTempFolders(keep: string[] = []): Promise<void> {
   const dir = tmpdir()
   for (const name of await readdir(dir).catch(() => [] as string[])) {
     if (!/^spoon-(at|backup)-/.test(name)) continue
+    // A folder a compare tab still shows a file from stays.
+    if (keep.some((k) => k.startsWith(join(dir, name) + sep))) continue
     const info = await stat(join(dir, name)).catch(() => null)
     if (info && Date.now() - info.mtimeMs > 86_400_000) await rm(join(dir, name), { recursive: true, force: true }).catch(() => undefined)
   }

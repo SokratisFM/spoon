@@ -123,6 +123,14 @@ export interface Settings {
   branchDevName: string
   /** The branch new ones start from, when it exists (its remote copy if the local one is behind). */
   branchBase: string
+  /** New tickets (⌘N → New ticket): the project, type and fix version picked first, whether they're
+   * assigned to you, and what the description starts with. */
+  jiraNewProject: string
+  jiraNewType: string
+  /** 'next': the soonest fix version not released yet; 'none': no fix version. */
+  jiraNewFixVersion: 'next' | 'none'
+  jiraNewAssignMe: boolean
+  jiraNewTemplate: string
 }
 
 const BASE_FONT_PX = 13
@@ -173,7 +181,12 @@ const DEFAULTS: Settings = {
   branchPattern: '{type}/{dev}/{ticket}/{description}',
   branchTypes: 'feature, fix',
   branchDevName: '',
-  branchBase: 'develop'
+  branchBase: 'develop',
+  jiraNewProject: '',
+  jiraNewType: 'Task',
+  jiraNewFixVersion: 'next',
+  jiraNewAssignMe: true,
+  jiraNewTemplate: ''
 }
 
 export const SCALE_MIN = 0.8

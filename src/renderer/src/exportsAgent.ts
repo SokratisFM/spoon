@@ -20,6 +20,8 @@ export interface ExportsState {
   /** Sources with uncommitted changes, by absolute path: an export edit never overwrites those by itself. */
   dirty: Set<string>
   error: string | null
+  /** The last automatic step that failed: kept (scans don't clear it) until dismissed or one works. */
+  failure: string | null
   /** Export edits already brought back or set aside, by the export copy's save time. */
   handled: Record<string, number>
   /** Sources Spoon brought back, by their save time then: still that time = not edited since. */
@@ -61,6 +63,7 @@ export function exportsState(path: string): ExportsState {
       added: [],
       dirty: new Set(),
       error: null,
+      failure: null,
       handled: readStored(key('handled', path), {}),
       wrote: readStored(key('wrote', path), {}),
       skipped: readStored(key('skipNew', path), []),
@@ -127,7 +130,7 @@ const bump = (path: string): void => void gens.set(path, genOf(path) + 1)
 
 /** An automatic step failed: shown in the Exports section and as a toast, whichever tab is showing. */
 function reportFailure(path: string, message: string): void {
-  update(path, { error: message })
+  update(path, { failure: message })
   window.dispatchEvent(new CustomEvent<string>('spoon:toast', { detail: `${path.split('/').pop()}: ${message}` }))
 }
 
@@ -222,7 +225,8 @@ async function scanOnce(path: string): Promise<void> {
     const s = exportsState(path)
     const base = { ...s.base }
     for (const l of found) if (l.state === 'same' && l.sourceHash) base[l.export] = l.sourceHash
-    setExportSources(path, Object.fromEntries(found.map((l) => [l.sourcePath, l.export])))
+    // Broken links' targets aren't sources the export uses.
+    setExportSources(path, Object.fromEntries(found.filter((l) => l.state !== 'dangling').map((l) => [l.sourcePath, l.export])))
     update(path, { links: found, added, dirty, base, error: problems.join('\n') || null })
     autoApply(path)
   } catch (err) {
@@ -276,6 +280,10 @@ export function setAuto(path: string, auto: boolean): void {
   if (auto) autoApply(path)
 }
 
+export function dismissFailure(path: string): void {
+  update(path, { failure: null })
+}
+
 export function skipNew(path: string, exp: string): void {
   update(path, { skipped: [...exportsState(path).skipped, exp] })
 }
@@ -310,8 +318,10 @@ export function bringBackNow(path: string, list: ExportLink[], label: string, au
     list.map((l) => l.sourceRepo).filter(Boolean),
     auto
   ).then((ok) => {
-    if (ok) markHandled(path, done)
-    else if (auto) for (const l of list) failedOf(path)[l.export] = l.exportMtime
+    if (ok) {
+      markHandled(path, done)
+      if (auto && done.length) update(path, { failure: null })
+    } else if (auto) for (const l of list) failedOf(path)[l.export] = l.exportMtime
     void scan(path)
     return ok
   })
@@ -322,7 +332,11 @@ export async function relink(path: string, list: ExportLink[], force: boolean): 
     path,
     list.length === 1 ? `Linking ${fileName(list[0].export)}…` : `Linking ${list.length} files…`,
     async () => {
-      for (const l of list) await window.spoon.exportRelink(path, l.export, l.source, force)
+      await window.spoon.exportRelink(
+        path,
+        list.map((l) => ({ exp: l.export, src: l.source })),
+        force
+      )
     },
     'Relink failed',
     []

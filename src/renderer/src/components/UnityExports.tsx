@@ -14,6 +14,7 @@ import { revealLabel } from '../platform'
 import {
   addNew,
   bringBackNow,
+  dismissFailure,
   editedOf,
   markHandled,
   relink as relinkNow,
@@ -158,6 +159,14 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
     body = (
       <div className="exports">
         {error && <div className="side-empty error-text">{error}</div>}
+        {st.failure && (
+          <div className="side-empty error-text export-failure">
+            {st.failure}{' '}
+            <button className="link-btn" onClick={() => dismissFailure(path)}>
+              Dismiss
+            </button>
+          </div>
+        )}
         {links && shown.length === 0 && fresh.length === 0 && elsewhere.size === 0 && <div className="side-empty">No edits in the exports.</div>}
         {[...elsewhere].map(([dir, n]) => (
           <button

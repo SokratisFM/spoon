@@ -1311,9 +1311,76 @@ function AccountsTab() {
       </div>
 
       <TicketBranchField />
+      <NewTicketField />
       <ClaudeField />
       <MainLibField />
     </>
+  )
+}
+
+function NewTicketField() {
+  const s = useSettings()
+  const row = (label: string, input: React.ReactNode) => (
+    <div className="nb-setting">
+      <span className="hint">{label}</span>
+      {input}
+    </div>
+  )
+  return (
+    <div className="field jira-field">
+      <span className="field-label">
+        New tickets <kbd className="setting-key">{keys('⌘N')}</kbd>
+      </span>
+      <span className="hint">
+        In New branch, “New ticket” creates the Jira ticket first (with the Atlassian account below), then the branch for
+        it. These are filled in to start with; each can be changed there.
+      </span>
+      {row(
+        'Project',
+        <SettingInput
+          className="mono"
+          value={s.jiraNewProject}
+          placeholder="The first one you can create in"
+          spellCheck={false}
+          onCommit={(v) => updateSettings({ jiraNewProject: v.trim().toUpperCase() })}
+        />
+      )}
+      {row(
+        'Type',
+        <Segmented
+          value={s.jiraNewType}
+          options={[
+            ['Task', 'Task'],
+            ['Bug', 'Bug'],
+            ['Defect', 'Defect']
+          ]}
+          onChange={(v) => updateSettings({ jiraNewType: v })}
+        />
+      )}
+      {row(
+        'Fix version',
+        <Segmented
+          value={s.jiraNewFixVersion}
+          options={[
+            ['next', 'Next unreleased'],
+            ['none', 'None']
+          ]}
+          onChange={(v) => updateSettings({ jiraNewFixVersion: v })}
+        />
+      )}
+      <label className="check">
+        <input type="checkbox" checked={s.jiraNewAssignMe} onChange={(e) => updateSettings({ jiraNewAssignMe: e.target.checked })} />
+        Assign new tickets to me
+      </label>
+      <span className="hint">Description template (Markdown)</span>
+      <SettingTextarea
+        className="mono nb-template"
+        rows={4}
+        value={s.jiraNewTemplate}
+        placeholder={'## What\n\n## Why'}
+        onCommit={(v) => updateSettings({ jiraNewTemplate: v })}
+      />
+    </div>
   )
 }
 
@@ -1403,9 +1470,55 @@ function MainLibField() {
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Replacing the token of the connected account: what's typed, and what the new one turned out to do.
+  const [updating, setUpdating] = useState(false)
+  const [updated, setUpdated] = useState<{ confluence: boolean; jira: boolean } | null>(null)
+  // The separate Jira token (for scoped tokens, which cover one app each).
+  const [jiraEditing, setJiraEditing] = useState(false)
+  const [jiraToken, setJiraToken] = useState('')
+  const [jiraSaved, setJiraSaved] = useState(false)
+  const saveJiraToken = async (value: string | null): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      await window.spoon.atlassianSetJiraToken(value, s.jiraSite)
+      setAccount((a) => (a ? { ...a, jiraToken: !!value } : a))
+      setJiraToken('')
+      setJiraEditing(false)
+      setJiraSaved(!!value)
+    } catch (err) {
+      setError(cleanError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
   useEffect(() => {
     once('atlassian', () => window.spoon.atlassianAccount()).then(setAccount)
   }, [])
+  const updateToken = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      setUpdated(await window.spoon.atlassianUpdateToken(token, s.mainlibChangelogUrl))
+      setToken('')
+      setUpdating(false)
+    } catch (err) {
+      setError(cleanError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const tokenLink = (
+    <a
+      href="#"
+      onClick={(e) => {
+        e.preventDefault()
+        window.spoon.openExternal('https://id.atlassian.com/manage-profile/security/api-tokens')
+      }}
+    >
+      API token
+    </a>
+  )
   const url = (key: 'mainlibChangelogUrl' | 'mainlibInstructionsUrl', label: string, hint: string, def: string) => (
     <div className="field">
       <span className="field-label">
@@ -1458,32 +1571,112 @@ function MainLibField() {
       </div>
       <div className="field">
         <span className="field-label">Atlassian account</span>
+        <span className="hint">
+          Lets Spoon read the changelog page, fill in Jira tickets’ titles and create tickets. Use your Atlassian email and an{' '}
+          {tokenLink}: one without scopes works for all of it; one with scopes needs{' '}
+          <span className="mono">read:page:confluence</span> (and for Jira <span className="mono">read:jira-work</span>,{' '}
+          <span className="mono">write:jira-work</span>, <span className="mono">read:jira-user</span>). It’s kept in your Keychain.
+        </span>
         {account ? (
-          <div className="form-row">
-            <span>
-              Connected as <b>{account.email}</b>
+          <>
+            <div className="form-row">
+              <span>
+                Connected as <b>{account.email}</b>
+              </span>
+              <span className="spacer" />
+              {!updating && (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setUpdating(true)
+                    setUpdated(null)
+                    setError(null)
+                  }}
+                >
+                  Update token…
+                </button>
+              )}
+              <button className="btn" onClick={() => window.spoon.atlassianDisconnect().then(() => setAccount(null))}>
+                Disconnect
+              </button>
+            </div>
+            {updating && (
+              <div className="form-row">
+                <input
+                  type="password"
+                  placeholder="New API token"
+                  value={token}
+                  autoFocus
+                  onChange={(e) => setToken(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && token.trim() && !busy && updateToken()}
+                />
+                <button className="btn" onClick={() => (setUpdating(false), setToken(''), setError(null))}>
+                  Cancel
+                </button>
+                <button className="btn primary" disabled={busy || !token.trim()} onClick={updateToken}>
+                  {busy ? 'Checking…' : 'Save'}
+                </button>
+              </div>
+            )}
+            {updated && (
+              <span className={updated.jira && updated.confluence ? 'hint' : 'hint warn'}>
+                Token updated. It works for{' '}
+                {updated.confluence && updated.jira
+                  ? 'Confluence and Jira'
+                  : updated.jira
+                    ? 'Jira, but not the changelog page (Confluence)'
+                    : account.jiraToken
+                      ? 'Confluence (Jira has its own token)'
+                      : 'Confluence, but not Jira: add a Jira token below'}
+                .
+              </span>
+            )}
+            <div className="form-row jira-token-row">
+              <span>
+                Jira token{' '}
+                <span className="muted">
+                  {account.jiraToken ? '· Jira uses its own token' : '· optional: Jira uses the token above'}
+                </span>
+              </span>
+              <span className="spacer" />
+              {!jiraEditing && (
+                <button className="btn" onClick={() => (setJiraEditing(true), setJiraSaved(false), setError(null))}>
+                  {account.jiraToken ? 'Replace…' : 'Add Jira token…'}
+                </button>
+              )}
+              {account.jiraToken && !jiraEditing && (
+                <button className="btn" disabled={busy} onClick={() => saveJiraToken(null)}>
+                  Remove
+                </button>
+              )}
+            </div>
+            {jiraEditing && (
+              <div className="form-row">
+                <input
+                  type="password"
+                  placeholder="API token for the Jira app"
+                  value={jiraToken}
+                  autoFocus
+                  onChange={(e) => setJiraToken(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && jiraToken.trim() && !busy && saveJiraToken(jiraToken)}
+                />
+                <button className="btn" onClick={() => (setJiraEditing(false), setJiraToken(''), setError(null))}>
+                  Cancel
+                </button>
+                <button className="btn primary" disabled={busy || !jiraToken.trim()} onClick={() => saveJiraToken(jiraToken)}>
+                  {busy ? 'Checking…' : 'Save'}
+                </button>
+              </div>
+            )}
+            {jiraSaved && <span className="hint">Jira token saved: Jira accepted it.</span>}
+            <span className="hint">
+              Only needed with tokens that have scopes (each covers one app): make one for the Jira app with{' '}
+              <span className="mono">read:jira-work</span>, <span className="mono">write:jira-work</span> and{' '}
+              <span className="mono">read:jira-user</span>.
             </span>
-            <span className="spacer" />
-            <button className="btn" onClick={() => window.spoon.atlassianDisconnect().then(() => setAccount(null))}>
-              Disconnect
-            </button>
-          </div>
+          </>
         ) : (
           <>
-            <span className="hint">
-              Lets Spoon read the changelog page. Use your Atlassian email and an{' '}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault()
-                  window.spoon.openExternal('https://id.atlassian.com/manage-profile/security/api-tokens')
-                }}
-              >
-                API token
-              </a>
-              : a classic token, or one with scopes that includes <span className="mono">read:page:confluence</span>. It’s kept in
-              your Keychain.
-            </span>
             <div className="form-row">
               <input placeholder="you@fm-games.com" value={email} spellCheck={false} onChange={(e) => setEmail(e.target.value)} />
               <input type="password" placeholder="API token" value={token} onChange={(e) => setToken(e.target.value)} />
@@ -2100,6 +2293,21 @@ function SettingInput({ value, onCommit, ...rest }: Omit<React.InputHTMLAttribut
       }}
     />
   )
+}
+
+/** SettingInput for longer text: saved on leaving it, and when Settings closes right after typing. */
+function SettingTextarea({ value, onCommit, ...rest }: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & { value: string; onCommit: (v: string) => void }) {
+  const [draft, setDraft] = useState(value)
+  const latest = useRef({ draft, value, onCommit })
+  latest.current = { draft, value, onCommit }
+  useEffect(
+    () => () => {
+      const l = latest.current
+      if (l.draft !== l.value) l.onCommit(l.draft)
+    },
+    []
+  )
+  return <textarea {...rest} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={() => draft !== value && onCommit(draft)} />
 }
 
 export function Segmented<T extends string>({

@@ -35,6 +35,7 @@ const RELATED: [string, string][] = [
   ['updates', 'version upgrade release install'],
   ['search for repositories', 'scan folder projects find'],
   ['your projects', 'recent list forget remove'],
+  ['new tickets', 'jira create ticket issue task bug defect fix version assign description template'],
   ['simple mode', 'artist designer easy beginner non-technical basic'],
   ['pin lock', 'password lock simple'],
   ['only show files in', 'folder filter simple art'],

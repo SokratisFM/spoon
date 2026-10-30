@@ -1,7 +1,9 @@
 // New branch from a Jira ticket (⌘N). The name follows the pattern in Settings
 // ("{type}/{dev}/{ticket}/{description}"); each /-separated part is its own box, filled in from the
 // ticket, git's user.name and (with an Atlassian account) the ticket's title. Every part stays editable.
-import { useEffect, useMemo, useRef, useState } from 'react'
+// With "New ticket", the ticket is created in Jira first (NewTicketForm), then the branch for it.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { NewTicketForm, type CreatedTicket } from './NewTicketForm'
 import type { JiraIssue, RepoState } from '../../../shared/types'
 import { Modal } from './Modal'
 import type { Ops } from './RepoView'
@@ -31,7 +33,8 @@ export function parsePattern(pattern: string): Part[][] {
 
 /** The ticket key in a link or text ("…/browse/MAINLIB-2592", "mainlib-2592"), upper-cased. */
 export function ticketFrom(text: string): string {
-  const m = /\/browse\/([A-Za-z][A-Za-z0-9]{1,9}-\d{1,7})\b/.exec(text) ?? /(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]{1,9}-\d{1,7})(?!\d)/.exec(text)
+  // Project keys can have underscores (MY_PROJ-12).
+  const m = /\/browse\/([A-Za-z][A-Za-z0-9_]{1,9}-\d{1,7})\b/.exec(text) ?? /(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{1,9}-\d{1,7})(?!\d)/.exec(text)
   return m ? m[1].toUpperCase() : ''
 }
 
@@ -74,6 +77,13 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const [ready, setReady] = useState(false)
   const [creating, setCreating] = useState(false)
   const firstEmpty = useRef<HTMLInputElement | null>(null)
+  // A ticket to create first (step 1), or one that exists already (pasted, or just created).
+  const [mode, setMode] = usePersistentState<'existing' | 'create'>('spoon.newBranch.mode', 'existing')
+  const [created, setCreated] = useState<CreatedTicket | null>(null)
+  const ticketStep = mode === 'create' && !created
+  const submitTicket = useRef<() => void>(() => undefined)
+  const [ticketState, setTicketState] = useState({ ready: false, busy: false })
+  const onTicketState = useCallback((st: { ready: boolean; busy: boolean }) => setTicketState(st), [])
 
   useEffect(() => {
     // A Jira link just copied goes straight into the ticket field.
@@ -82,20 +92,25 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
       window.spoon.userName(path).catch(() => ''),
       window.spoon.atlassianAccount().catch(() => null)
     ]).then(([clip, name, account]) => {
-      if (/jira|atlassian/i.test(clip) && clip.length < 500) setTicketText(clip.trim())
+      // A Jira link just copied: that's the ticket, so there's none to create.
+      if (/jira|atlassian/i.test(clip) && clip.length < 500 && ticketFrom(clip)) {
+        setTicketText(clip.trim())
+        setMode('existing')
+      }
       setUserName(name)
       setHasAccount(!!account)
       setReady(true)
     })
   }, [path])
 
-  const key = ticketFrom(ticketText)
+  // A ticket made here is known as it is: no need to read it back from its link.
+  const key = created?.key ?? ticketFrom(ticketText)
   useEffect(() => {
-    if (!key) return
+    if (!key || created) return
     let site = s.jiraSite
     try {
       const u = new URL(ticketText.trim())
-      if (/atlassian\.net$|jira/i.test(u.hostname)) site = u.origin
+      if (u.protocol === 'https:' && /atlassian\.net$|jira/i.test(u.hostname)) site = u.origin
     } catch {
       // not a link: the Jira site from Settings
     }
@@ -115,7 +130,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const found = issue?.key === key ? issue.issue : null
 
   const auto: Record<string, string> = {
-    type: (found && /bug/i.test(found.type) && types.find((t) => t === 'fix')) || types[0] || '',
+    type: (found && /^(bug|defect)$/i.test(found.type.trim()) && types.find((t) => t.toLowerCase() === 'fix')) || types[0] || '',
     dev: clean(s.branchDevName.trim()) || slug(userName.trim().split(/\s+/)[0] ?? ''),
     ticket: key,
     description: found ? slug(found.summary) : ''
@@ -134,7 +149,16 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     seg.some((p) => 'token' in p) && seg.every((p) => 'text' in p || !valueOf(p.token))
   const name = segments
     .filter((seg) => !skipped(seg))
-    .map((seg) => seg.map((p) => ('text' in p ? p.text : valueOf(p.token))).join(''))
+    .map((seg) =>
+      // Fixed text next to an empty part goes too ("{ticket}-{description}" with no description isn't "MAINLIB-1-").
+      seg
+        .map((p, i) => {
+          if ('token' in p) return valueOf(p.token)
+          const near = [seg[i - 1], seg[i + 1]].filter((q): q is { token: string } => !!q && 'token' in q)
+          return near.every((q) => valueOf(q.token)) ? p.text : ''
+        })
+        .join('')
+    )
     .join('/')
   const locals = repo.refs.filter((r) => r.kind === 'head')
   const remotes = repo.refs.filter((r) => r.kind === 'remote' && !r.name.endsWith('/HEAD'))
@@ -178,22 +202,55 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   // Focus goes to the first part still to fill in (the ticket field when there's no ticket yet).
   const ticketInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
-    if (!ready) return
+    if (!ready || ticketStep) return
     if (!key) ticketInput.current?.focus()
     else firstEmpty.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, !!key])
+  }, [ready, !!key, ticketStep])
+
+  // The ticket just made: it's the one the branch is for, with its title and type straight away.
+  const ticketMade = (t: CreatedTicket): void => {
+    setCreated(t)
+    setIssue({ key: t.key, issue: { summary: t.summary, type: t.type } })
+    setTicketText(t.url)
+  }
+  // While the ticket is being created the popup stays: closing it wouldn't stop that, and creating
+  // again would make a second ticket.
+  const close = (): void => {
+    if (!ticketState.busy) onClose()
+  }
 
   let firstEmptySet = false
   return (
     <Modal
-      title="New branch from ticket"
-      titleExtra={keys('⌘N')}
-      onClose={onClose}
-      onSubmit={create}
+      title={mode === 'create' ? 'New ticket and branch' : 'New branch from ticket'}
+      titleExtra={
+        mode === 'create' ? (
+          <span className="nt-steps">
+            <span className={ticketStep ? 'now' : 'done'}>{ticketStep ? '1' : '✓'} Ticket</span>
+            <span className="nt-step-sep">›</span>
+            <span className={ticketStep ? '' : 'now'}>2 Branch</span>
+          </span>
+        ) : (
+          keys('⌘N')
+        )
+      }
+      onClose={close}
+      onSubmit={ticketStep ? () => submitTicket.current() : create}
       wide
       pending={!ready}
       footer={
+        ticketStep ? (
+          <>
+            <span className="spacer" />
+            <button className="btn" onClick={close} disabled={ticketState.busy}>
+              Cancel
+            </button>
+            <button className="btn primary" onClick={() => submitTicket.current()} disabled={!ticketState.ready}>
+              {ticketState.busy ? 'Creating…' : 'Create ticket →'}
+            </button>
+          </>
+        ) : (
         <>
           <label className="check nb-checkout">
             <input type="checkbox" checked={checkout} onChange={(e) => setCheckout(e.target.checked)} />
@@ -206,8 +263,36 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
             Create branch
           </button>
         </>
+        )
       }
     >
+      {!created && (
+        <div className="segmented nt-mode" role="tablist">
+          <button className={mode === 'existing' ? 'on' : ''} onClick={() => setMode('existing')}>
+            Use an existing ticket
+          </button>
+          <button
+            className={mode === 'create' ? 'on' : ''}
+            disabled={!hasAccount}
+            title={hasAccount ? undefined : 'Connect your Atlassian account in Settings → Accounts to create tickets'}
+            onClick={() => setMode('create')}
+          >
+            Create a new ticket
+          </button>
+        </div>
+      )}
+      {ticketStep ? (
+        <NewTicketForm site={s.jiraSite} submit={submitTicket} onState={onTicketState} onCreated={ticketMade} />
+      ) : (
+      <>
+      {created ? (
+        <div className="hint nb-ticket nt-created">
+          <b className="nb-key">✓ Created {created.key}</b> · “{created.summary}”{' '}
+          <button className="link-btn" onClick={() => window.spoon.openExternal(created.url)}>
+            Open in Jira
+          </button>
+        </div>
+      ) : (
       <div className="field">
         <span className="field-label">Jira ticket</span>
         <input
@@ -231,6 +316,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
           </span>
         )}
       </div>
+      )}
 
       <div className="field">
         <span className="field-label">Branch</span>
@@ -330,6 +416,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
           </span>
         )}
       </div>
+      </>
+      )}
     </Modal>
   )
 }

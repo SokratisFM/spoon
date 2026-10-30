@@ -103,7 +103,9 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
     )
 
   // Until this commit's details are in, ⌘E has nothing to open (never the previous commit's file).
-  if (!hash || error || !details) openShown.current = null
+  // Details still of the previous commit (shown while the new ones load) give ⌘E nothing to open.
+  const stale = !!details && details.hash !== hash
+  if (!hash || error || !details || stale) openShown.current = null
   if (!hash) return <div className="empty-state muted">Select a commit.</div>
   if (error) return <div className="empty-state error-text">{error}</div>
   if (!details) return <div className="panel" />
@@ -111,7 +113,7 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
   // The same file stays selected when moving between commits that both touch it; worked out here, so
   // the diff never asks for the previous commit's file in the new commit.
   const shown = details.files.find((f) => f.path === file?.path) ?? details.files[0] ?? null
-  openShown.current = shown
+  openShown.current = shown && !stale
     ? () =>
         openFileEditor({
           repo: path,

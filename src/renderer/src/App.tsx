@@ -14,7 +14,7 @@ import { ProjectPalette } from './components/ProjectPalette'
 import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, NewBranchIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
 import { choose, confirm, DialogHost } from './dialogs'
 import { unsavedEdits } from './components/FileEditor'
-import { forgetProject, projectName, rememberProject, useProjects } from './projects'
+import { forgetProject, projectClosed, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
 import { useAppInfo, useUpdateState } from './appinfo'
 import { closeMenu, contextMenu, MenuHost } from './menus'
@@ -189,6 +189,7 @@ export function App() {
     (path: string) => {
       const textId = compareTextId(path)
       if (textId) forgetText(textId, (k) => storage.removeItem(k))
+      else if (!compareFiles(path)) projectClosed(path)
       setTabs((t) => {
         const i = t.indexOf(path)
         const next = t.filter((p) => p !== path)
@@ -299,6 +300,7 @@ export function App() {
     for (const p of paths) {
       const id = compareTextId(p)
       if (id) forgetText(id, (k) => storage.removeItem(k))
+      else if (!compareFiles(p)) projectClosed(p)
     }
     const keep = tabs.filter((p) => !paths.includes(p))
     setTabs(keep)
@@ -600,6 +602,12 @@ export function App() {
     [settings.uiScale, pickRepo]
   )
 
+  // Spoon's old temporary files go once at start, except ones a compare tab still shows.
+  useEffect(() => {
+    void window.spoon.cleanTemp(tabs.flatMap((t) => compareFiles(t) ?? [])).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Background work (Unity exports) reports failures here, whichever tab is showing.
   useEffect(() => {
     const on = (e: Event): void => setToast((e as CustomEvent<string>).detail)
@@ -621,7 +629,7 @@ export function App() {
         confirmLabel: 'Don’t Save',
         risky: true
       }).then((ok) => {
-        if (!ok) return
+        if (!ok) return window.spoon.quitCancelled()
         leaving = true
         window.spoon.closeWindow(true)
       })

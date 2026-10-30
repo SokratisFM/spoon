@@ -16,7 +16,7 @@ import * as thumbnails from './thumbnails'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { ClaudeLaunch, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { ClaudeLaunch, JiraNewIssue, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -242,6 +242,8 @@ function registerIpc(): void {
   ipcMain.handle('atlassian:connect', (_e, email: string, token: string, pageUrl: string) =>
     atlassian.connect(email, token, pageUrl)
   )
+  ipcMain.handle('atlassian:updateToken', (_e, token: string, pageUrl: string) => atlassian.updateToken(token, pageUrl))
+  ipcMain.handle('atlassian:setJiraToken', (_e, token: string | null, site: string) => atlassian.setJiraToken(token, site))
   ipcMain.handle('atlassian:disconnect', () => atlassian.disconnect())
   ipcMain.handle('atlassian:page', (_e, url: string) => atlassian.page(url))
   // Calls about files in a repository name it by its folder: that has to be a repository (the top of
@@ -272,7 +274,10 @@ function registerIpc(): void {
   handleRepo('unity:findExports', (_e, path: string) => unityExports.findExports(path))
   handleRepo('unity:scanExports', (_e, path: string, dirs: string[]) => unityExports.scanExports(path, dirs))
   const exportOwners = new Set<number>()
-  handleRepo('unity:watchExports', (e, path: string, dirs: string[]) => {
+  ipcMain.handle('app:cleanTemp', (_e, keep: string[]) => git.cleanTempFolders(Array.isArray(keep) ? keep : []))
+  // Not handleRepo: stopping has to work for a repository that's gone too.
+  ipcMain.handle('unity:watchExports', (e, path: string, dirs: string[]) => {
+    if (dirs.length) git.assertRepoRoot(path)
     const owner = e.sender.id
     if (!exportOwners.has(owner)) {
       exportOwners.add(owner)
@@ -288,10 +293,16 @@ function registerIpc(): void {
   handleRepo('unity:bringBack', (_e, path: string, items: unityExports.BringBackItem[]) => unityExports.bringBack(path, items))
   handleRepo('unity:newFiles', (_e, path: string, dirs: string[]) => unityExports.newExportFiles(path, dirs))
   handleRepo('unity:add', (_e, path: string, exp: string, folder: string) => unityExports.addToSource(path, exp, folder))
-  handleRepo('unity:relink', (_e, path: string, exp: string, src: string, force: boolean) =>
-    unityExports.relink(path, exp, src, force)
+  handleRepo('unity:relink', (_e, path: string, items: { exp: string; src: string }[], force: boolean) =>
+    unityExports.relink(path, items, force)
   )
   ipcMain.handle('atlassian:jiraIssue', (_e, site: string, key: string) => atlassian.jiraIssue(site, key))
+  ipcMain.handle('atlassian:jiraProjects', (_e, site: string) => atlassian.jiraProjects(site))
+  ipcMain.handle('atlassian:jiraProjectMeta', (_e, site: string, project: string) => atlassian.jiraProjectMeta(site, project))
+  ipcMain.handle('atlassian:jiraRequiredFields', (_e, site: string, project: string, typeId: string) =>
+    atlassian.jiraRequiredFields(site, project, typeId)
+  )
+  ipcMain.handle('atlassian:jiraCreate', (_e, site: string, issue: JiraNewIssue) => atlassian.jiraCreate(site, issue))
   ipcMain.handle('clipboard:readText', () => clipboard.readText())
   ipcMain.handle('mainlib:state', (_e, path: string, sub: string, prefix: string) => git.mainlibState(path, sub, prefix))
   ipcMain.handle('mainlib:switch', (_e, path: string, sub: string, ref: string) => git.mainlibSwitch(path, sub, ref))
@@ -388,12 +399,14 @@ function registerIpc(): void {
     if (item) item.visible = visible
   })
   // A quit that a window held up (unsaved edits in the file popup) goes on once that window closes.
-  let quitAskedAt = 0
-  app.on('before-quit', () => (quitAskedAt = Date.now()))
+  // Set by a quit, until a window holding it up says the person chose to stay.
+  let quitPending = false
+  app.on('before-quit', () => (quitPending = true))
+  ipcMain.on('ui:quitCancelled', () => (quitPending = false))
   ipcMain.on('ui:closeWindow', (e, afterUnsaved?: boolean) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) return
-    const resumeQuit = !!afterUnsaved && Date.now() - quitAskedAt < 120_000
+    const resumeQuit = !!afterUnsaved && quitPending
     if (resumeQuit) win.once('closed', () => app.quit())
     win.close()
   })
@@ -418,7 +431,6 @@ app.whenReady().then(() => {
   initUpdater()
   registerIpc()
   createWindow()
-  void git.cleanTempFolders()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

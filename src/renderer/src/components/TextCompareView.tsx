@@ -82,7 +82,7 @@ export function TextCompareView({ id }: { id: string }) {
   // …and right away when the tab closes or Spoon quits, so the last edit isn't lost.
   const latest = useRef(sides)
   latest.current = sides
-  useEffect(() => setLiveText(id, JSON.stringify(sides)), [id, sides])
+  useEffect(() => setLiveText(id, sides), [id, sides])
   useEffect(() => () => setLiveText(id, null), [id])
   useEffect(() => {
     const save = (): void => void (!textClosed(id) && storage.setItem(textKey(id), JSON.stringify(latest.current)))

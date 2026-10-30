@@ -7796,3 +7796,63 @@ kbd.setting-key {
   display: block;
   margin-top: 0.4rem;
 }
+
+/* New ticket (the first step of New branch) */
+.nt-mode {
+  align-self: flex-start;
+  margin-bottom: 0.4rem;
+}
+.nt-steps {
+  display: inline-flex;
+  gap: 0.4rem;
+  font-size: 0.9em;
+  color: var(--text-faint);
+}
+.nt-steps .now {
+  color: var(--text);
+  font-weight: 600;
+}
+.nt-steps .done {
+  color: var(--add);
+}
+.nt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.nt-row {
+  display: flex;
+  gap: 0.8rem;
+}
+.nt-col {
+  flex: 1;
+  min-width: 0;
+}
+.nt-types {
+  display: flex;
+  gap: 0.35rem;
+}
+.nt-type {
+  padding: 0.2rem 0.75rem;
+  font-size: 0.9em;
+}
+.nt-description,
+.nb-template {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+.nb-template {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+}
+.nt-error {
+  white-space: pre-wrap;
+  margin-bottom: 0.3rem;
+}
+.nt-created {
+  margin-bottom: 0.6rem;
+}
+.nt-mode button {
+  white-space: nowrap;
+}

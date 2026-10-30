@@ -6,7 +6,7 @@
 // source (what Unity's "Symlink Sources" build setting does at export time).
 import { existsSync, readFileSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { constants as fsConstants } from 'node:fs'
-import { chmod, copyFile, lstat, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, lstat, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { createHash, randomBytes } from 'node:crypto'
 import { app, shell } from 'electron'
 import * as git from './git'
@@ -129,11 +129,28 @@ interface Source {
 }
 
 /** Native code files in Assets/ and local packages (inside .androidlib folders too). */
-async function sourceIndex(root: string): Promise<Source[]> {
+// Walking Assets takes a while in a big project: a walk is reused for a few seconds (a scan and
+// the bring-backs or links right after it).
+const indexCache = new Map<string, { at: number; index: Promise<Source[]> }>()
+function sourceIndex(root: string): Promise<Source[]> {
+  const hit = indexCache.get(root)
+  if (hit && Date.now() - hit.at < 5000) return hit.index
+  const index = walkSources(root)
+  indexCache.set(root, { at: Date.now(), index })
+  index.catch(() => indexCache.delete(root))
+  return index
+}
+
+async function walkSources(root: string): Promise<Source[]> {
   const out: Source[] = []
+  // A file reached twice (a package inside Assets, a package listed twice) is one source.
+  const seen = new Set<string>()
   for (const r of await sourceRoots(root)) {
     for (const rel of await walk(r.abs, (x) => NATIVE.has(extname(x).toLowerCase()), SOURCE_SKIP)) {
       const abs = join(r.abs, rel)
+      const real = await realpath(abs).catch(() => abs)
+      if (seen.has(real)) continue
+      seen.add(real)
       const inRepo = toSlash(relative(root, abs))
       out.push({
         id: inRepo.startsWith('..') || isAbsolute(inRepo) ? toSlash(abs) : inRepo,
@@ -253,6 +270,13 @@ const RUN_SLACK = 120_000
 
 const hashOf = (data: Buffer): string => createHash('sha1').update(data).digest('hex')
 
+/** Where an export keeps the native files it got from Unity's plug-ins. */
+async function exportSubtrees(root: string, dir: string, platform: ExportPlatform): Promise<string[]> {
+  return platform === 'ios'
+    ? [`${dir}/Libraries`]
+    : [`${dir}/unityLibrary/src/main/java`, `${dir}/unityLibrary/src/main/kotlin`, ...(await androidLibs(root, dir))]
+}
+
 /** How each linked export's native files compare with their sources. */
 export async function scanExports(root: string, dirs: string[]): Promise<ExportLink[]> {
   const index = await sourceIndex(root)
@@ -278,9 +302,10 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
       try {
         const info = await lstat(e)
         if (info.isSymbolicLink()) {
-          // A link whose source is gone (moved, deleted, another branch) is broken, not linked.
-          const ok = await stat(e).then(() => true, () => false)
-          found.push({ ...where, state: ok ? 'linked' : 'dangling', exportMtime: 0, sourceMtime: 0 })
+          // Linked only when it leads to this very source; one that's gone, or that leads to another
+          // file, is broken.
+          const [to, want] = await Promise.all([realpath(e).catch(() => null), realpath(s).catch(() => null)])
+          found.push({ ...where, state: to && to === want ? 'linked' : 'dangling', exportMtime: 0, sourceMtime: 0 })
           continue
         }
         const [a, b, sInfo] = await Promise.all([readFile(e), readFile(s), stat(s)])
@@ -293,6 +318,29 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
         }
       } catch {
         // gone while scanning (an export being rewritten): left out until the next scan
+      }
+    }
+    // Links whose source is gone don't pair with anything (pairs need the source): they're found by
+    // where they point, and counted as broken.
+    const paired = new Set(found.map((l) => l.export))
+    for (const sub of await exportSubtrees(root, dir, platform)) {
+      for (const r of await walk(join(root, sub), (x) => NATIVE.has(extname(x).toLowerCase()), sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)) {
+        const exp = `${sub}/${r}`
+        const e = join(root, exp)
+        if (paired.has(exp) || !(await lstat(e).catch(() => null))?.isSymbolicLink() || (await stat(e).then(() => true, () => false))) continue
+        const target = resolve(dirname(e), await readlink(e).catch(() => ''))
+        const inRepo = toSlash(relative(root, target))
+        found.push({
+          platform,
+          export: exp,
+          source: inRepo.startsWith('..') || isAbsolute(inRepo) ? toSlash(target) : inRepo,
+          sourcePath: toSlash(target),
+          sourceRepo: toSlash(repoOf(target)),
+          sourceTracked: false,
+          state: 'dangling',
+          exportMtime: 0,
+          sourceMtime: 0
+        })
       }
     }
     // Copies still as Unity's export run wrote them weren't edited, whatever their save time says.
@@ -413,11 +461,35 @@ export async function bringBack(root: string, items: BringBackItem[]): Promise<R
 async function replaceContents(file: string, data: Buffer): Promise<void> {
   const info = await lstat(file)
   if (info.isSymbolicLink()) return writeFile(file, data)
-  const tmp = join(dirname(file), `.${basename(file)}.spoon-${randomBytes(4).toString('hex')}`)
+  // Read-only on purpose (a locked file, a checked-out read-only plug-in): left alone.
+  if (!(info.mode & 0o200)) throw new Error(`${basename(file)} is read-only, so it wasn’t replaced.`)
+  // Hard-linked elsewhere: a new file would break the link, so it's written in place.
+  if (info.nlink > 1) return writeFile(file, data)
+  // Leftovers of an earlier attempt that was cut short.
+  const prefix = `.${basename(file)}.spoon-`
+  for (const n of await readdir(dirname(file)).catch(() => [] as string[]))
+    if (n.startsWith(prefix)) await rm(join(dirname(file), n), { force: true }).catch(() => undefined)
+  const tmp = join(dirname(file), `${prefix}${randomBytes(4).toString('hex')}`)
   try {
     await writeFile(tmp, data)
     await chmod(tmp, info.mode & 0o7777)
-    await rename(tmp, file)
+    // Windows refuses a rename over a file another program has open (EPERM/EBUSY): a few tries,
+    // then written in place.
+    for (let n = 0; ; n++) {
+      try {
+        await rename(tmp, file)
+        return
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if ((code !== 'EPERM' && code !== 'EBUSY') || n === 3) {
+          if (code === 'EPERM' || code === 'EBUSY') break
+          throw err
+        }
+        await new Promise((r) => setTimeout(r, 150))
+      }
+    }
+    await rm(tmp, { force: true })
+    await writeFile(file, data)
   } catch (err) {
     await rm(tmp, { force: true })
     throw err
@@ -428,21 +500,29 @@ async function replaceContents(file: string, data: Buffer): Promise<void> {
  * Replaces an export's copy with a link to its source, so later edits go straight to Assets/. A copy
  * that differs is only replaced with `force` (its edit is lost).
  */
-export async function relink(root: string, exp: string, src: string, force = false): Promise<void> {
-  const e = inside(root, exp)
-  const s = (await verifiedPairs(root, [{ exp, src }])).get(exp)!.abs
-  if ((await lstat(e)).isSymbolicLink()) return
-  const copy = await readFile(e)
-  if (!force && !copy.equals(await readFile(s)))
-    throw new Error(`${basename(exp)} differs from its source. Bring it back (or discard the export's edit) first.`)
-  await rm(e)
-  try {
-    await symlink(relative(dirname(e), s), e, 'file')
-  } catch (err) {
-    await writeFile(e, copy) // put the export's own copy back
-    throw process.platform === 'win32'
-      ? new Error('Windows only lets apps create links with Developer Mode on (Settings → System → For developers).')
-      : err
+export async function relink(root: string, items: { exp: string; src: string }[], force = false): Promise<void> {
+  // Links already there are skipped first; the rest are checked as pairs once, together.
+  const todo: { exp: string; src: string }[] = []
+  for (const it of items) if (!(await lstat(inside(root, it.exp))).isSymbolicLink()) todo.push(it)
+  if (!todo.length) return
+  const verified = await verifiedPairs(root, todo)
+  for (const { exp } of todo) {
+    const e = inside(root, exp)
+    const s = verified.get(exp)!.abs
+    if (!force && !(await readFile(e)).equals(await readFile(s)))
+      throw new Error(`${basename(exp)} differs from its source. Bring it back (or discard the export's edit) first.`)
+    // The link is made next to the copy and renamed over it: if that fails, the copy is untouched
+    // (its contents and its save time, which tell Spoon whether it was edited).
+    const tmp = join(dirname(e), `.${basename(e)}.spoon-link-${randomBytes(4).toString('hex')}`)
+    try {
+      await symlink(relative(dirname(e), s), tmp, 'file')
+      await rename(tmp, e)
+    } catch (err) {
+      await rm(tmp, { force: true })
+      throw process.platform === 'win32'
+        ? new Error('Windows only lets apps create links with Developer Mode on (Settings → System → For developers).')
+        : err
+    }
   }
 }
 
@@ -544,10 +624,7 @@ export async function newExportFiles(root: string, dirs: string[]): Promise<Expo
       m.set(dirname(p.src.abs), (m.get(dirname(p.src.abs)) ?? 0) + 1)
       near.set(dirname(p.exp), m)
     }
-    const subtrees =
-      platform === 'ios'
-        ? [`${dir}/Libraries`]
-        : [`${dir}/unityLibrary/src/main/java`, `${dir}/unityLibrary/src/main/kotlin`, ...(await androidLibs(root, dir))]
+    const subtrees = await exportSubtrees(root, dir, platform)
     const files: { exp: string; born: number; saved: number }[] = []
     for (const sub of subtrees) {
       for (const r of await walk(join(root, sub), (x) => NATIVE.has(extname(x).toLowerCase()), sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)) {

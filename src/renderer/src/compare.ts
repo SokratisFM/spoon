@@ -46,9 +46,13 @@ export function unforgetText(id: string, text: string | null, save: (key: string
 
 // What each open Text compare tab holds right now (it's saved a moment after typing pauses): closing
 // a tab keeps what was typed last, for ⌘Z.
-const live = new Map<string, string>()
-export const liveText = (id: string): string | null => live.get(id) ?? null
-export const setLiveText = (id: string, text: string | null): void => void (text === null ? live.delete(id) : live.set(id, text))
+// Kept as the sides themselves (turned into text only when a tab closes, not on every key).
+const live = new Map<string, TextSides>()
+export const liveText = (id: string): string | null => {
+  const sides = live.get(id)
+  return sides ? JSON.stringify(sides) : null
+}
+export const setLiveText = (id: string, sides: TextSides | null): void => void (sides === null ? live.delete(id) : live.set(id, sides))
 
 /** The id of a Text compare tab, or null for any other tab. */
 export const compareTextId = (tab: string): string | null => (tab.startsWith(COMPARE_TEXT) ? tab.slice(COMPARE_TEXT.length) : null)

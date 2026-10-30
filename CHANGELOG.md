@@ -4,6 +4,19 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.38.3 — 2026-10-30
+
+- **New:** Create the Jira ticket and its branch in one go: in New branch (`⌘N`), pick "Create a new ticket", fill in the project, type (Task, Bug or Defect), title, description (Markdown) and fix version, then the branch is made for the new ticket (a bug or defect makes it a "fix"). Defaults for each live in Settings → Accounts → New tickets. If a ticket type needs fields Spoon can't set, it says so before you create it.
+- **Fixed:** When your Atlassian token can't use Jira (one made for Confluence only), Spoon now says so and how to fix it, instead of quietly finding nothing.
+- **New:** Settings → Accounts → Atlassian account: Update token replaces the token without disconnecting, and says what the new one can do (the changelog page, Jira, or both). The link for making a token is always there. With tokens that have scopes (each covers one app), add a separate Jira token there: Confluence keeps the first one, Jira uses its own.
+- **Fixed:** A ticket description with certain pasted characters (from Slack or the web) could freeze Spoon; a code block with only empty lines, and words with underscores or asterisks (Load_Scene_Async, 2*3*4), now come out right in Jira.
+- **Fixed:** Updating the Atlassian token can no longer replace a working Confluence token with a wrong one, a token is only ever sent over https, and a new token takes effect without restarting.
+- **Fixed:** New ticket: switching project no longer keeps the last project's type or fix version, required fields left empty are pointed out, the popup can't be closed while the ticket is being created, and the branch uses the new ticket as made (no lookup). Branch names drop fixed text next to an empty part, and project keys with underscores work.
+- **Fixed:** Simple Mode's background check for team saves no longer breaks Get latest, prunes branches or touches submodules.
+- **Fixed:** Removing a project that's open in a tab keeps its Simple Mode setup and linked exports until the tab closes; removing a PIN-locked one asks for the PIN.
+- **Fixed:** Unity exports: links whose source was deleted or moved show as broken; Relink links many files in one go; a read-only source is never overwritten (and a hard-linked one is written in place); a failed relink leaves the copy exactly as it was; automatic failures stay shown until dismissed.
+- **Fixed:** Quitting after "Don't Save" only goes on when you were quitting; temporary files a compare tab shows are kept; the description template is saved when Settings closes right after typing.
+
 ## 0.37.5 — 2026-10-30
 
 - **Improved:** New branch from ticket: every part of the name is optional. Leave one empty (say, no ticket) and it's left out, slash and all. The type choices (feature, fix) sit under their box, so the boxes stay one line tall; click the chosen one again to leave the type out.

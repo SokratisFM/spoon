@@ -3,6 +3,7 @@
 // Simple Mode; the title bar's Simple/Full switch flips between it and the full view.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { readStored } from './hooks'
+import { setForgetGuard } from './projects'
 import * as storage from './storage'
 import { Modal } from './components/Modal'
 
@@ -85,6 +86,15 @@ export function setSimpleConfig(path: string, patch: Partial<SimpleConfig> | nul
   }
   listeners.forEach((l) => l())
 }
+
+// Removing a project with a PIN-locked Simple Mode asks for the PIN (it takes the setup with it).
+setForgetGuard(async (paths) => {
+  for (const p of paths) {
+    const c = simpleConfig(p)
+    if (c?.pin && !(await askPin(c, `Enter the PIN to remove ${p.split('/').pop()} from Spoon.`))) return false
+  }
+  return true
+})
 
 // A project removed from Spoon takes its Simple Mode setup (and what was being typed) with it.
 window.addEventListener('spoon:project-forgotten', (e) => {

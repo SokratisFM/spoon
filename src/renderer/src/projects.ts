@@ -37,16 +37,33 @@ export function rememberProject(path: string): void {
   save([{ path, lastOpened: Date.now() }, ...projects.filter((p) => p.path !== path)])
 }
 
-// A removed project's other settings (Simple Mode, Unity exports) are dropped by their own modules.
-const forgotten = (paths: string[]): void =>
-  paths.forEach((path) => window.dispatchEvent(new CustomEvent<string>('spoon:project-forgotten', { detail: path })))
+// A removed project's other settings (Simple Mode, Unity exports) are dropped by their own modules,
+// but not while it's open in a tab (it still uses them): then once that tab closes.
+const dropData = (path: string): void => void window.dispatchEvent(new CustomEvent<string>('spoon:project-forgotten', { detail: path }))
+const forgotten = (paths: string[]): void => {
+  const open = readStored<string[]>('spoon.tabs', [])
+  paths.filter((p) => !open.includes(p)).forEach(dropData)
+}
 
-export function forgetProject(path: string): void {
+/** A tab closed: a project already removed from the list loses its other settings now. */
+export function projectClosed(path: string): void {
+  if (!projects.some((p) => p.path === path)) dropData(path)
+}
+
+// Asked before removing projects (Simple Mode's PIN); false keeps them.
+let guard: ((paths: string[]) => Promise<boolean>) | null = null
+export function setForgetGuard(fn: (paths: string[]) => Promise<boolean>): void {
+  guard = fn
+}
+
+export async function forgetProject(path: string): Promise<void> {
+  if (guard && !(await guard([path]))) return
   save(projects.filter((p) => p.path !== path))
   forgotten([path])
 }
 
-export function forgetProjects(paths: string[]): void {
+export async function forgetProjects(paths: string[]): Promise<void> {
+  if (guard && !(await guard(paths))) return
   const drop = new Set(paths)
   save(projects.filter((p) => !drop.has(p.path)))
   forgotten(paths)
