@@ -1,6 +1,8 @@
 // Sidebar "Exports" section for Unity repositories: native files in exported Android/iOS projects
-// whose copy differs from their source under Assets/, with Bring Back (export → Assets) and Relink
-// (replace the copy with a link to Assets). Turned on per repository with "Link exports…".
+// whose copy differs from their source (under Assets/ or in a local package), with Bring Back
+// (export → source) and Relink (replace the copy with a link to the source). Turned on per
+// repository with "Link exports…". Sources in a submodule or a package's own repository change that
+// repository, so the section offers a button to open it when they have changes.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ExportCandidate, ExportLink, RepoState } from '../../../shared/types'
 import { usePersistentState } from '../hooks'
@@ -8,6 +10,8 @@ import { confirm } from '../dialogs'
 import { contextMenu } from '../menus'
 import { requestCompare } from '../compare'
 import { revealLabel } from '../platform'
+import { setExportSources } from '../exportMarks'
+import { ChildIcon } from './Icons'
 import { Modal } from './Modal'
 import { openFileEditor } from './FileEditor'
 import type { Ops } from './RepoView'
@@ -22,9 +26,10 @@ interface Props {
   ops: Ops
   section: Section
   query: string
+  onOpenRepo: (path: string) => void
 }
 
-export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
+export function UnityExports({ repo, ops, section, query, onOpenRepo }: Props): ReactNode {
   const path = repo.path
   const [unity, setUnity] = useState(false)
   const [dirs, setDirs] = usePersistentState<string[] | null>(`spoon.exports.${path}`, null)
@@ -36,9 +41,8 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
   // Sources Spoon brought back, by their save time then: still that time = not edited in Assets since.
   const [wrote, setWrote] = usePersistentState<Record<string, number>>(`spoon.exports.wrote.${path}`, {})
   const [links, setLinks] = useState<ExportLink[] | null>(null)
-  // Sources under Assets with uncommitted changes: an export edit never overwrites those by itself.
+  // Sources with uncommitted changes (by absolute path): an export edit never overwrites those by itself.
   const [dirty, setDirty] = useState<Set<string>>(new Set())
-  const [recent, setRecent] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
   const applying = useRef(false)
@@ -54,24 +58,21 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
     if (!dirs?.length) return setLinks(null)
     try {
       const found = await window.spoon.scanExports(path, dirs)
-      // The repository's status leaves out changes inside submodules (Assets/MainLib…), so sources in
-      // a submodule are checked against that submodule's own status.
-      const trees = [{ prefix: '', dir: path }]
-      for (const sm of repo.submodules)
-        if (found.some((l) => l.source.startsWith(`${sm.path}/`))) trees.push({ prefix: `${sm.path}/`, dir: `${path}/${sm.path}` })
+      // The repository's status leaves out changes inside submodules (Assets/MainLib…), and a local
+      // package can be a repository of its own: each source is checked against its own repository.
       const changed = new Set<string>()
-      for (const t of trees) {
-        const tree = await window.spoon.workingTree(t.dir).catch(() => ({ staged: [], unstaged: [] }))
-        for (const f of [...tree.staged, ...tree.unstaged]) changed.add(t.prefix + f.path)
+      for (const dir of new Set(found.map((l) => l.sourceRepo))) {
+        const tree = await window.spoon.workingTree(dir).catch(() => ({ staged: [], unstaged: [] }))
+        for (const f of [...tree.staged, ...tree.unstaged]) changed.add(`${dir}/${f.path}`)
       }
       setDirty(changed)
       setLinks(found)
+      setExportSources(path, Object.fromEntries(found.map((l) => [l.sourcePath, l.export])))
       setError(null)
     } catch (err) {
       setError(String((err as Error).message ?? err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, dirs, repo.submodules.map((sm) => sm.path).join('\n')])
+  }, [path, dirs])
   // Again after every refresh of the repository (a commit, a checkout), on coming back to the window,
   // and whenever a native file in a linked export is saved (they're watched).
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -106,10 +107,8 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
       },
       'Bring back failed'
     ).then((ok) => {
-      if (ok) {
-        markHandled(list)
-        setRecent((r) => [...new Set([...list.map((l) => l.source), ...r])].slice(0, 6))
-      } else if (auto) for (const l of list) failed.current[l.export] = l.exportMtime
+      if (ok) markHandled(list)
+      else if (auto) for (const l of list) failed.current[l.export] = l.exportMtime
       scan()
       return ok
     })
@@ -118,7 +117,7 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
   const edited = (links ?? []).filter((l) => l.state === 'export-newer' && handled[l.export] !== l.exportMtime)
 
   // Uncommitted changes in Assets that only Spoon made don't count: those are earlier bring-backs.
-  const yours = (l: ExportLink): boolean => dirty.has(l.source) && wrote[l.source] !== l.sourceMtime
+  const yours = (l: ExportLink): boolean => dirty.has(l.sourcePath) && wrote[l.source] !== l.sourceMtime
 
   useEffect(() => {
     if (!auto || applying.current) return
@@ -137,12 +136,12 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
 
   if (!unity) return null
 
-  const abs = (rel: string): string => `${path}/${rel}`
-  // Sources inside a submodule (Assets/MainLib…) change that submodule: the parent's Local Changes
-  // only lists the submodule itself.
-  const subOf = (src: string): string | null => repo.submodules.find((sm) => src.startsWith(`${sm.path}/`))?.name ?? null
-  const recentSubs = [...new Set(recent.map(subOf).filter((x): x is string => !!x))]
-  const linkedSubs = [...new Set((links ?? []).filter((l) => l.state === 'linked').map((l) => subOf(l.source)).filter((x): x is string => !!x))]
+  const abs = (rel: string): string => (rel.startsWith('/') ? rel : `${path}/${rel}`)
+  // Changed sources in other repositories (a submodule such as Assets/MainLib, a local package): this
+  // repository's Local Changes doesn't list them, so each gets a button that opens it.
+  const elsewhere = new Map<string, number>()
+  for (const l of links ?? []) if (l.sourceRepo !== path && dirty.has(l.sourcePath)) elsewhere.set(l.sourceRepo, (elsewhere.get(l.sourceRepo) ?? 0) + 1)
+  const repoLabel = (dir: string): string => repo.submodules.find((sm) => `${path}/${sm.path}` === dir)?.name ?? dir.split('/').pop() ?? dir
   const q = query.trim().toLowerCase()
   const shown = edited.filter((l) => !q || l.export.toLowerCase().includes(q))
   const copies = (links ?? []).filter((l) => l.state === 'same')
@@ -154,7 +153,7 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
     if (both.length) {
       const ok = await confirm({
         message: `Replace your uncommitted changes to ${both.length === 1 ? fileName(both[0].source) : `${both.length} files`}?`,
-        detail: `${both.map((l) => l.source).join('\n')}\n\n${both.length === 1 ? 'It has' : 'They have'} changes in Assets that aren’t committed. Bringing the export’s version back replaces them; commit or stash them first to keep them.`,
+        detail: `${both.map((l) => l.source).join('\n')}\n\n${both.length === 1 ? 'It has' : 'They have'} uncommitted changes in the source. Bringing the export’s version back replaces them; commit or stash them first to keep them.`,
         confirmLabel: 'Bring Back',
         risky: true,
         enterConfirms: true
@@ -187,19 +186,20 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
   const menu = async (e: React.MouseEvent, l: ExportLink): Promise<void> => {
     e.preventDefault()
     const choice = await contextMenu([
-      { id: 'compare', label: 'Compare Assets with Export' },
-      { id: 'edit-src', label: 'Open Assets File in Spoon…' },
+      { id: 'compare', label: 'Compare Source with Export' },
+      ...(l.sourceRepo === path ? [{ id: 'edit-src', label: 'Open Source File in Spoon…' }] : [{ id: 'open-repo', label: `Open ${repoLabel(l.sourceRepo)}` }]),
       { id: 'edit-exp', label: 'Open Export Copy in Spoon…' },
       { separator: true },
-      { id: 'back', label: 'Bring Back to Assets' },
-      { id: 'ignore', label: 'Leave Assets as It Is' },
+      { id: 'back', label: 'Bring Back to Source' },
+      { id: 'ignore', label: 'Leave Source as It Is' },
       { id: 'relink', label: 'Replace Export Copy with a Link…' },
       { separator: true },
-      { id: 'reveal-src', label: `${revealLabel}: Assets` },
+      { id: 'reveal-src', label: `${revealLabel}: Source` },
       { id: 'reveal-exp', label: `${revealLabel}: Export` }
     ])
     if (choice === 'compare') requestCompare(abs(l.source), abs(l.export))
     else if (choice === 'edit-src') openFileEditor({ repo: path, file: l.source })
+    else if (choice === 'open-repo') onOpenRepo(l.sourceRepo)
     else if (choice === 'edit-exp') openFileEditor({ repo: path, file: l.export })
     else if (choice === 'back') bringBack([l])
     else if (choice === 'ignore') markHandled([l])
@@ -223,15 +223,18 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
     body = (
       <div className="exports">
         {error && <div className="side-empty error-text">{error}</div>}
-        {links && shown.length === 0 && recent.length === 0 && <div className="side-empty">No edits in the exports.</div>}
-        {recent.length > 0 && (
-          <div className="side-empty">
-            Brought back: {recent.map(fileName).join(', ')}.{' '}
-            {recentSubs.length
-              ? `They’re in Local Changes${recentSubs.length < recent.length ? ', or' : ''} in the ${recentSubs.join(', ')} submodule${recentSubs.length === 1 ? '' : 's'} (open it from Submodules).`
-              : 'They’re in Local Changes.'}
-          </div>
-        )}
+        {links && shown.length === 0 && elsewhere.size === 0 && <div className="side-empty">No edits in the exports.</div>}
+        {[...elsewhere].map(([dir, n]) => (
+          <button
+            key={dir}
+            className="btn export-repo-btn"
+            title={`${n} native ${n === 1 ? 'file the exports use has' : 'files the exports use have'} changes in ${dir}. Open it to commit them.`}
+            onClick={() => onOpenRepo(dir)}
+          >
+            <ChildIcon /> Native changes in {repoLabel(dir)}
+            <span className="badge accent">{n}</span>
+          </button>
+        ))}
         {shown.map((l) => (
           <div
             key={l.export}
@@ -266,27 +269,21 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
               <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
               Bring edits back by themselves
             </label>
-            {copies.length + linkedCount} exported files match Assets ({linkedCount} linked)
-            {outdated > 0 && `, ${outdated} out of date (changed in Assets since the export)`}.
-            {copies.length > 0 && linkedCount === 0 && (
-              <> Turn on Symlink Sources in Unity’s build settings and exports link back by themselves.</>
-            )}
-            {linkedSubs.length > 0 && (
-              <>
-                {' '}
-                Edits to linked files in {linkedSubs.join(', ')} show up in {linkedSubs.length === 1 ? 'that submodule' : 'those submodules'}, not
-                here.
-              </>
-            )}{' '}
+            <span
+              className="exports-counts"
+              title={`${copies.length + linkedCount} exported files match their source (${linkedCount} linked)${outdated ? `, ${outdated} out of date (changed in the source since the export)` : ''}.${copies.length > 0 && linkedCount === 0 ? ' Turn on Symlink Sources in Unity’s build settings and exports link back by themselves.' : ''}`}
+            >
+              {linkedCount} linked · {copies.length} copies{outdated > 0 ? ` · ${outdated} out of date` : ''}
+            </span>
             {copies.length > 0 && (
               <button
                 className="link-btn"
-                title="Replace the copies that match Assets with links to it"
+                title="Replace the copies that match their source with links to it"
                 onClick={async () => {
                   const ok = await confirm({
-                    message: `Link ${copies.length} exported file${copies.length === 1 ? '' : 's'} to Assets?`,
+                    message: `Link ${copies.length} exported file${copies.length === 1 ? '' : 's'} to their sources?`,
                     detail:
-                      'Each copy that matches its source in Assets becomes a link to it, so edits in Android Studio or Xcode go straight into the repository. A new export from Unity replaces them again unless Symlink Sources is on.',
+                      'Each copy that matches its source becomes a link to it, so edits in Android Studio or Xcode go straight into the repository. A new export from Unity replaces them again unless Symlink Sources is on.',
                     confirmLabel: 'Relink',
                     enterConfirms: true
                   })
@@ -400,8 +397,8 @@ function LinkExportsDialog({
         </div>
       )}
       <p className="hint">
-        Matched by path (iOS Libraries/… ↔ Assets/…), by package and file name (Java, Kotlin) and by .androidlib folder.
-        Unity’s generated files have no source in Assets and are left out.
+        Matched by path (iOS Libraries/… ↔ Assets/… or a local package), by package and file name (Java, Kotlin) and
+        by .androidlib folder. Unity’s generated files have no source and are left out.
       </p>
     </Modal>
   )

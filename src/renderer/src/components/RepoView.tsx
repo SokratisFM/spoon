@@ -38,6 +38,9 @@ import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
 import { NewBranchDialog } from './NewBranchDialog'
 import { FileEditorHost, OPEN_SELECTED_FILE } from './FileEditor'
+import { SimpleView } from './SimpleView'
+import { askPin, setSimpleConfig, useSimpleConfig } from '../simpleMode'
+import type { SettingsTab } from './SettingsWindow'
 import { FOLD, groupOf, runAt, squishCommits } from '../squish'
 import type { Graph } from '../graph'
 
@@ -88,7 +91,7 @@ interface Props {
   path: string
   command: { name: MenuCommand; n: number } | null
   onOpenRepo: (path: string) => void
-  onOpenSettings: (tab: 'accounts') => void
+  onOpenSettings: (tab: SettingsTab) => void
 }
 
 /** Keeps the previous object when nothing changed, so memos and rows keyed on it don't recompute. */
@@ -107,6 +110,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [refreshN, setRefreshN] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = usePersistentState<View>(`spoon.view.${path}`, 'history')
+  const simple = useSimpleConfig(path)
+  const simpleOn = !!simple?.on
   const [selected, setSelected] = useState<string | null>(snap?.selected ?? null)
   const [scrollTo, setScrollTo] = useState<{ hash: string; n: number } | null>(null)
   const [filter, setFilter] = useState('')
@@ -480,6 +485,16 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     )
   }
 
+  // Simple Mode's Get latest: the team's saves under yours, with your unsaved changes kept aside meanwhile.
+  const getLatest = (): void =>
+    void netOp('pull', 'Pulling…', () => window.spoon.pull(path, { rebase: true, autostash: true }), 'Couldn’t get the team’s saves')
+  // Simple Mode looks for the team's new saves by itself, without errors when offline.
+  const fetchQuietly = async (): Promise<void> => {
+    if (!repoRef.current?.remotes.length || opStateOf(path).busy) return
+    await window.spoon.fetch(path, false).catch(() => undefined)
+    await load()
+  }
+
   const fetchAll = (): void => {
     // Prune, so branches whose remote was deleted show up as stale.
     netOp('fetch', 'Fetching…', () => window.spoon.fetch(path, true), 'Fetch failed')
@@ -491,6 +506,12 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   useEffect(() => {
     if (!command || command.n < mountedAt.current) return
     if (overlayOpen() && command.name !== 'refresh') return
+    // Simple Mode has no commit list, tags, branches or reviews; Pull and Push need no questions.
+    if (simpleOn) {
+      if (command.name === 'pull') return getLatest()
+      if (command.name === 'push') return ops.push()
+      if (['filter-commits', 'new-tag', 'new-branch', 'review', 'discard'].includes(command.name)) return
+    }
     if (command.name === 'filter-commits') {
       setView('history')
       filterInput.current?.focus()
@@ -654,6 +675,28 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
 
   return (
     <div className="repo">
+      {simple?.on ? (
+        <SimpleView
+          path={path}
+          repo={repo}
+          tree={tree}
+          commits={commits}
+          config={simple}
+          ops={ops}
+          busy={busy}
+          refreshN={refreshN}
+          commitRequest={commitRequest}
+          onCommitHandled={clearCommitRequest}
+          onGetLatest={getLatest}
+          onRefresh={manualRefresh}
+          onFetchQuietly={fetchQuietly}
+          onOpenSettings={() => onOpenSettings('simple')}
+          onFullView={async () => {
+            if (await askPin(simple, 'Enter the PIN to show the full view.')) setSimpleConfig(path, { on: false })
+          }}
+        />
+      ) : (
+      <>
       <div className="toolbar">
         <div className="toolbar-repo">
           <button
@@ -808,6 +851,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           selectedPr={selectedPr}
           onSelectPr={setSelectedPr}
           onDeleteBranch={setDeleting}
+          onOpenRepo={onOpenRepo}
         />
         {view === 'prs' ? (
           !account ? (
@@ -876,6 +920,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           </Split>
         )}
       </Split>
+      </>
+      )}
 
       {dialog === 'pull' && (
         <PullDialog

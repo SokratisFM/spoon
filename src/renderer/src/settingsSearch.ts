@@ -34,7 +34,11 @@ const RELATED: [string, string][] = [
   ['atlassian', 'confluence token jira account'],
   ['updates', 'version upgrade release install'],
   ['search for repositories', 'scan folder projects find'],
-  ['your projects', 'recent list forget remove']
+  ['your projects', 'recent list forget remove'],
+  ['simple mode', 'artist designer easy beginner non-technical basic'],
+  ['pin lock', 'password lock simple'],
+  ['only show files in', 'folder filter simple art'],
+  ['file types to show', 'extensions hide exclude filter meta images code simple']
 ]
 
 const label = (el: Element): string =>

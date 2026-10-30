@@ -46,7 +46,11 @@ export interface ExportCandidate {
 export interface ExportLink {
   platform: ExportPlatform
   export: string
+  /** Relative to the repository, or absolute for a local package outside it. */
   source: string
+  /** The source's absolute path, and the git repository it's in (this one, a submodule or a package's). */
+  sourcePath: string
+  sourceRepo: string
   /** linked: the export is a symlink to the source; else a copy, the same or with one side edited. */
   state: 'linked' | 'same' | 'export-newer' | 'source-newer'
   /** When the export's copy was last saved: an edit already brought back (or set aside) keeps its time. */
@@ -694,6 +698,10 @@ export interface SpoonApi {
   fileAtCommitToTemp(path: string, hash: string, rel: string): Promise<string>
   restoreFileFrom(path: string, hash: string, rel: string): Promise<void>
   openWithDefaultApp(path: string, rel: string): Promise<string>
+  /** A data URL preview of the working copy's file (or its version in a commit); null when there's none. */
+  fileThumbnail(path: string, rel: string, hash: string | null, size: number): Promise<string | null>
+  /** Opens a commit's version of a file in its default app; resolves to an error message, or "". */
+  openAtCommit(path: string, hash: string, rel: string): Promise<string>
   /** Unity projects: exported Android/iOS projects and their native files' sources under Assets/. */
   isUnityProject(path: string): Promise<boolean>
   findExports(path: string): Promise<ExportCandidate[]>

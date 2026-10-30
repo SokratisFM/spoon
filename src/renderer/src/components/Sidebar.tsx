@@ -44,6 +44,8 @@ interface Props {
   onSelectPr: (n: number) => void
   /** Asks to delete a local branch (Backspace on a selected branch, or its menu). */
   onDeleteBranch: (ref: Ref) => void
+  /** Opens another repository in a tab (a submodule or a package the Unity exports use). */
+  onOpenRepo: (path: string) => void
 }
 
 interface TreeNode {
@@ -387,7 +389,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           />
         ),
 
-    exports: <UnityExports repo={repo} ops={ops} section={section} query={query} />
+    exports: <UnityExports repo={repo} ops={ops} section={section} query={query} onOpenRepo={props.onOpenRepo} />
   }
 
   return (

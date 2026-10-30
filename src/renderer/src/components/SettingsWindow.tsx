@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { clearFilter, filterOptions, type SearchResult } from '../settingsSearch'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
@@ -11,6 +11,7 @@ import { CodeText } from './DiffView'
 import { contextMenu } from '../menus'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
 import { knownAuthors } from '../authors'
+import { askPin, setSimpleConfig, SIMPLE_DEFAULTS, TYPE_GROUPS, useSimpleConfig } from '../simpleMode'
 import {
   SIDEBAR_SECTIONS,
   activeTheme,
@@ -43,13 +44,14 @@ import { Modal } from './Modal'
 import { CloseIcon, PlusIcon, SearchIcon } from './Icons'
 import { keys } from '../platform'
 
-export type SettingsTab = 'appearance' | 'authors' | 'projects' | 'accounts' | 'about'
+export type SettingsTab = 'appearance' | 'authors' | 'projects' | 'simple' | 'accounts' | 'about'
 type Tab = SettingsTab
 
 const TABS: [Tab, string][] = [
   ['appearance', 'Appearance'],
   ['authors', 'Author colors'],
   ['projects', 'Projects'],
+  ['simple', 'Simple Mode'],
   ['accounts', 'Accounts'],
   ['about', 'About']
 ]
@@ -58,6 +60,7 @@ function TabPage({ tab }: { tab: Tab }) {
   if (tab === 'appearance') return <AppearanceTab />
   if (tab === 'authors') return <AuthorsTab />
   if (tab === 'projects') return <ProjectsTab />
+  if (tab === 'simple') return <SimpleModeTab />
   if (tab === 'accounts') return <AccountsTab />
   return <AboutTab />
 }
@@ -70,7 +73,10 @@ function once<T>(key: string, load: () => Promise<T>): Promise<T> {
   return lookups.get(key) as Promise<T>
 }
 
-export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose: () => void; initialTab?: Tab }) {
+/** The repository showing behind Settings (for per-project settings such as Simple Mode). */
+const ProjectContext = createContext<string | null>(null)
+
+export function SettingsWindow({ onClose, initialTab = 'appearance', project = null }: { onClose: () => void; initialTab?: Tab; project?: string | null }) {
   useState(() => {
     lookups = new Map() // fresh answers for this opening
     return null
@@ -168,6 +174,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
           )
         })}
       </div>
+      <ProjectContext.Provider value={project}>
       <div className={`settings-page ${searching ? 'search-results' : ''}`} ref={page}>
         {searching ? (
           <>
@@ -201,6 +208,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance' }: { onClose
           <TabPage tab={tab} />
         )}
       </div>
+      </ProjectContext.Provider>
       <PreviewCard />
     </Modal>
   )
@@ -1643,6 +1651,224 @@ function ProjectsTab() {
   )
 }
 
+// ---------- Simple Mode ----------
+
+function SimpleModeTab() {
+  const current = useContext(ProjectContext)
+  const projects = useProjects()
+  const [chosen, setChosen] = useState<string | null>(current ?? projects[0]?.path ?? null)
+  const config = useSimpleConfig(chosen)
+  const [branches, setBranches] = useState<{ list: string[]; head: string | null } | null>(null)
+  const [unlocked, setUnlocked] = useState(false)
+  const [folderError, setFolderError] = useState('')
+  const [pinDraft, setPinDraft] = useState('')
+  useEffect(() => {
+    setBranches(null)
+    setUnlocked(false)
+    setFolderError('')
+    if (!chosen) return
+    let live = true
+    window.spoon.openRepo(chosen).then(
+      (r) => live && setBranches({ list: r.refs.filter((x) => x.kind === 'head').map((x) => x.name), head: r.headBranch }),
+      () => live && setBranches({ list: [], head: null })
+    )
+    return () => {
+      live = false
+    }
+  }, [chosen])
+
+  if (!chosen) return <p className="muted">Open a project first: Simple Mode is set up per project.</p>
+  const locked = !!config?.pin && !unlocked
+  const set = (patch: Parameters<typeof setSimpleConfig>[1]): void => setSimpleConfig(chosen, patch)
+  const unlock = async (): Promise<boolean> => {
+    if (!locked) return true
+    const ok = await askPin(config, `Enter the PIN to change Simple Mode for ${projectName(chosen)}.`)
+    if (ok) setUnlocked(true)
+    return ok
+  }
+  const chooseFolder = async (): Promise<void> => {
+    const dir = await window.spoon.pickFolder('Only show files in this folder')
+    if (!dir) return
+    const root = chosen.replace(/\/$/, '') + '/'
+    if (dir !== chosen && !dir.startsWith(root)) return setFolderError('That folder isn’t inside this project.')
+    setFolderError('')
+    set({ folder: dir === chosen ? '' : dir.slice(root.length) })
+  }
+  const c = config ?? { ...SIMPLE_DEFAULTS, on: false }
+  const off = !config?.on || locked
+
+  return (
+    <>
+      <div className="field">
+        <span className="field-label">Simple Mode</span>
+        <span className="hint">
+          For people who don’t use git themselves, like artists: the project shows only the files they changed, with
+          previews, and walks them through saving and sharing them. No branches, history graph or diffs. Set up per
+          project; the Simple/Full switch in the title bar flips between the two.
+        </span>
+        <div className="form-row">
+          <span className="field-label">Project</span>
+          <select value={chosen} onChange={(e) => setChosen(e.target.value)}>
+            {projects.map((p) => (
+              <option key={p.path} value={p.path}>
+                {projectName(p.path)}
+                {p.path === current ? ' (open now)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={!!config?.on}
+            onChange={async (e) => {
+              const on = e.target.checked
+              if (!on && !(await unlock())) return
+              // Set up for the first time: it works on the branch that's checked out now.
+              set(config ? { on } : { on, branch: branches?.head ?? '' })
+            }}
+          />
+          Use Simple Mode for <b>{projectName(chosen)}</b>
+        </label>
+      </div>
+      {locked && config?.on && (
+        <div className="field">
+          <div className="form-row">
+            <span className="muted">These settings are locked with a PIN.</span>
+            <button className="btn" onClick={unlock}>
+              Unlock…
+            </button>
+          </div>
+        </div>
+      )}
+      <div className={`field ${off ? 'disabled-field' : ''}`}>
+        <div className="form-row">
+          <span className="field-label">Work on</span>
+          <select disabled={off} value={c.branch} onChange={(e) => set({ branch: e.target.value })}>
+            <option value="">Whichever branch is checked out</option>
+            {[...new Set([...(branches?.list ?? []), ...(c.branch ? [c.branch] : [])])].map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        </div>
+        <span className="hint">Other branches are never shown. When the project is on a different one, Simple Mode offers to switch back.</span>
+      </div>
+      <div className={`field ${off ? 'disabled-field' : ''}`}>
+        <div className="form-row">
+          <span className="field-label">Show changed files as</span>
+          <Segmented
+            value={c.view}
+            options={[
+              ['previews', 'Previews'],
+              ['list', 'List']
+            ]}
+            onChange={(view) => !off && set({ view })}
+          />
+        </div>
+      </div>
+      <div className={`field ${off ? 'disabled-field' : ''}`}>
+        <span className="field-label">Only show files in</span>
+        <div className="form-row">
+          <SettingInput
+            className="mono"
+            disabled={off}
+            value={c.folder}
+            placeholder="The whole project"
+            spellCheck={false}
+            onCommit={(v) => set({ folder: v.trim().replace(/^\/+|\/+$/g, '') })}
+          />
+          <button className="btn" disabled={off} onClick={chooseFolder}>
+            Choose…
+          </button>
+        </div>
+        {folderError && <span className="error-text">{folderError}</span>}
+        <span className="hint">For example Assets/Art. Changes outside it aren’t shown, and aren’t saved.</span>
+      </div>
+      <div className={`field ${off ? 'disabled-field' : ''}`}>
+        <div className="form-row">
+          <span className="field-label">File types to show</span>
+          <span className="spacer" />
+          <button className="link-btn" disabled={off} onClick={() => set({ hiddenTypes: SIMPLE_DEFAULTS.hiddenTypes })}>
+            Reset
+          </button>
+        </div>
+        <span className="hint">
+          Hidden types aren’t shown and aren’t saved; they can be toggled above the changed files too. Types not in this
+          list always show. A Unity .meta file is saved along with its asset either way.
+        </span>
+        <div className="simple-type-settings">
+          {TYPE_GROUPS.map((g) => (
+            <label key={g.id} className="check" title={g.exts.map((e) => '.' + e).join(' ')}>
+              <input
+                type="checkbox"
+                disabled={off}
+                checked={!c.hiddenTypes.includes(g.id)}
+                onChange={(e) =>
+                  set({ hiddenTypes: e.target.checked ? c.hiddenTypes.filter((t) => t !== g.id) : [...c.hiddenTypes, g.id] })
+                }
+              />
+              <span>
+                {g.label} <span className="faint">{g.exts.slice(0, 4).map((e) => '.' + e).join(' ')}{g.exts.length > 4 ? ' …' : ''}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className={`field ${off ? 'disabled-field' : ''}`}>
+        <label className="check">
+          <input type="checkbox" disabled={off} checked={c.shareOnSave} onChange={(e) => set({ shareOnSave: e.target.checked })} />
+          Save & share in one step
+        </label>
+        <span className="hint">The main button saves and shares with the team at once (commit and push). Off: Save, and Share separately.</span>
+        <label className="check">
+          <input type="checkbox" disabled={off} checked={!c.hideSwitch} onChange={(e) => set({ hideSwitch: !e.target.checked })} />
+          Show the Simple/Full switch in the title bar
+        </label>
+      </div>
+      <div className={`field ${off ? 'disabled-field' : ''}`}>
+        <span className="field-label">PIN lock</span>
+        <span className="hint">
+          With a PIN, leaving Simple Mode or changing these settings asks for it. It keeps people from wandering into the
+          full view by accident; it isn’t a security measure.
+        </span>
+        <div className="form-row">
+          {c.pin ? (
+            <>
+              <span className="muted">A PIN is set.</span>
+              <button className="btn" disabled={off} onClick={() => set({ pin: '' })}>
+                Remove PIN
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                type="password"
+                disabled={off}
+                value={pinDraft}
+                placeholder="New PIN"
+                onChange={(e) => setPinDraft(e.target.value)}
+              />
+              <button
+                className="btn"
+                disabled={off || !pinDraft.trim()}
+                onClick={() => {
+                  set({ pin: pinDraft.trim() })
+                  setPinDraft('')
+                  setUnlocked(true)
+                }}
+              >
+                Set PIN
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
 /** Author name field with suggestions from this repository's history, sized like the rest of the UI. */
 function AuthorInput({ value, authors, onChange }: { value: string; authors: string[]; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false)
@@ -1882,7 +2108,7 @@ export function Segmented<T extends string>({
   onChange
 }: {
   value: T
-  options: [T, string][]
+  options: [T, React.ReactNode][]
   onChange: (v: T) => void
 }) {
   const ref = useSlidingIndicator<HTMLDivElement>(value)

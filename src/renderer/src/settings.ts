@@ -131,7 +131,7 @@ const DEFAULTS: Settings = {
   uiScale: 1.15,
   codeSize: 12.5,
   density: 'comfortable',
-  theme: 'system',
+  theme: 'discord',
   customBase: 'spoon-dark',
   customColors: {},
   authorColorsEnabled: false,

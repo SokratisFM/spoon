@@ -5,7 +5,7 @@ import { splitPath } from '../format'
 import { rowHeight, useSettings } from '../settings'
 import { isMac } from '../platform'
 import { usePersistentState } from '../hooks'
-import { ChevronIcon, FolderIcon } from './Icons'
+import { ChevronIcon, FolderIcon, LinkIcon } from './Icons'
 
 const STATUS_LABEL: Record<string, string> = {
   A: 'Added',
@@ -85,9 +85,11 @@ interface Props {
   area?: string
   /** Show the files as a folder tree. */
   tree?: boolean
+  /** Files to mark with a link icon, with its tooltip (sources of a Unity export's native files). */
+  marks?: Map<string, string>
 }
 
-export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree }: Props) {
+export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree, marks }: Props) {
   const settings = useSettings()
   const rowH = Math.round(rowHeight(settings) * 0.92)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -275,6 +277,11 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
                 {statusSymbol(f.status)}
               </span>
               <span className="file-name">{name}</span>
+              {marks?.has(f.path) && (
+                <span className="file-mark" title={marks.get(f.path)}>
+                  <LinkIcon />
+                </span>
+              )}
               {!tree && <span className="file-dir">{dir.replace(/\/$/, '')}</span>}
             </div>
           )

@@ -7,6 +7,7 @@ import { RepoView } from './components/RepoView'
 import { GitHistoryDialog } from './components/GitHistoryDialog'
 import { warmTabs } from './repoCache'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
+import { askPin, PinHost, setSimpleConfig, useSimpleConfig } from './simpleMode'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
 import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, NewBranchIcon, PlusIcon, SearchIcon, TerminalHistoryIcon } from './components/Icons'
@@ -67,6 +68,10 @@ export function App() {
   const currentMissing = !!current && missing?.path === current && missing.missing
   const currentCompare = current ? compareFiles(current) : null
   const currentText = current ? compareTextId(current) : null
+  const simple = useSimpleConfig(current)
+  // For the menu handler, which is set up once.
+  const simpleOnRef = useRef(false)
+  simpleOnRef.current = !!simple?.on
   /** Compare and Text compare tabs aren't repositories. */
   const isRepoTab = (t: string): boolean => !compareFiles(t) && !compareTextId(t)
 
@@ -562,7 +567,9 @@ export function App() {
         else if (cmd === 'zoom-reset') resetScale()
         else if (cmd === 'open-repo') pickRepo()
         else if (cmd === 'find-project') setPalette(true)
-        else if (cmd === 'git-history') setGitHistory((open) => !open)
+        else if (cmd === 'git-history') {
+          if (!simpleOnRef.current) setGitHistory((open) => !open)
+        }
         else if (cmd === 'whats-new') setWhatsNew({ since: null })
         else if (cmd === 'compare-files') setComparing(true)
         else if (cmd === 'filter-commits' && settingsOpen.current) window.dispatchEvent(new Event('spoon:settings-search'))
@@ -595,6 +602,19 @@ export function App() {
               Restart to update to {update.version}
             </button>
           )}
+          {current && simple && !(simple.on && simple.hideSwitch) && (
+            <button
+              className="simple-switch"
+              title={simple.on ? 'Simple Mode: show the full view' : 'Back to Simple Mode'}
+              onClick={async () => {
+                if (!simple.on) setSimpleConfig(current, { on: true })
+                else if (await askPin(simple, 'Enter the PIN to show the full view.')) setSimpleConfig(current, { on: false })
+              }}
+            >
+              <span className={simple.on ? 'on' : ''}>Simple</span>
+              <span className={simple.on ? '' : 'on'}>Full</span>
+            </button>
+          )}
           <button className="icon-btn keyed-btn" onClick={() => setPalette(true)} title="Go to project">
             <SearchIcon />
             <kbd className="keyed-key">Tab</kbd>
@@ -603,7 +623,8 @@ export function App() {
             <button
               className="icon-btn keyed-btn"
               onClick={() => setCommand({ name: 'new-branch', n: Date.now() })}
-              title="New branch from a Jira ticket"
+              disabled={!!simple?.on}
+              title={simple?.on ? 'New branch from a Jira ticket (not in Simple Mode)' : 'New branch from a Jira ticket'}
             >
               <NewBranchIcon />
               <kbd className="keyed-key">{keys('⌘N')}</kbd>
@@ -613,7 +634,12 @@ export function App() {
             <CompareIcon />
             <kbd className="keyed-key">{keys('⌥⌘D')}</kbd>
           </button>
-          <button className="icon-btn keyed-btn" onClick={() => setGitHistory(true)} title="Git command history">
+          <button
+            className="icon-btn keyed-btn"
+            onClick={() => setGitHistory(true)}
+            disabled={!!simple?.on}
+            title={simple?.on ? 'Git command history (not in Simple Mode)' : 'Git command history'}
+          >
             <TerminalHistoryIcon />
             <kbd className="keyed-key">{keys('⇧⌘H')}</kbd>
           </button>
@@ -676,7 +702,7 @@ export function App() {
         />
       )}
 
-      {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
+      {settingsWindow && <SettingsWindow initialTab={settingsWindow} project={current && !currentText && !currentCompare ? current : null} onClose={() => setSettingsWindow(false)} />}
 
       {whatsNew && appVersion && (
         <WhatsNewDialog current={appVersion} since={whatsNew.since} onClose={() => setWhatsNew(null)} />
@@ -702,6 +728,7 @@ export function App() {
         </div>
       )}
       <DialogHost />
+      <PinHost />
       <MenuHost />
 
       {toast && (

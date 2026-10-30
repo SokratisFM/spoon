@@ -4,6 +4,17 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.36.3 — 2026-10-30
+
+- **New:** Simple Mode, for teammates who don't use git themselves, such as artists. A project shows only the files they changed, as preview cards (images, Photoshop files and more), and walks them through it: check your changes, describe them, Save & share. History is a timeline of saves: open any file as it was, or put it back. Turn it on per project in Settings → Simple Mode, where you can also fix the branch to work on, show only one folder (say `Assets/Art`), and lock it with a PIN. The Simple/Full switch in the title bar flips between the two views.
+- **New:** In Simple Mode, choose which file types show, from a list of common ones (images, Photoshop files, 3D models, sounds, scenes, prefabs, code…), in Settings or with the toggles above the changed files. Code, shaders, settings files and Unity .meta files are hidden at first. Hidden types aren't saved, but a Unity .meta file always goes along with its asset (a new folder's too).
+- **New:** In Simple Mode, Spoon looks for the team's new saves every minute. When there are some, the History tab gets a count, Get latest lights up, and History shows them above "You are here" as what's coming. Spoon also says when your saves are only on your computer, and when the project is on the wrong branch or needs a developer's help.
+- **New:** Simple Mode's History puts people first: who saved how many files, with their avatar and previews of what they changed. Your own saves are marked as yours.
+- **Improved:** Discord Dark is the default theme.
+- **Improved:** In Simple Mode the title bar keeps all its buttons; the ones that don't apply there are turned off.
+- **Improved:** Unity exports: files an export uses get a link icon in Local Changes (in a submodule's or package's own tab too), so you can see which changes came from Android Studio or Xcode. When they changed a submodule (such as MainLib) or a local package, the Exports section shows a button that opens it.
+- **Fixed:** Unity exports missed native files in folders named like Unity's own (such as `Data`, `build`, `Library`) and files from local packages (`Packages/…` or a `file:` package in the manifest). They're paired now.
+
 ## 0.35.1 — 2026-10-30
 
 - **New:** What's New: every version's changes, in Spoon. It opens by itself after an update (new versions get a dot), and anytime from Settings → About or the Spoon menu.

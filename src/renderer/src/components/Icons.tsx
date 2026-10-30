@@ -233,3 +233,66 @@ export const TerminalHistoryIcon = (p: P) => (
     <path d="M17.5 13.5v2l1.3 1" />
   </Icon>
 )
+export const LockIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="5" y="11" width="14" height="9.5" rx="2" />
+    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+  </Icon>
+)
+export const ImageIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <circle cx="9" cy="10" r="1.6" />
+    <path d="M20.5 16l-5-5-8.5 8.5" />
+  </Icon>
+)
+export const FileIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z" />
+    <path d="M14 3.5v5h5" />
+  </Icon>
+)
+export const ModelIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
+    <path d="M4 7.5l8 4.5 8-4.5M12 12v9" />
+  </Icon>
+)
+export const AudioIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9 18V6l11-2v12" />
+    <circle cx="6.5" cy="18" r="2.5" />
+    <circle cx="17.5" cy="16" r="2.5" />
+  </Icon>
+)
+export const VideoIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="6" width="13" height="12" rx="2" />
+    <path d="M16 10.5l5-3v9l-5-3z" />
+  </Icon>
+)
+export const CodeIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M8.5 7L3.5 12l5 5M15.5 7l5 5-5 5" />
+  </Icon>
+)
+export const SceneIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3 19l6-8 4 5 3-3.5 5 6.5z" />
+    <circle cx="16.5" cy="6.5" r="2" />
+  </Icon>
+)
+export const GridIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1.2" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.2" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.2" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2" />
+  </Icon>
+)
+export const LinkIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
+    <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
+  </Icon>
+)

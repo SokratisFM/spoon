@@ -6999,3 +6999,782 @@ kbd.setting-key {
   min-width: 0;
   overflow-y: auto;
 }
+
+/* ---------- Simple Mode ---------- */
+
+.simple-switch {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  margin-right: 0.5rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.simple-switch span {
+  padding: 0.12rem 0.65rem;
+  border-radius: 999px;
+  color: var(--text-muted);
+}
+.simple-switch span.on {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.simple-pin-input {
+  width: 100%;
+  margin-top: 0.4rem;
+  font-size: 1.2em;
+  letter-spacing: 0.2em;
+}
+.disabled-field {
+  opacity: 0.55;
+}
+
+.simple {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+.simple-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  height: 4.1rem;
+  padding: 0 1.1rem;
+  background: var(--bg-chrome);
+  border-bottom: 1px solid var(--border);
+}
+.simple-bar .segmented button {
+  white-space: nowrap;
+}
+.simple-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  background: var(--bg-selected);
+  color: var(--text);
+  white-space: nowrap;
+}
+.simple-branch .icon {
+  color: var(--accent-fg);
+}
+.simple-get {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.simple-get .badge {
+  margin-left: 0.1rem;
+}
+
+.simple-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.65rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.simple-banner > span {
+  flex: 1;
+}
+.simple-banner > .icon {
+  flex: none;
+  width: 1.3em;
+  height: 1.3em;
+}
+.simple-banner.accent {
+  background: var(--hunk-bg);
+}
+.simple-banner.accent > .icon {
+  color: var(--accent-fg);
+}
+.simple-banner.warn {
+  background: var(--warn-bg);
+}
+.simple-banner.warn > .icon {
+  color: var(--warn);
+}
+.simple-banner.danger {
+  background: var(--del-bg);
+}
+.simple-banner.danger > .icon {
+  color: var(--danger);
+}
+
+.simple-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1.2rem 1.6rem 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.simple-done {
+  margin: auto;
+  max-width: 34rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.simple-done h2 {
+  margin: 0.4rem 0 0;
+  font-size: 1.4em;
+}
+.simple-done p {
+  margin: 0;
+}
+.simple-done-mark {
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 50%;
+  background: var(--add-bg);
+  color: var(--add);
+}
+.simple-done-mark .icon {
+  width: 2rem;
+  height: 2rem;
+}
+.faint {
+  color: var(--text-faint);
+}
+
+.simple-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-faint);
+}
+.simple-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.simple-steps li + li::before {
+  content: '›';
+  margin: 0 0.5rem 0 0.2rem;
+  color: var(--text-faint);
+}
+.simple-step-n {
+  display: grid;
+  place-items: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.simple-steps li.now {
+  color: var(--text);
+  font-weight: 600;
+}
+.simple-steps li.now .simple-step-n {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.simple-steps li.done {
+  color: var(--text-muted);
+}
+.simple-steps li.done .simple-step-n {
+  background: var(--add-bg);
+  border-color: transparent;
+  color: var(--add);
+}
+
+.simple-summary {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 1.05em;
+}
+
+/* file cards (previews) and rows (list) */
+.simple-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+  gap: 0.9rem;
+}
+.simple-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  overflow: hidden;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+.simple-card:hover {
+  border-color: var(--border-strong);
+}
+.simple-card.off {
+  opacity: 0.5;
+}
+.simple-card-open {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.simple-thumb {
+  display: grid;
+  place-items: center;
+  height: 9rem;
+  overflow: hidden;
+  background-color: var(--bg-elev);
+  background-image: linear-gradient(45deg, var(--bg-hover) 25%, transparent 25%, transparent 75%, var(--bg-hover) 75%),
+    linear-gradient(45deg, var(--bg-hover) 25%, transparent 25%, transparent 75%, var(--bg-hover) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+.simple-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.simple-kind-icon {
+  width: 2.6rem;
+  height: 2.6rem;
+  color: var(--text-faint);
+  stroke-width: 1.4;
+}
+.simple-card.kind-removed .simple-thumb {
+  opacity: 0.45;
+}
+.simple-card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0.55rem 0.7rem 0.1rem;
+}
+.simple-card-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.simple-card.kind-removed .simple-card-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+}
+.simple-card-dir {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.simple-card-actions {
+  display: flex;
+  gap: 0.9rem;
+  padding: 0.3rem 0.7rem 0.6rem;
+  font-size: 0.85em;
+}
+.simple-cards .simple-card-actions {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.simple-cards .simple-card:hover .simple-card-actions,
+.simple-cards .simple-card:focus-within .simple-card-actions {
+  opacity: 1;
+}
+/* Whether a file goes into the save: a row at the bottom of a card; a box at the left of a list row. */
+.simple-include {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: auto;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.88em;
+  text-align: left;
+  cursor: pointer;
+}
+.simple-include:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.simple-include.on {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.simple-include:disabled {
+  cursor: default;
+  color: var(--del-text);
+}
+.simple-box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 0.3rem;
+  background: var(--bg);
+}
+.simple-include.on .simple-box {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.simple-box .icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  stroke-width: 3;
+}
+.simple-list .simple-include {
+  width: auto;
+  margin: 0;
+  padding: 0.3rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+}
+.simple-list .simple-include-label {
+  display: none;
+}
+
+/* the file-type filter row */
+.simple-types {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.simple-types > .muted {
+  margin-right: 0.2rem;
+  font-size: 0.9em;
+}
+.simple-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.simple-type:hover {
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+.simple-type.on {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--bg-selected);
+  color: var(--text);
+}
+.simple-type.none {
+  opacity: 0.6;
+}
+.simple-type .icon {
+  width: 0.9em;
+  height: 0.9em;
+  color: var(--accent-fg);
+  stroke-width: 2.6;
+}
+.simple-type-n {
+  min-width: 1.2rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 0.85em;
+  font-weight: 600;
+  text-align: center;
+}
+.simple-type-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.35rem 1rem;
+  margin-top: 0.3rem;
+}
+.simple-view-switch button {
+  display: grid;
+  place-items: center;
+  padding: 0.3rem 0.5rem;
+}
+
+.simple-kind {
+  flex: none;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78em;
+  font-weight: 600;
+  background: var(--bg-selected);
+  color: var(--accent-fg);
+}
+.simple-kind.new {
+  background: var(--add-bg);
+  color: var(--add-text);
+}
+.simple-kind.removed,
+.simple-kind.conflict {
+  background: var(--del-bg);
+  color: var(--del-text);
+}
+.simple-kind.renamed {
+  background: color-mix(in srgb, var(--rename) 15%, transparent);
+  color: var(--rename);
+}
+.simple-cards .simple-kind {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  /* Readable on any thumbnail: the tint over a solid chip. */
+  background-color: var(--bg-panel);
+  background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent), color-mix(in srgb, currentColor 16%, transparent));
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+.simple-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.simple-list .simple-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.35rem 0.8rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.simple-list .simple-card + .simple-card {
+  border-top: 1px solid var(--border);
+}
+.simple-list .simple-card:hover {
+  background: var(--bg-hover);
+}
+.simple-list .simple-thumb,
+.simple-hfile .simple-thumb {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.simple-list .simple-kind-icon,
+.simple-hfile .simple-kind-icon {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+.simple-list .simple-card-text,
+.simple-hfile .simple-card-text {
+  flex: 1;
+  padding: 0;
+}
+.simple-list .simple-card-actions {
+  padding: 0;
+}
+.simple-hidden {
+  margin: 0;
+}
+
+.simple-save {
+  position: sticky;
+  bottom: -1.6rem;
+  margin: auto -1.6rem -1.6rem;
+  padding: 0.9rem 1.6rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  background: var(--bg-chrome);
+  border-top: 1px solid var(--border);
+}
+.simple-save textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 3.2rem;
+  font: inherit;
+  font-size: 1.05em;
+}
+.simple-save-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.simple-save-row .btn.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* history */
+.simple-timeline {
+  display: flex;
+  flex-direction: column;
+  max-width: 54rem;
+  width: 100%;
+  margin: 0 auto;
+}
+.simple-day {
+  margin: 1rem 0 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.simple-timeline > div:first-child .simple-day {
+  margin-top: 0;
+}
+.simple-save-row-h {
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+.simple-save-row-h.open {
+  border-color: var(--border);
+  background: var(--bg-panel);
+}
+.simple-save-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.simple-save-head:hover {
+  background: var(--bg-hover);
+}
+.simple-avatar {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: hsl(var(--hue) 45% 45%);
+  color: #fff;
+  font-size: 0.92em;
+  font-weight: 650;
+  box-shadow: 0 0 0 3px var(--bg);
+}
+.simple-save-row-h.mine .simple-avatar {
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent);
+}
+.simple-save-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.simple-save-who {
+  font-size: 1.08em;
+  font-weight: 600;
+}
+.simple-save-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The line joining the avatars, dashed for saves that aren't here yet. */
+.simple-save-row-h {
+  position: relative;
+}
+.simple-save-row-h::before {
+  content: '';
+  position: absolute;
+  left: calc(0.7rem + 1.375rem - 1px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+.simple-save-row-h.future::before {
+  background: repeating-linear-gradient(to bottom, var(--accent) 0 5px, transparent 5px 10px);
+  opacity: 0.6;
+}
+.simple-save-row-h.future .simple-avatar {
+  opacity: 0.8;
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.simple-save-row-h.future .simple-save-who {
+  color: var(--text-muted);
+}
+.simple-peek {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.simple-peek .simple-thumb {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: var(--radius-sm);
+}
+.simple-peek .simple-kind-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+.simple-peek-more {
+  min-width: 2rem;
+  color: var(--text-muted);
+  font-size: 0.88em;
+  text-align: center;
+}
+.simple-coming {
+  padding: 0.6rem 0 0.2rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.simple-coming-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 0.7rem 0.4rem;
+}
+.simple-coming-head > span {
+  flex: 1;
+}
+.simple-coming-head .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.simple-here {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.8rem 0 0.2rem;
+  padding-left: calc(0.7rem + 1.375rem - 0.45rem);
+  font-weight: 600;
+  color: var(--accent-fg);
+}
+.simple-here-dot {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--bg-selected);
+}
+.simple-tab-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.75em;
+  font-weight: 700;
+  vertical-align: 0.1em;
+}
+.btn.has-news {
+  animation: simple-news 2.4s ease-in-out infinite;
+}
+.btn.primary .badge.accent {
+  background: var(--accent-text);
+  color: var(--accent);
+}
+@keyframes simple-news {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn.has-news {
+    animation: none;
+  }
+}
+.simple-save-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.2rem 0.7rem 0.7rem 4.3rem;
+}
+.simple-hfile {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.25rem 0;
+  font-size: 0.95em;
+}
+.simple-hfile .link-btn {
+  font-size: 0.9em;
+}
+.simple-more {
+  align-self: center;
+  margin-top: 0.8rem;
+}
+
+.titlebar-right .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Unity exports: files an export uses, and the button to a repository with their changes */
+.file-mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--accent-fg);
+}
+.file-mark .icon {
+  width: 0.95em;
+  height: 0.95em;
+}
+.export-repo-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: calc(100% - 1.6rem);
+  margin: 0.3rem 0.8rem;
+  text-align: left;
+}
+.export-repo-btn .badge {
+  margin-left: auto;
+}
+.exports-counts {
+  display: block;
+  margin: 0.2rem 0;
+  font-size: 0.9em;
+}

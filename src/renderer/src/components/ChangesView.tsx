@@ -6,6 +6,7 @@ import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FileList } from './FileList'
 import { requestCompare } from '../compare'
+import { useExportMarks } from '../exportMarks'
 import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
 import { ListViewIcon, TreeViewIcon } from './Icons'
 import { updateSettings, useSettings } from '../settings'
@@ -52,6 +53,7 @@ export function ChangesView({
   onDiscardHandled
 }: Props) {
   const settings = useSettings()
+  const exportMarks = useExportMarks(path)
   const [sel, setSel] = useState<Selection | null>(null)
 
   // After a refresh, keep what still exists; if the focused file moved away, focus the
@@ -279,6 +281,7 @@ export function ChangesView({
       emptyText={emptyText}
       area={area}
       tree={settings.fileTree}
+      marks={exportMarks}
     />
   )
 

@@ -12,6 +12,7 @@ import * as history from './history'
 import * as atlassian from './atlassian'
 import * as ide from './ide'
 import * as unityExports from './exports'
+import * as thumbnails from './thumbnails'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
@@ -252,6 +253,8 @@ function registerIpc(): void {
   ipcMain.handle('file:restore', (_e, path: string, hash: string, rel: string) => git.restoreFileFrom(path, hash, rel))
   // Resolves to an error message, or "" when it opened.
   ipcMain.handle('file:openDefault', (_e, path: string, rel: string) => shell.openPath(git.repoFile(path, rel)))
+  ipcMain.handle('file:thumbnail', (_e, path: string, rel: string, hash: string | null, size: number) => thumbnails.thumbnail(path, rel, hash, size))
+  ipcMain.handle('file:openAtCommit', (_e, path: string, hash: string, rel: string) => thumbnails.openAtCommit(path, hash, rel))
   ipcMain.handle('unity:isProject', (_e, path: string) => unityExports.isUnityProject(path))
   ipcMain.handle('unity:findExports', (_e, path: string) => unityExports.findExports(path))
   ipcMain.handle('unity:scanExports', (_e, path: string, dirs: string[]) => unityExports.scanExports(path, dirs))
