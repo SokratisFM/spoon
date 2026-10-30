@@ -1,5 +1,5 @@
-import { memo, useState } from 'react'
-import type { FileChange } from '../../../shared/types'
+import { memo, useEffect, useRef, useState } from 'react'
+import type { CommitDetails, FileChange } from '../../../shared/types'
 import { fullDate, hueFor, initials } from '../format'
 import { useCachedAsync } from '../hooks'
 import { detailsCache } from '../repoCache'
@@ -9,21 +9,81 @@ import { Split } from './Split'
 import { FileList } from './FileList'
 import { DiffView } from './DiffView'
 import { CheckIcon, CopyIcon } from './Icons'
+import { contextMenu } from '../menus'
+import { confirm } from '../dialogs'
+import { requestCompare } from '../compare'
+import { revealLabel } from '../platform'
+import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
+import type { Ops } from './RepoView'
 
 interface Props {
   path: string
   hash: string | null
   onJump: (hash: string) => void
+  ops: Ops
+}
+
+/**
+ * A commit's changed file, right-clicked: only what can be done with it. A file the commit deleted
+ * has no version in it, so its last version (in the parent) is the one to view or restore; a file
+ * that's no longer in the working copy can't be opened, compared with it or revealed.
+ */
+async function fileMenu(path: string, d: CommitDetails, f: FileChange, ops: Ops): Promise<void> {
+  const deleted = f.status === 'D'
+  const parent = d.parents[0]
+  const versionAt = deleted ? parent : d.hash
+  const at = versionAt ? { hash: versionAt, label: versionAt === d.hash ? d.hash.slice(0, 7) : `${versionAt.slice(0, 7)} (before)` } : undefined
+  const [exists] = await window.spoon.pathsExist([`${path}/${f.path}`])
+  const short = d.hash.slice(0, 7)
+  const choice = await contextMenu([
+    { id: 'edit', label: 'Open in Spoon…', accelerator: 'CmdOrCtrl+E', enabled: exists },
+    { id: 'view', label: deleted ? 'View Last Version…' : 'View This Version…', enabled: !!at },
+    { id: 'default', label: 'Open with Default App', enabled: exists },
+    { separator: true },
+    { id: 'compare-working', label: 'Compare with Working Copy', enabled: exists && !deleted },
+    { id: 'compare', label: 'Compare with…', enabled: !deleted },
+    { id: 'restore', label: deleted ? 'Restore This File…' : 'Restore This Version…', enabled: !!at },
+    { separator: true },
+    { id: 'reveal', label: revealLabel, enabled: exists },
+    { id: 'copy', label: 'Copy Path' },
+    { id: 'copy-hash', label: 'Copy Commit Hash' }
+  ])
+  if (choice === 'edit') openFileEditor({ repo: path, file: f.path, at })
+  else if (choice === 'view') openFileEditor({ repo: path, file: f.path, at, show: 'commit' })
+  else if (choice === 'default') window.spoon.openWithDefaultApp(path, f.path)
+  else if (choice === 'compare-working')
+    requestCompare(await window.spoon.fileAtCommitToTemp(path, d.hash, f.path), `${path}/${f.path}`)
+  else if (choice === 'compare') {
+    const other = await window.spoon.pickFile(`Compare ${f.path} at ${short} with…`)
+    if (other) requestCompare(await window.spoon.fileAtCommitToTemp(path, d.hash, f.path), other)
+  } else if (choice === 'restore' && at) {
+    const ok = await confirm({
+      message: deleted ? `Restore ${f.path}?` : `Put the ${short} version of ${f.path} in your working copy?`,
+      detail: `${deleted ? `It's brought back as it was before ${short} deleted it.` : 'The file’s current contents are replaced.'} It shows up in Local Changes as an unstaged change you can discard.`,
+      confirmLabel: 'Restore',
+      risky: true
+    })
+    if (ok) ops.run(`Restoring ${f.path}…`, () => window.spoon.restoreFileFrom(path, at.hash, f.path), 'Couldn’t restore the file')
+  } else if (choice === 'reveal') window.spoon.revealInFinder(`${path}/${f.path}`)
+  else if (choice === 'copy') navigator.clipboard.writeText(f.path)
+  else if (choice === 'copy-hash') navigator.clipboard.writeText(d.hash)
 }
 
 // Memoized: RepoView re-renders on every status refresh and progress tick.
-export const CommitPanel = memo(function CommitPanel({ path, hash, onJump }: Props) {
+export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }: Props) {
   // Commits never change, so their details come from the cache when they've been shown before.
   const { data: details, error } = useCachedAsync(detailsCache, hash ? `${path}|${hash}` : null, () =>
     window.spoon.commitDetails(path, hash!)
   )
   const [file, setFile] = useState<FileChange | null>(null)
   const [copied, setCopied] = useState(false)
+  // ⌘E: the shown file in the popup (set once the details are in).
+  const openShown = useRef<(() => void) | null>(null)
+  useEffect(() => {
+    const open = (): void => openShown.current?.()
+    window.addEventListener(OPEN_SELECTED_FILE, open)
+    return () => window.removeEventListener(OPEN_SELECTED_FILE, open)
+  }, [])
   const settings = useSettings()
   const authorColors = authorColorMap(settings)
   const jira = jiraConfig(settings)
@@ -46,6 +106,21 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump }: Pro
   // The same file stays selected when moving between commits that both touch it; worked out here, so
   // the diff never asks for the previous commit's file in the new commit.
   const shown = details.files.find((f) => f.path === file?.path) ?? details.files[0] ?? null
+  openShown.current = shown
+    ? () =>
+        openFileEditor({
+          repo: path,
+          file: shown.path,
+          // A deleted file's last version is in the parent.
+          at:
+            shown.status !== 'D'
+              ? { hash: details.hash, label: details.hash.slice(0, 7) }
+              : details.parents[0]
+                ? { hash: details.parents[0], label: `${details.parents[0].slice(0, 7)} (before)` }
+                : undefined,
+          show: shown.status === 'D' ? 'commit' : undefined
+        })
+    : null
   const [subject, ...body] = details.message.split('\n')
   const authorColor =
     authorColors?.get(details.authorName.toLowerCase()) ?? authorColors?.get(details.authorEmail.toLowerCase())
@@ -101,6 +176,7 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump }: Pro
             selected={new Set(shown ? [shown.path] : [])}
             focused={shown?.path ?? null}
             onSelect={(_, f) => setFile(f)}
+            onContextMenu={(files) => files[0] && fileMenu(path, details, files[0], ops)}
             emptyText="No file changes."
           />
         </div>

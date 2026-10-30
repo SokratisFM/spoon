@@ -38,6 +38,11 @@ export function forgetText(id: string, remove: (key: string) => void): void {
   closedTexts.add(id)
   remove(textKey(id))
 }
+/** A closed Text compare tab reopened (⌘Z): its text is put back and saved again. */
+export function unforgetText(id: string, text: string, save: (key: string, value: string) => void): void {
+  closedTexts.delete(id)
+  save(textKey(id), text)
+}
 
 /** The id of a Text compare tab, or null for any other tab. */
 export const compareTextId = (tab: string): string | null => (tab.startsWith(COMPARE_TEXT) ? tab.slice(COMPARE_TEXT.length) : null)

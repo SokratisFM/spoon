@@ -60,6 +60,7 @@ function buildMenu(): void {
               label: app.name,
               submenu: [
                 { role: 'about' as const },
+                { label: 'What’s New…', click: () => send('whats-new') },
                 { type: 'separator' as const },
                 { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('settings') },
                 { type: 'separator' as const },
@@ -98,6 +99,7 @@ function buildMenu(): void {
           { label: 'Commit and Push', accelerator: 'CmdOrCtrl+Alt+Enter', click: () => send('commit-push') },
           { label: 'Discard Selected Changes…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('discard') },
           { label: 'New Branch from Ticket…', accelerator: 'CmdOrCtrl+N', click: () => send('new-branch') },
+          { label: 'Open File in Spoon…', accelerator: 'CmdOrCtrl+E', click: () => send('open-file') },
           { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('new-tag') },
           { id: 'review', label: 'Review with Claude…', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('review') },
           { type: 'separator' },
@@ -241,6 +243,15 @@ function registerIpc(): void {
   )
   ipcMain.handle('atlassian:disconnect', () => atlassian.disconnect())
   ipcMain.handle('atlassian:page', (_e, url: string) => atlassian.page(url))
+  ipcMain.handle('file:read', (_e, path: string, rel: string) => git.readWorkingFile(path, rel))
+  ipcMain.handle('file:write', (_e, path: string, rel: string, text: string, eol: 'lf' | 'crlf') =>
+    git.writeWorkingFile(path, rel, text, eol)
+  )
+  ipcMain.handle('file:atCommit', (_e, path: string, hash: string, rel: string) => git.fileAtCommit(path, hash, rel))
+  ipcMain.handle('file:atCommitToTemp', (_e, path: string, hash: string, rel: string) => git.fileAtCommitToTemp(path, hash, rel))
+  ipcMain.handle('file:restore', (_e, path: string, hash: string, rel: string) => git.restoreFileFrom(path, hash, rel))
+  // Resolves to an error message, or "" when it opened.
+  ipcMain.handle('file:openDefault', (_e, path: string, rel: string) => shell.openPath(git.repoFile(path, rel)))
   ipcMain.handle('unity:isProject', (_e, path: string) => unityExports.isUnityProject(path))
   ipcMain.handle('unity:findExports', (_e, path: string) => unityExports.findExports(path))
   ipcMain.handle('unity:scanExports', (_e, path: string, dirs: string[]) => unityExports.scanExports(path, dirs))

@@ -1540,6 +1540,9 @@ function AboutTab() {
               Check now
             </button>
           )}
+          <button className="btn" onClick={() => window.dispatchEvent(new Event('spoon:whats-new'))}>
+            What’s new
+          </button>
         </div>
         <span className="hint">
           Spoon checks every few hours, downloads updates in the background and verifies their signature before

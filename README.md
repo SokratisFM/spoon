@@ -39,8 +39,11 @@ Each release:
 
 ```bash
 npm version minor --no-git-tag-version
-npm run release -- --notes "What changed"
+# add a "## <version> — <date>" section to CHANGELOG.md
+npm run release
 ```
+
+The release notes are that CHANGELOG.md section (Spoon also shows it in What's New after updating).
 
 This builds into `dist.noindex/release/<version>/`. Nearly all of an installer is Electron, so
 only a release where the Electron version changed (or one built with `--full`) carries full

@@ -24,6 +24,14 @@ export interface SquishInfo {
 
 export type RefKind = 'head' | 'remote' | 'tag' | 'stash'
 
+/** A file for the quick file popup: its text, or null when it's binary or too big to edit there. */
+export interface FileContent {
+  text: string | null
+  binary: boolean
+  size: number
+  eol: 'lf' | 'crlf'
+}
+
 export type ExportPlatform = 'android' | 'ios'
 
 /** An exported Android or iOS project inside a Unity repository. */
@@ -679,6 +687,13 @@ export interface SpoonApi {
   atlassianConnect(email: string, token: string, pageUrl: string): Promise<AtlassianAccount>
   atlassianDisconnect(): Promise<void>
   confluencePage(url: string): Promise<ConfluencePage>
+  /** The quick file popup: working copies, versions at a commit, restoring one, the default app. */
+  readWorkingFile(path: string, rel: string): Promise<FileContent>
+  writeWorkingFile(path: string, rel: string, text: string, eol: 'lf' | 'crlf'): Promise<void>
+  fileAtCommit(path: string, hash: string, rel: string): Promise<FileContent>
+  fileAtCommitToTemp(path: string, hash: string, rel: string): Promise<string>
+  restoreFileFrom(path: string, hash: string, rel: string): Promise<void>
+  openWithDefaultApp(path: string, rel: string): Promise<string>
   /** Unity projects: exported Android/iOS projects and their native files' sources under Assets/. */
   isUnityProject(path: string): Promise<boolean>
   findExports(path: string): Promise<ExportCandidate[]>
@@ -732,4 +747,6 @@ export type MenuCommand =
   | 'squish'
   | 'new-tag'
   | 'new-branch'
+  | 'open-file'
+  | 'whats-new'
   | 'compare-files'

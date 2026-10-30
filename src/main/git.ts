@@ -6,6 +6,7 @@ import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rename, rm, rmdir, stat, 
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
+  FileContent,
   Commit,
   CommitDetails,
   DiffResult,
@@ -1550,4 +1551,78 @@ export function mainlibSwitch(cwd: string, submodulePath: string, ref: string): 
     }
     return { backup }
   })
+}
+
+// ---------- files (the quick file popup) ----------
+
+const MAX_EDIT_BYTES = 5 * 1024 * 1024
+
+/** A repository file's absolute path; only paths inside the work tree (and outside .git). */
+export function repoFile(cwd: string, rel: string): string {
+  const root = resolve(cwd)
+  const abs = resolve(root, rel)
+  const r = relative(root, abs)
+  if (!r || r.startsWith('..') || isAbsolute(r) || r.split(sep)[0].toLowerCase() === '.git')
+    throw new Error(`Not a file in this repository: ${rel}`)
+  return abs
+}
+
+function contentOf(data: Buffer, size = data.length): FileContent {
+  const binary = data.subarray(0, 8000).includes(0)
+  if (binary || size > MAX_EDIT_BYTES) return { text: null, binary, size, eol: 'lf' }
+  const text = data.toString('utf8')
+  return { text, binary: false, size, eol: /\r\n/.test(text) ? 'crlf' : 'lf' }
+}
+
+/** The working copy of a file (null text when binary or too big to edit here). */
+export async function readWorkingFile(cwd: string, rel: string): Promise<FileContent> {
+  const abs = repoFile(cwd, rel)
+  const info = await stat(abs)
+  if (!info.isFile()) throw new Error(`${rel} isn’t a file.`)
+  return contentOf(info.size > MAX_EDIT_BYTES ? Buffer.alloc(0) : await readFile(abs), info.size)
+}
+
+/** Saves the working copy; `eol` puts back the file's own line endings (the editor uses \n). */
+export async function writeWorkingFile(cwd: string, rel: string, text: string, eol: 'lf' | 'crlf'): Promise<void> {
+  const abs = repoFile(cwd, rel)
+  await writeFile(abs, eol === 'crlf' ? text.replace(/\r?\n/g, '\r\n') : text)
+}
+
+/** A file's bytes in a commit (raw: binary files stay intact). */
+function blobAt(cwd: string, hash: string, rel: string): Promise<Buffer> {
+  return new Promise<Buffer>((done, fail) => {
+    const chunks: Buffer[] = []
+    const child = spawn('git', ['cat-file', 'blob', `${hash}:${rel}`], { cwd, env })
+    child.stdout.on('data', (b: Buffer) => chunks.push(b))
+    child.on('error', fail)
+    child.on('close', (code) => (code === 0 ? done(Buffer.concat(chunks)) : fail(new Error(`${rel} isn’t in that commit.`))))
+  })
+}
+
+/** A file as it was in a commit. */
+export async function fileAtCommit(cwd: string, hash: string, rel: string): Promise<FileContent> {
+  assertHash(hash)
+  repoFile(cwd, rel)
+  const size = Number((await git(cwd, ['cat-file', '-s', `${hash}:${rel}`])).trim())
+  if (size > MAX_EDIT_BYTES) return { text: null, binary: false, size, eol: 'lf' }
+  const data = await blobAt(cwd, hash, rel)
+  return contentOf(data, size)
+}
+
+/** A commit's version of a file in a temporary folder, for comparing it with files on disk. */
+export async function fileAtCommitToTemp(cwd: string, hash: string, rel: string): Promise<string> {
+  assertHash(hash)
+  repoFile(cwd, rel)
+  const dir = await mkdtemp(join(tmpdir(), 'spoon-at-'))
+  const out = join(dir, `${hash.slice(0, 7)}-${basename(rel)}`)
+  const data = await blobAt(cwd, hash, rel)
+  await writeFile(out, data)
+  return out
+}
+
+/** Puts a commit's version of a file in the working copy (an unstaged change; the index is left alone). */
+export function restoreFileFrom(cwd: string, hash: string, rel: string): Promise<void> {
+  assertHash(hash)
+  repoFile(cwd, rel)
+  return exclusive(cwd, () => git(cwd, ['restore', `--source=${hash}`, '--worktree', '--', rel]).then(() => undefined))
 }

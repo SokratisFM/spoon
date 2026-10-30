@@ -13,11 +13,13 @@ import { BoxIcon, ChildIcon, CloseIcon, CogIcon, CompareIcon, FolderIcon, NewBra
 import { choose, DialogHost } from './dialogs'
 import { forgetProject, projectName, rememberProject, useProjects } from './projects'
 import { keys, revealLabel } from './platform'
-import { useUpdateState } from './appinfo'
+import { useAppInfo, useUpdateState } from './appinfo'
 import { closeMenu, contextMenu, MenuHost } from './menus'
-import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, forgetText, textKey } from './compare'
+import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, forgetText, textKey, unforgetText } from './compare'
 import * as storage from './storage'
 import { TextCompareView } from './components/TextCompareView'
+import { WhatsNewDialog } from './components/WhatsNewDialog'
+import { changelog, newerVersion } from './whatsNew'
 import { CompareView } from './components/CompareView'
 import { CompareDialog } from './components/CompareDialog'
 
@@ -27,8 +29,33 @@ export function App() {
   const [active, setActive] = usePersistentState<string | null>('spoon.activeTab', null)
   const projects = useProjects()
   const update = useUpdateState()
+  const appVersion = useAppInfo()?.version ?? null
+
+  // What's New opens by itself once after an update, with what changed since the version you had.
+  // Not on a first install; someone updating from before this existed sees just the newest version.
+  useEffect(() => {
+    if (!appVersion) return
+    const seen = storage.getItem('spoon.whatsNew.seen')
+    storage.setItem('spoon.whatsNew.seen', appVersion)
+    if (seen && !newerVersion(appVersion, seen)) return
+    if (!seen) {
+      const usedBefore = storage.getItem('spoon.tabs') !== null || storage.getItem('spoon.settings') !== null
+      if (!usedBefore) return
+      const previous = changelog().find((v) => v.version && newerVersion(appVersion, v.version))?.version
+      if (previous) setWhatsNew({ since: previous })
+      return
+    }
+    setWhatsNew({ since: seen })
+  }, [appVersion])
+  useEffect(() => {
+    const open = (): void => setWhatsNew({ since: null })
+    window.addEventListener('spoon:whats-new', open)
+    return () => window.removeEventListener('spoon:whats-new', open)
+  }, [])
   const [palette, setPalette] = useState(false)
   const [gitHistory, setGitHistory] = useState(false)
+  // What's New: since = the version updated from (only what's newer shows first); null = everything.
+  const [whatsNew, setWhatsNew] = useState<{ since: string | null } | null>(null)
   const [missing, setMissing] = useState<{ path: string; missing: boolean } | null>(null)
   const [command, setCommand] = useState<{ name: MenuCommand; n: number } | null>(null)
   const [settingsWindow, setSettingsWindow] = useState<false | SettingsTab>(false)
@@ -236,7 +263,59 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [palette])
 
-  const closeTab = (path: string): void => dropTab(path)
+  // Closed tabs, newest last, so ⌘Z can bring them back: each close is one step (Close Other Tabs
+  // closes several at once), with where each tab was and what a Text compare tab held.
+  const closed = useRef<{ path: string; index: number; text: string | null }[][]>([])
+  const closeTabs = (paths: string[]): void => {
+    if (!paths.length) return
+    closed.current.push(
+      paths.map((p) => {
+        const id = compareTextId(p)
+        return { path: p, index: tabs.indexOf(p), text: id ? storage.getItem(textKey(id)) : null }
+      })
+    )
+    if (closed.current.length > 30) closed.current.shift()
+    if (paths.length === 1) return dropTab(paths[0])
+    for (const p of paths) {
+      const id = compareTextId(p)
+      if (id) forgetText(id, (k) => storage.removeItem(k))
+    }
+    const keep = tabs.filter((p) => !paths.includes(p))
+    setTabs(keep)
+    if (current && paths.includes(current)) setActive(keep[0] ?? null)
+  }
+  const closeTab = (path: string): void => closeTabs([path])
+  const reopenClosed = (): boolean => {
+    const step = closed.current.pop()
+    if (!step) return false
+    const back = step.filter((x) => !tabs.includes(x.path))
+    for (const x of back) {
+      const id = compareTextId(x.path)
+      if (id && x.text !== null) unforgetText(id, x.text, (k, v) => storage.setItem(k, v))
+    }
+    setTabs((t) => {
+      const next = [...t]
+      for (const x of [...back].sort((a, b) => a.index - b.index)) next.splice(Math.min(Math.max(x.index, 0), next.length), 0, x.path)
+      return next
+    })
+    if (back.length) setActive(back[0].path)
+    return true
+  }
+  const reopenRef = useRef(reopenClosed)
+  reopenRef.current = reopenClosed
+  // ⌘Z / Ctrl+Z outside a text field (and with no dialog open) reopens the last closed tab(s); in a
+  // field it's the field's own undo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input, textarea, select, [contenteditable], .cm-editor')) return
+      if (document.querySelector('.modal-backdrop, .palette-backdrop, .ctx-layer')) return
+      if (reopenRef.current()) e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // ⌘W / Ctrl+W: dismiss an open dialog first, then close the current tab; with only one tab (or
   // none) left, close the window instead, as its close button would. The last tab is kept so it
@@ -370,10 +449,10 @@ export function App() {
     if (applyTabChoice(choice)) return
     if (choice === 'close') closeTab(path)
     else if (choice === 'others') {
-      setTabs([path])
+      closeTabs(tabs.filter((p) => p !== path))
       setActive(path)
     } else if (choice === 'right') {
-      setTabs((t) => t.filter((p) => !after.includes(p)))
+      closeTabs(after)
       if (current && after.includes(current)) setActive(path)
     } else if (choice === 'reveal') window.spoon.revealInFinder(compareFiles(path)?.[1] ?? path)
     else if (choice === 'copy') navigator.clipboard.writeText(compareFiles(path)?.join('\n') ?? path)
@@ -484,6 +563,7 @@ export function App() {
         else if (cmd === 'open-repo') pickRepo()
         else if (cmd === 'find-project') setPalette(true)
         else if (cmd === 'git-history') setGitHistory((open) => !open)
+        else if (cmd === 'whats-new') setWhatsNew({ since: null })
         else if (cmd === 'compare-files') setComparing(true)
         else if (cmd === 'filter-commits' && settingsOpen.current) window.dispatchEvent(new Event('spoon:settings-search'))
         else if (cmd === 'squish') updateSettings({ squishBranches: !getSettings().squishBranches })
@@ -598,6 +678,9 @@ export function App() {
 
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} onClose={() => setSettingsWindow(false)} />}
 
+      {whatsNew && appVersion && (
+        <WhatsNewDialog current={appVersion} since={whatsNew.since} onClose={() => setWhatsNew(null)} />
+      )}
       {gitHistory && <GitHistoryDialog current={current} onClose={() => setGitHistory(false)} />}
       {comparing && (
         <CompareDialog home={home} onCompare={openCompare} onCompareText={openTextCompare} onClose={() => setComparing(false)} />

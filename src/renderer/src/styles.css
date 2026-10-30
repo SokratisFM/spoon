@@ -6797,3 +6797,205 @@ kbd.setting-key {
   margin-bottom: 0.35rem;
   color: var(--text-muted);
 }
+
+/* ---------- quick file popup ---------- */
+
+.file-editor-modal .modal.wide {
+  width: min(70rem, calc(100vw - 3rem));
+  max-width: none;
+  height: min(48rem, calc(100vh - 4rem));
+}
+.file-editor-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.fe-title-extra {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1rem;
+}
+.fe-sides {
+  display: inline-flex;
+}
+.fe-sides button {
+  flex: none;
+  padding: 0.2rem 0.7rem;
+}
+.fe-path {
+  /* Not pulled up under the title: the body clips what sticks out of it. */
+  font-size: 0.82em;
+  line-height: 1.4;
+  margin: 0 0 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fe-editor {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background-color: var(--ide-bg, var(--bg));
+  color: var(--ide-fg, var(--text));
+}
+.fe-editor.hidden {
+  display: none;
+}
+.fe-info {
+  padding: 2rem 1rem;
+  text-align: center;
+}
+.fe-status {
+  margin-right: auto;
+  font-size: 0.85em;
+}
+.fe-dirty {
+  color: var(--warn);
+}
+
+/* A shortcut on a primary button: in the button's own text color, not the faint gray. */
+.btn.primary .keyed-key {
+  color: inherit;
+  opacity: 0.7;
+}
+.file-editor-modal .modal h3 {
+  margin-bottom: 0.35rem;
+}
+
+/* ---------- What's New ---------- */
+
+.whats-new .modal.wide {
+  width: min(40rem, calc(100vw - 2rem));
+}
+.wn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.wn-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.wn-head b {
+  font-variant-numeric: tabular-nums;
+}
+.wn-head .muted {
+  font-size: 0.85em;
+}
+.wn-here {
+  font-size: 0.75em;
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-selected);
+  color: var(--accent-fg);
+}
+.wn-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.wn-items li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  line-height: 1.5;
+}
+.wn-tag {
+  flex: none;
+  width: 4.8rem;
+  text-align: center;
+  font-size: 0.75em;
+  font-weight: 600;
+  padding: 0.08rem 0;
+  border-radius: var(--radius-sm);
+}
+.wn-tag.new {
+  background: var(--add-bg-strong);
+  color: var(--add-text);
+}
+.wn-tag.improved {
+  background: var(--bg-selected);
+  color: var(--accent-fg);
+}
+.wn-tag.fixed {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+.wn-text code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0 0.3em;
+  border-radius: 0.3em;
+  background: var(--bg-hover);
+}
+.wn-text a {
+  color: var(--accent-fg);
+}
+.whats-new .modal.wide {
+  width: min(52rem, calc(100vw - 2rem));
+}
+.wn-panes {
+  display: flex;
+  gap: 1rem;
+  height: min(26rem, calc(100vh - 14rem));
+  outline: none;
+}
+.wn-versions {
+  flex: none;
+  width: 9rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding-right: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.wn-version-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 0.3rem 0.55rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wn-version-item:hover {
+  background: var(--bg-hover);
+}
+.wn-version-item.on {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+.wn-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--accent-fg);
+  margin-left: auto;
+}
+.wn-here-mini {
+  margin-left: auto;
+  color: var(--add-text);
+  font-size: 0.6em;
+}
+.wn-dot + .wn-here-mini {
+  margin-left: 0;
+}
+.wn-notes {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}

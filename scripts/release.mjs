@@ -12,7 +12,8 @@
 // SHA256SUMS, install.sh and install.ps1.
 //
 // Usage: npm version <patch|minor|major> --no-git-tag-version, then
-//        npm run release -- --notes "What changed" [--full] [--skip-win] [--skip-mac] [--prev latest.json]
+//        npm run release -- [--notes "What changed"] [--full] [--skip-win] [--skip-mac] [--prev latest.json]
+// The notes are the version's section in CHANGELOG.md unless --notes or --notes-file says otherwise.
 // --full forces full installers; --prev reads the previous manifest from a file instead of GitHub.
 // Nothing is uploaded; the command to publish is printed at the end.
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto'
@@ -30,7 +31,26 @@ const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : u
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const config = JSON.parse(readFileSync(join(root, 'spoon.config.json'), 'utf8'))
 const version = pkg.version
-const notes = option('--notes') ?? (option('--notes-file') ? readFileSync(option('--notes-file'), 'utf8') : '')
+// The version's section of CHANGELOG.md ("## 1.2.3 — date" up to the next "## "), as Markdown.
+function changelogNotes() {
+  const text = readFileSync(join(root, 'CHANGELOG.md'), 'utf8')
+  const at = text.search(new RegExp(`^## ${version.replaceAll('.', '\\.')}\\b`, 'm'))
+  if (at === -1) return null
+  const body = text.slice(at).split('\n').slice(1).join('\n')
+  const end = body.search(/^## /m)
+  return (end === -1 ? body : body.slice(0, end)).trim()
+}
+const notes = option('--notes') ?? (option('--notes-file') ? readFileSync(option('--notes-file'), 'utf8') : changelogNotes())
+if (!notes) {
+  console.error(`CHANGELOG.md has no "## ${version}" section. Add one (Spoon shows it in What's New), or pass --notes.`)
+  process.exit(1)
+}
+// The updater shows the notes as plain text: no Markdown marks.
+const plainNotes = notes
+  .replace(/\*\*(New|Improved|Fixed):\*\*/g, '$1:')
+  .replace(/\*\*([^*]+)\*\*/g, '$1')
+  .replace(/`([^`]+)`/g, '$1')
+  .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 const keyFile = process.env.SPOON_RELEASE_KEY ?? join(homedir(), '.config', 'spoon', 'release-signing-key.pem')
 const repo = config.updateRepo || 'OWNER/REPO'
 const out = join(root, 'dist.noindex', 'release', version)
@@ -128,7 +148,7 @@ if (!flag('--skip-win')) {
 // have them. Newer versions read `full` (absolute links) and `code`, and take the code alone when
 // they run the same Electron.
 const assets = full ? Object.fromEntries(Object.entries(installers).map(([k, a]) => [k, { file: a.file, sha256: a.sha256, size: a.size }])) : {}
-const payload = JSON.stringify({ version, date: new Date().toISOString(), notes, electron, assets, full: installers, code })
+const payload = JSON.stringify({ version, date: new Date().toISOString(), notes: plainNotes, electron, assets, full: installers, code })
 const signature = sign(null, Buffer.from(payload), createPrivateKey(readFileSync(keyFile))).toString('base64')
 writeFileSync(join(out, 'latest.json'), JSON.stringify({ payload, signature }, null, 2))
 
@@ -151,6 +171,9 @@ writeFileSync(join(out, 'SHA256SUMS'), sums.join('\n') + '\n')
 const sh = (text) => `'${text.replaceAll("'", `'\\''`)}'`
 console.log(`\nRelease ${version} is in ${out}`)
 for (const f of [...files, 'SHA256SUMS']) console.log(`  ${f.padEnd(34)} ${(statSync(join(out, f)).size / 1048576).toFixed(1)} MB`)
-console.log(`\nTo publish (when ready):\n  gh release create v${version} --repo ${repo} --title "Spoon ${version}" --notes ${sh(notes || `Spoon ${version}`)} ${sh(out)}/*`)
+// The GitHub release gets the Markdown, from a file next to (not in) the release folder.
+const notesFile = join(root, 'dist.noindex', 'release', `${version}-notes.md`)
+writeFileSync(notesFile, notes + '\n')
+console.log(`\nTo publish (when ready):\n  gh release create v${version} --repo ${repo} --title "Spoon ${version}" --notes-file ${sh(notesFile)} ${sh(out)}/*`)
 console.log(`\nInstall commands:\n  macOS:   curl -fsSL https://github.com/${repo}/releases/latest/download/install.sh | sh`)
 console.log(`  Windows: irm https://github.com/${repo}/releases/latest/download/install.ps1 | iex`)

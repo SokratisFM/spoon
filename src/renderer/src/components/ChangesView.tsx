@@ -6,6 +6,7 @@ import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FileList } from './FileList'
 import { requestCompare } from '../compare'
+import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
 import { ListViewIcon, TreeViewIcon } from './Icons'
 import { updateSettings, useSettings } from '../settings'
 import { DiffView, type HunkAction } from './DiffView'
@@ -165,6 +166,16 @@ export function ChangesView({
     )
   }
 
+  // ⌘E: the focused file in the popup (not a deleted one: there's nothing to open).
+  useEffect(() => {
+    const open = (): void => {
+      const f = sel ? tree[sel.area].find((x) => x.path === sel.focused) : undefined
+      if (f && f.status !== 'D') openFileEditor({ repo: path, file: f.path })
+    }
+    window.addEventListener(OPEN_SELECTED_FILE, open)
+    return () => window.removeEventListener(OPEN_SELECTED_FILE, open)
+  }, [sel, tree, path])
+
   const discardRef = useRef(discard)
   discardRef.current = discard
   useEffect(() => {
@@ -176,7 +187,10 @@ export function ChangesView({
 
   const contextMenu = (area: Area) => async (files: FileChange[]) => {
     const n = files.length === 1 ? '' : ` ${files.length} files`
+    const one = files.length === 1 ? files[0] : null
     const choice = await showMenu([
+      { id: 'edit', label: 'Open in Spoon…', accelerator: 'CmdOrCtrl+E', enabled: !!one && one.status !== 'D' },
+      { separator: true },
       { id: 'toggle', label: area === 'unstaged' ? `Stage${n}` : `Unstage${n}` },
       {
         id: 'discard',
@@ -189,7 +203,8 @@ export function ChangesView({
       { id: 'reveal', label: revealLabel, enabled: files.length === 1 },
       { id: 'copy', label: files.length === 1 ? 'Copy Path' : 'Copy Paths' }
     ])
-    if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
+    if (choice === 'edit' && one) openFileEditor({ repo: path, file: one.path })
+    else if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
     else if (choice === 'discard') discard(files, area)
     else if (choice === 'compare') {
       const other = await window.spoon.pickFile(`Compare ${files[0].path} with…`)

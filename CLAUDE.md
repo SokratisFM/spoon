@@ -12,6 +12,10 @@ Every change bumps `version` in package.json before it's built or installed:
 One bump per batch of work; a batch with any new feature is minor. Commit the bump with the change.
 The self-updater compares these versions, so never reuse or lower one.
 
+Every released version gets a section in `CHANGELOG.md` (`## <version> — <date>`, lines starting with
+**New:**, **Improved:** or **Fixed:**): Spoon shows it in What's New, and `npm run release` uses it as
+the release notes. Write it for people using Spoon, not about the code.
+
 ## Working on it
 
 - `npm run typecheck`, `npm run build`, `npm run install:mac` (rebuilds `/Applications/Spoon.app`).

@@ -16,6 +16,11 @@ DOMPurify.addHook('uponSanitizeElement', (node, data) => {
   else node.disabled = true
 })
 
+/** One line of Markdown (bold, code, links) as sanitized HTML, for lists like What's New. */
+export function inlineMarkdown(text: string): string {
+  return DOMPurify.sanitize(marked.parseInline(text, { gfm: true, async: false }) as string, PURIFY)
+}
+
 /** GitHub-flavored Markdown from PR descriptions and comments, sanitized; links open in the browser. */
 export function Markdown({ text, className = '' }: { text: string; className?: string }) {
   const html = useMemo(

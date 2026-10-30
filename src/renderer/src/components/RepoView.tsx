@@ -37,6 +37,7 @@ import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
 import { NewBranchDialog } from './NewBranchDialog'
+import { FileEditorHost, OPEN_SELECTED_FILE } from './FileEditor'
 import { FOLD, groupOf, runAt, squishCommits } from '../squish'
 import type { Graph } from '../graph'
 
@@ -506,6 +507,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       const hash = view === 'history' && selected ? selected : repo?.headHash
       const c = commits.find((x) => x.hash === hash)
       if (c) openTag(c)
+    } else if (command.name === 'open-file') {
+      // The visible list (Local Changes or the selected commit's files) opens its selected file.
+      window.dispatchEvent(new Event(OPEN_SELECTED_FILE))
     } else if (command.name === 'new-branch') {
       if (repo) setNewBranch(true)
     } else if (command.name === 'review') {
@@ -868,7 +872,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
                 ops={ops}
               />
             )}
-            <CommitPanel path={path} hash={selected} onJump={jumpTo} />
+            <CommitPanel path={path} hash={selected} onJump={jumpTo} ops={ops} />
           </Split>
         )}
       </Split>
@@ -926,6 +930,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           }}
         />
       )}
+      <FileEditorHost path={path} ops={ops} />
       {newBranch && repo && <NewBranchDialog path={path} repo={repo} ops={ops} onClose={() => setNewBranch(false)} />}
       {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} github={canCreatePull} onClose={() => setTagging(null)} />}
       {reviewing && repo && (

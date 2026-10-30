@@ -9,6 +9,7 @@ import { contextMenu } from '../menus'
 import { requestCompare } from '../compare'
 import { revealLabel } from '../platform'
 import { Modal } from './Modal'
+import { openFileEditor } from './FileEditor'
 import type { Ops } from './RepoView'
 
 type Section = (key: string, title: string, count: number, body: ReactNode) => ReactNode
@@ -187,6 +188,9 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
     e.preventDefault()
     const choice = await contextMenu([
       { id: 'compare', label: 'Compare Assets with Export' },
+      { id: 'edit-src', label: 'Open Assets File in Spoon…' },
+      { id: 'edit-exp', label: 'Open Export Copy in Spoon…' },
+      { separator: true },
       { id: 'back', label: 'Bring Back to Assets' },
       { id: 'ignore', label: 'Leave Assets as It Is' },
       { id: 'relink', label: 'Replace Export Copy with a Link…' },
@@ -195,6 +199,8 @@ export function UnityExports({ repo, ops, section, query }: Props): ReactNode {
       { id: 'reveal-exp', label: `${revealLabel}: Export` }
     ])
     if (choice === 'compare') requestCompare(abs(l.source), abs(l.export))
+    else if (choice === 'edit-src') openFileEditor({ repo: path, file: l.source })
+    else if (choice === 'edit-exp') openFileEditor({ repo: path, file: l.export })
     else if (choice === 'back') bringBack([l])
     else if (choice === 'ignore') markHandled([l])
     else if (choice === 'relink') relink([l], true)
