@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.37.5 — 2026-10-30
+
+- **Improved:** New branch from ticket: every part of the name is optional. Leave one empty (say, no ticket) and it's left out, slash and all. The type choices (feature, fix) sit under their box, so the boxes stay one line tall; click the chosen one again to leave the type out.
+
 ## 0.37.4 — 2026-10-30
 
 - **Fixed:** Quitting with unsaved edits in the file popup and choosing Don't Save now quits, instead of only closing the window.

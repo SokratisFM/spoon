@@ -6654,21 +6654,30 @@ kbd.setting-key {
 .nb-segments {
   display: flex;
   flex-wrap: wrap;
-  align-items: stretch;
+  align-items: flex-start;
   row-gap: 0.4rem;
 }
 .nb-seg-wrap {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   min-width: 0;
 }
-.nb-seg-wrap:has(.nb-seg.grow) {
+.nb-seg-wrap.grow {
   flex: 1;
   min-width: 14rem;
 }
+.nb-seg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.nb-seg-wrap.grow .nb-seg-col {
+  flex: 1;
+}
 .nb-slash {
-  align-self: flex-end;
-  padding: 0 0.35rem 0.45rem;
+  align-self: flex-start;
+  padding: 1.05rem 0.35rem 0;
   color: var(--text-faint);
   font-family: var(--font-mono);
   font-size: 1.15em;
@@ -6682,9 +6691,6 @@ kbd.setting-key {
   border-radius: var(--radius);
   background: var(--bg);
   min-width: 0;
-}
-.nb-seg.grow {
-  flex: 1;
 }
 .nb-seg:focus-within {
   border-color: var(--accent-fg);

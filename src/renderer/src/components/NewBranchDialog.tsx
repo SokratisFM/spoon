@@ -129,8 +129,13 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
       return n
     })
 
-  const name = segments.map((seg) => seg.map((p) => ('text' in p ? p.text : valueOf(p.token))).join('')).join('/')
-  const missing = segments.flat().filter((p): p is { token: string } => 'token' in p && !valueOf(p.token))
+  // Every part is optional: a part left empty is left out, with its slash (and any fixed text next to it).
+  const skipped = (seg: (typeof segments)[number]): boolean =>
+    seg.some((p) => 'token' in p) && seg.every((p) => 'text' in p || !valueOf(p.token))
+  const name = segments
+    .filter((seg) => !skipped(seg))
+    .map((seg) => seg.map((p) => ('text' in p ? p.text : valueOf(p.token))).join(''))
+    .join('/')
   const locals = repo.refs.filter((r) => r.kind === 'head')
   const remotes = repo.refs.filter((r) => r.kind === 'remote' && !r.name.endsWith('/HEAD'))
   const exists = locals.some((r) => r.name === name)
@@ -148,8 +153,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const [base, setBase] = useState(defaultBase)
   const baseRef = [...locals, ...remotes].find((r) => r.name === base)
 
-  const problem = missing.length
-      ? `Fill in the ${LABEL[missing[0].token] ?? missing[0].token}.`
+  const problem = !name
+      ? 'Fill in at least one part.'
       : exists
         ? `${name} already exists.`
         : !base
@@ -234,9 +239,13 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
             const tokens = seg.filter((p): p is { token: string } => 'token' in p)
             const wide = tokens.some((t) => t.token === 'description')
             return (
-              <div key={i} className="nb-seg-wrap">
+              <div key={i} className={`nb-seg-wrap ${wide ? 'grow' : ''}`}>
                 {i > 0 && <span className="nb-slash">/</span>}
-                <div className={`nb-seg ${wide ? 'grow' : ''} ${tokens.some((t) => !valueOf(t.token)) ? 'empty' : ''}`}>
+                <div className="nb-seg-col">
+                <div
+                  className={`nb-seg ${skipped(seg) ? 'empty' : ''}`}
+                  title={skipped(seg) ? 'Empty: left out of the name' : undefined}
+                >
                   <span className="nb-seg-label">
                     {tokens.length ? tokens.map((t) => LABEL[t.token] ?? t.token).join(' · ') : 'fixed'}
                     {tokens
@@ -267,15 +276,22 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
                       )
                     })}
                   </span>
-                  {tokens.some((t) => t.token === 'type') && types.length > 1 && (
-                    <span className="nb-types">
-                      {types.map((t) => (
-                        <button key={t} className={`nb-type ${valueOf('type') === t ? 'on' : ''}`} onClick={() => setPart('type', t)}>
-                          {t}
-                        </button>
-                      ))}
-                    </span>
-                  )}
+                </div>
+                {/* Under the box, so the boxes all stay one line tall. */}
+                {tokens.some((t) => t.token === 'type') && types.length > 1 && (
+                  <span className="nb-types">
+                    {types.map((t) => (
+                      <button
+                        key={t}
+                        className={`nb-type ${valueOf('type') === t ? 'on' : ''}`}
+                        title={valueOf('type') === t ? 'Click again to leave it out' : undefined}
+                        onClick={() => setPart('type', valueOf('type') === t ? '' : t)}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </span>
+                )}
                 </div>
               </div>
             )
