@@ -86,6 +86,13 @@ export function setSimpleConfig(path: string, patch: Partial<SimpleConfig> | nul
   listeners.forEach((l) => l())
 }
 
+// A project removed from Spoon takes its Simple Mode setup (and what was being typed) with it.
+window.addEventListener('spoon:project-forgotten', (e) => {
+  const path = (e as CustomEvent<string>).detail
+  if (configs[path]) setSimpleConfig(path, null)
+  for (const k of ['tab', 'message']) storage.removeItem(`spoon.simple.${k}.${path}`)
+})
+
 export function useSimpleConfig(path: string | null): SimpleConfig | null {
   const all = useSyncExternalStore(
     (l) => {

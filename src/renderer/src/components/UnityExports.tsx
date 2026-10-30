@@ -82,6 +82,7 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
   const copies = (links ?? []).filter((l) => l.state === 'same')
   const outdated = (links ?? []).filter((l) => l.state === 'source-newer').length
   const linkedCount = (links ?? []).filter((l) => l.state === 'linked').length
+  const broken = (links ?? []).filter((l) => l.state === 'dangling').length
 
   const bringBack = async (list: ExportLink[]): Promise<boolean> => {
     const both = list.filter(yours)
@@ -115,7 +116,13 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
     e.preventDefault()
     const choice = await contextMenu([
       { id: 'compare', label: 'Compare Source with Export' },
-      ...(l.sourceRepo === path ? [{ id: 'edit-src', label: 'Open Source File in Spoon…' }] : [{ id: 'open-repo', label: `Open ${repoLabel(l.sourceRepo)}` }]),
+      // A source in another repository (a submodule, a package's own) is opened in its own tab; one
+      // in no repository at all can only be revealed.
+      ...(l.sourceRepo === path
+        ? [{ id: 'edit-src', label: 'Open Source File in Spoon…' }]
+        : l.sourceRepo
+          ? [{ id: 'open-repo', label: `Open ${repoLabel(l.sourceRepo)}` }]
+          : []),
       { id: 'edit-exp', label: 'Open Export Copy in Spoon…' },
       { separator: true },
       { id: 'back', label: 'Bring Back to Source' },
@@ -220,6 +227,12 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
               title={`${copies.length + linkedCount} exported files match their source (${linkedCount} linked)${outdated ? `, ${outdated} out of date (changed in the source since the export)` : ''}.${copies.length > 0 && linkedCount === 0 ? ' Turn on Symlink Sources in Unity’s build settings and exports link back by themselves.' : ''}`}
             >
               {linkedCount} linked · {copies.length} copies{outdated > 0 ? ` · ${outdated} out of date` : ''}
+              {broken > 0 && (
+                <span className="error-text" title="Links whose source is gone (moved, deleted, or on another branch). Export from Unity again.">
+                  {' '}
+                  · {broken} broken {broken === 1 ? 'link' : 'links'}
+                </span>
+              )}
             </span>
             {copies.length > 0 && (
               <button

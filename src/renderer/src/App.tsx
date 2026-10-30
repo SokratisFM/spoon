@@ -18,7 +18,7 @@ import { forgetProject, projectName, rememberProject, useProjects } from './proj
 import { keys, revealLabel } from './platform'
 import { useAppInfo, useUpdateState } from './appinfo'
 import { closeMenu, contextMenu, MenuHost } from './menus'
-import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, forgetText, textKey, unforgetText } from './compare'
+import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, forgetText, liveText, textKey, unforgetText } from './compare'
 import * as storage from './storage'
 import { TextCompareView } from './components/TextCompareView'
 import { WhatsNewDialog } from './components/WhatsNewDialog'
@@ -291,7 +291,7 @@ export function App() {
     closed.current.push(
       paths.map((p) => {
         const id = compareTextId(p)
-        return { path: p, index: tabs.indexOf(p), text: id ? storage.getItem(textKey(id)) : null }
+        return { path: p, index: tabs.indexOf(p), text: id ? (liveText(id) ?? storage.getItem(textKey(id))) : null }
       })
     )
     if (closed.current.length > 30) closed.current.shift()
@@ -311,7 +311,7 @@ export function App() {
     const back = step.filter((x) => !tabs.includes(x.path))
     for (const x of back) {
       const id = compareTextId(x.path)
-      if (id && x.text !== null) unforgetText(id, x.text, (k, v) => storage.setItem(k, v))
+      if (id) unforgetText(id, x.text, (k, v) => storage.setItem(k, v))
     }
     setTabs((t) => {
       const next = [...t]
@@ -344,8 +344,9 @@ export function App() {
     if (closeMenu()) return // an open menu goes first, like a dialog
     const overlay = document.querySelector('.modal-backdrop, .palette-backdrop, .popover')
     if (overlay) {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      // Once, from the focused element: it bubbles up to window, so listeners there get it too (two
+      // would ask "Close without saving?" twice).
+      ;(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       return
     }
     if (current && tabs.length > 1) closeTab(current)
@@ -622,7 +623,7 @@ export function App() {
       }).then((ok) => {
         if (!ok) return
         leaving = true
-        window.spoon.closeWindow()
+        window.spoon.closeWindow(true)
       })
     }
     window.addEventListener('beforeunload', onUnload)

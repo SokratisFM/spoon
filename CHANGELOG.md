@@ -4,6 +4,15 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.37.4 — 2026-10-30
+
+- **Fixed:** Quitting with unsaved edits in the file popup and choosing Don't Save now quits, instead of only closing the window.
+- **Fixed:** Unity exports: Spoon checks every bring-back, link and add against the pairs it works out itself; adding a file never overwrites one that appeared meanwhile; a failed relink puts the export's own copy back; a bring-back writes the source all at once; links whose source is gone are counted as broken; and files two sources could claim are no longer paired with either.
+- **Fixed:** "Open" on an export's source in another repository opens that repository; a source outside any repository can be revealed in the Finder.
+- **Fixed:** Simple Mode's background check for the team's saves never makes a save or commit wait.
+- **Fixed:** ⌘W on a file popup with edits asks once, not twice; ⌘Z brings back an empty Text compare tab properly and keeps the last thing typed in one; ⌘E right after picking another commit never opens the previous commit's file; and a failed Compare says why.
+- **Fixed:** Spoon only reads and writes files inside repositories (including Windows' other names for .git), clears its old temporary files at start, tries a failed preview again later, and forgets a removed project's Simple Mode and Unity export settings.
+
 ## 0.37.3 — 2026-10-30
 
 - **Fixed:** Unity exports no longer bring an export's copy back over a source that changed too (a teammate's fix you pulled, say): only when the source is still what it was when the two last matched. Copies still as Unity's export wrote them, and sources with changes of yours (uncommitted, untracked, ignored or outside git), aren't touched by themselves, and every source Spoon overwrites is copied to the Trash first.

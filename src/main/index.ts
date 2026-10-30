@@ -244,24 +244,35 @@ function registerIpc(): void {
   )
   ipcMain.handle('atlassian:disconnect', () => atlassian.disconnect())
   ipcMain.handle('atlassian:page', (_e, url: string) => atlassian.page(url))
-  ipcMain.handle('file:read', (_e, path: string, rel: string) => git.readWorkingFile(path, rel))
-  ipcMain.handle('file:write', (_e, path: string, rel: string, text: string, eol: 'lf' | 'crlf', expect?: number) =>
+  // Calls about files in a repository name it by its folder: that has to be a repository (the top of
+  // a work tree), not any folder on disk.
+  const handleRepo = <A extends unknown[]>(
+    channel: string,
+    fn: (e: Electron.IpcMainInvokeEvent, path: string, ...args: A) => unknown
+  ): void =>
+    ipcMain.handle(channel, (e, path: string, ...args: A) => {
+      git.assertRepoRoot(path)
+      return fn(e, path, ...args)
+    })
+  handleRepo('file:read', (_e, path: string, rel: string) => git.readWorkingFile(path, rel))
+  handleRepo('file:write', (_e, path: string, rel: string, text: string, eol: 'lf' | 'crlf', expect?: number) =>
     git.writeWorkingFile(path, rel, text, eol, expect)
   )
-  ipcMain.handle('file:atCommit', (_e, path: string, hash: string, rel: string) => git.fileAtCommit(path, hash, rel))
-  ipcMain.handle('file:atCommitToTemp', (_e, path: string, hash: string, rel: string) => git.fileAtCommitToTemp(path, hash, rel))
-  ipcMain.handle('file:restore', (_e, path: string, hash: string, rel: string) =>
+  handleRepo('file:atCommit', (_e, path: string, hash: string, rel: string) => git.fileAtCommit(path, hash, rel))
+  handleRepo('file:atCommitToTemp', (_e, path: string, hash: string, rel: string) => git.fileAtCommitToTemp(path, hash, rel))
+  handleRepo('file:restore', (_e, path: string, hash: string, rel: string) =>
     git.restoreFileFrom(path, hash, rel, (p) => shell.trashItem(p))
   )
   // Resolves to an error message, or "" when it opened.
-  ipcMain.handle('file:openDefault', async (_e, path: string, rel: string) => shell.openPath(await git.realRepoFile(path, rel)))
-  ipcMain.handle('file:thumbnail', (_e, path: string, rel: string, hash: string | null, size: number) => thumbnails.thumbnail(path, rel, hash, size))
-  ipcMain.handle('file:openAtCommit', (_e, path: string, hash: string, rel: string) => thumbnails.openAtCommit(path, hash, rel))
+  handleRepo('file:openDefault', async (_e, path: string, rel: string) => shell.openPath(await git.realRepoFile(path, rel)))
+  handleRepo('file:thumbnail', (_e, path: string, rel: string, hash: string | null, size: number) => thumbnails.thumbnail(path, rel, hash, size))
+  handleRepo('file:openAtCommit', (_e, path: string, hash: string, rel: string) => thumbnails.openAtCommit(path, hash, rel))
+  ipcMain.handle('unity:forget', (_e, path: string) => unityExports.forgetRuns(path))
   ipcMain.handle('unity:isProject', (_e, path: string) => unityExports.isUnityProject(path))
-  ipcMain.handle('unity:findExports', (_e, path: string) => unityExports.findExports(path))
-  ipcMain.handle('unity:scanExports', (_e, path: string, dirs: string[]) => unityExports.scanExports(path, dirs))
+  handleRepo('unity:findExports', (_e, path: string) => unityExports.findExports(path))
+  handleRepo('unity:scanExports', (_e, path: string, dirs: string[]) => unityExports.scanExports(path, dirs))
   const exportOwners = new Set<number>()
-  ipcMain.handle('unity:watchExports', (e, path: string, dirs: string[]) => {
+  handleRepo('unity:watchExports', (e, path: string, dirs: string[]) => {
     const owner = e.sender.id
     if (!exportOwners.has(owner)) {
       exportOwners.add(owner)
@@ -274,10 +285,10 @@ function registerIpc(): void {
       if (!e.sender.isDestroyed()) e.sender.send('unity:exportsChanged', path)
     })
   })
-  ipcMain.handle('unity:bringBack', (_e, path: string, items: unityExports.BringBackItem[]) => unityExports.bringBack(path, items))
-  ipcMain.handle('unity:newFiles', (_e, path: string, dirs: string[]) => unityExports.newExportFiles(path, dirs))
-  ipcMain.handle('unity:add', (_e, path: string, exp: string, folder: string) => unityExports.addToSource(path, exp, folder))
-  ipcMain.handle('unity:relink', (_e, path: string, exp: string, src: string, force: boolean) =>
+  handleRepo('unity:bringBack', (_e, path: string, items: unityExports.BringBackItem[]) => unityExports.bringBack(path, items))
+  handleRepo('unity:newFiles', (_e, path: string, dirs: string[]) => unityExports.newExportFiles(path, dirs))
+  handleRepo('unity:add', (_e, path: string, exp: string, folder: string) => unityExports.addToSource(path, exp, folder))
+  handleRepo('unity:relink', (_e, path: string, exp: string, src: string, force: boolean) =>
     unityExports.relink(path, exp, src, force)
   )
   ipcMain.handle('atlassian:jiraIssue', (_e, site: string, key: string) => atlassian.jiraIssue(site, key))
@@ -367,6 +378,7 @@ function registerIpc(): void {
   const progress = (e: Electron.IpcMainInvokeEvent, path: string) => (line: string) =>
     void (!e.sender.isDestroyed() && e.sender.send('progress', path, line))
   ipcMain.handle('repo:fetch', (e, path: string, prune: boolean) => git.fetch(path, prune, progress(e, path)))
+  ipcMain.handle('repo:fetchQuietly', (_e, path: string) => git.fetchQuietly(path))
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
   ipcMain.handle('repo:push', (e, path: string, opts: PushOptions) => git.push(path, opts, progress(e, path)))
 
@@ -375,7 +387,16 @@ function registerIpc(): void {
     const item = Menu.getApplicationMenu()?.getMenuItemById(id)
     if (item) item.visible = visible
   })
-  ipcMain.on('ui:closeWindow', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+  // A quit that a window held up (unsaved edits in the file popup) goes on once that window closes.
+  let quitAskedAt = 0
+  app.on('before-quit', () => (quitAskedAt = Date.now()))
+  ipcMain.on('ui:closeWindow', (e, afterUnsaved?: boolean) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win) return
+    const resumeQuit = !!afterUnsaved && Date.now() - quitAskedAt < 120_000
+    if (resumeQuit) win.once('closed', () => app.quit())
+    win.close()
+  })
 }
 
 // Spoon's windows only ever show the app itself. A link (middle-click, ⌘-click, drag and drop,
@@ -397,6 +418,7 @@ app.whenReady().then(() => {
   initUpdater()
   registerIpc()
   createWindow()
+  void git.cleanTempFolders()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

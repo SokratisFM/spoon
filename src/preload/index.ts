@@ -55,7 +55,8 @@ const api: SpoonApi = {
     ipcRenderer.on('progress', listener)
     return () => ipcRenderer.removeListener('progress', listener)
   },
-  closeWindow: () => ipcRenderer.send('ui:closeWindow'),
+  closeWindow: (afterUnsaved) => ipcRenderer.send('ui:closeWindow', afterUnsaved),
+  fetchQuietly: (path) => ipcRenderer.invoke('repo:fetchQuietly', path),
   revealInFinder: (path) => ipcRenderer.invoke('shell:reveal', path),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   appInfo: () => ipcRenderer.invoke('app:info'),
@@ -108,6 +109,7 @@ const api: SpoonApi = {
   fileThumbnail: (path, rel, hash, size) => ipcRenderer.invoke('file:thumbnail', path, rel, hash, size),
   openAtCommit: (path, hash, rel) => ipcRenderer.invoke('file:openAtCommit', path, hash, rel),
   isUnityProject: (path) => ipcRenderer.invoke('unity:isProject', path),
+  forgetExportRuns: (path) => ipcRenderer.invoke('unity:forget', path),
   findExports: (path) => ipcRenderer.invoke('unity:findExports', path),
   scanExports: (path, dirs) => ipcRenderer.invoke('unity:scanExports', path, dirs),
   watchExports: (path, dirs) => ipcRenderer.invoke('unity:watchExports', path, dirs),

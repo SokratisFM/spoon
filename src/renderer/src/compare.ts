@@ -38,11 +38,17 @@ export function forgetText(id: string, remove: (key: string) => void): void {
   closedTexts.add(id)
   remove(textKey(id))
 }
-/** A closed Text compare tab reopened (⌘Z): its text is put back and saved again. */
-export function unforgetText(id: string, text: string, save: (key: string, value: string) => void): void {
+/** A closed Text compare tab reopened (⌘Z): it saves again, and its text (if it had any) is put back. */
+export function unforgetText(id: string, text: string | null, save: (key: string, value: string) => void): void {
   closedTexts.delete(id)
-  save(textKey(id), text)
+  if (text !== null) save(textKey(id), text)
 }
+
+// What each open Text compare tab holds right now (it's saved a moment after typing pauses): closing
+// a tab keeps what was typed last, for ⌘Z.
+const live = new Map<string, string>()
+export const liveText = (id: string): string | null => live.get(id) ?? null
+export const setLiveText = (id: string, text: string | null): void => void (text === null ? live.delete(id) : live.set(id, text))
 
 /** The id of a Text compare tab, or null for any other tab. */
 export const compareTextId = (tab: string): string | null => (tab.startsWith(COMPARE_TEXT) ? tab.slice(COMPARE_TEXT.length) : null)

@@ -200,6 +200,25 @@ export function exclusive<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
   return task
 }
 
+/**
+ * A path part that is (or that Windows would treat as) a .git folder: any case, with trailing dots
+ * or spaces (".git.", ".git "), or its short name (GIT~1).
+ */
+export function isGitPart(part: string): boolean {
+  const p = part.toLowerCase().replace(/[. ]+$/, '')
+  return p === '.git' || p === 'git~1'
+}
+
+/** A path relative to a root that stays inside it (and out of any .git folder), or false. */
+export function insideRel(rel: string): boolean {
+  return !!rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel) && !rel.split(sep).some(isGitPart)
+}
+
+/** IPC from the renderer names a repository by its folder: it must be one (a work tree's top). */
+export function assertRepoRoot(path: string): void {
+  if (typeof path !== 'string' || !isAbsolute(path) || !existsSync(join(path, '.git'))) throw new Error(`Not a repository: ${path}`)
+}
+
 function assertHash(hash: string): void {
   if (!/^[0-9a-f]{4,64}$/i.test(hash)) throw new Error(`Invalid commit hash: ${hash}`)
 }
@@ -680,8 +699,8 @@ export async function discard(
     const inside = (p: string): string => {
       const abs = resolve(root, p)
       const rel = relative(root, abs)
-      // Case-insensitive: on macOS and Windows ".GIT" is the same folder.
-      if (!rel || rel.startsWith('..') || isAbsolute(rel) || rel.split(sep)[0].toLowerCase() === '.git')
+      // Case-insensitive, and Windows' other names for it: on macOS and Windows ".GIT" is the same folder.
+      if (!insideRel(rel))
         throw new Error(`Refusing to discard a path outside the repository: ${p}`)
       return abs
     }
@@ -895,6 +914,16 @@ export async function fetch(cwd: string, prune: boolean, onProgress: (l: string)
   await exclusive(cwd, () =>
     run(cwd, ['fetch', '--all', '--progress', ...(prune ? ['--prune'] : [])], { onProgress, cancellable: true })
   )
+}
+
+/**
+ * A background fetch (Simple Mode looking for the team's saves): skipped while git work is running
+ * in the repository, and run without holding its lock, so a save or commit never waits for the
+ * network. It only updates remote-tracking refs (no prune, no maintenance).
+ */
+export async function fetchQuietly(cwd: string): Promise<void> {
+  if (locks.has(repoKey(cwd))) return
+  await run(cwd, ['-c', 'maintenance.auto=false', '-c', 'gc.auto=0', 'fetch', '--all', '--quiet'])
 }
 
 export function pull(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<void> {
@@ -1561,9 +1590,7 @@ const MAX_EDIT_BYTES = 5 * 1024 * 1024
 export function repoFile(cwd: string, rel: string): string {
   const root = resolve(cwd)
   const abs = resolve(root, rel)
-  const r = relative(root, abs)
-  if (!r || r === '..' || r.startsWith(`..${sep}`) || isAbsolute(r) || r.split(sep)[0].toLowerCase() === '.git')
-    throw new Error(`Not a file in this repository: ${rel}`)
+  if (!insideRel(relative(root, abs))) throw new Error(`Not a file in this repository: ${rel}`)
   return abs
 }
 
@@ -1583,8 +1610,7 @@ export async function realRepoFile(cwd: string, rel: string): Promise<string> {
     if (base) real = join(base, rest)
     else if (dirname(dir) === dir) real = abs
   }
-  const r = relative(root, real)
-  if (!r || r === '..' || r.startsWith(`..${sep}`) || isAbsolute(r) || r.split(sep).some((part) => part.toLowerCase() === '.git'))
+  if (!insideRel(relative(root, real)))
     throw new Error(`${rel} leads outside the repository (it’s a link to ${real}).`)
   return abs
 }
@@ -1680,6 +1706,19 @@ export async function fileAtCommitToTemp(cwd: string, hash: string, rel: string)
     throw err
   }
   return out
+}
+
+/**
+ * Removes Spoon's temporary folders (old versions of files opened or compared, backups on their way
+ * to the Trash) left from earlier runs: anything over a day old, so files still open aren't pulled away.
+ */
+export async function cleanTempFolders(): Promise<void> {
+  const dir = tmpdir()
+  for (const name of await readdir(dir).catch(() => [] as string[])) {
+    if (!/^spoon-(at|backup)-/.test(name)) continue
+    const info = await stat(join(dir, name)).catch(() => null)
+    if (info && Date.now() - info.mtimeMs > 86_400_000) await rm(join(dir, name), { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 /** The files git tracks in a repository, relative to it. */

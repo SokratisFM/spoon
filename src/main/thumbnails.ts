@@ -29,8 +29,9 @@ export async function thumbnail(cwd: string, rel: string, hash: string | null, s
   if (hash) {
     const key = `${cwd}|${hash}|${rel}|${size}`
     if (cache.has(key)) return cache.get(key) ?? null
+    // A failure (git busy, a filter missing) isn't remembered: the next look tries again.
     const tmp = await git.fileAtCommitToTemp(cwd, hash, rel).catch(() => null)
-    if (!tmp) return remember(key, null)
+    if (!tmp) return null
     try {
       return remember(key, await thumbnailOf(tmp, size))
     } finally {

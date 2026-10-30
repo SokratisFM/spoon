@@ -37,13 +37,19 @@ export function rememberProject(path: string): void {
   save([{ path, lastOpened: Date.now() }, ...projects.filter((p) => p.path !== path)])
 }
 
+// A removed project's other settings (Simple Mode, Unity exports) are dropped by their own modules.
+const forgotten = (paths: string[]): void =>
+  paths.forEach((path) => window.dispatchEvent(new CustomEvent<string>('spoon:project-forgotten', { detail: path })))
+
 export function forgetProject(path: string): void {
   save(projects.filter((p) => p.path !== path))
+  forgotten([path])
 }
 
 export function forgetProjects(paths: string[]): void {
   const drop = new Set(paths)
   save(projects.filter((p) => !drop.has(p.path)))
+  forgotten(paths)
 }
 
 export function useProjects(): Project[] {

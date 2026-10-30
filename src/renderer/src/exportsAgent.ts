@@ -106,6 +106,17 @@ export function useLinkedExports(): (path: string) => boolean {
 }
 let linkedVersion = 0
 
+// A project removed from Spoon takes its linked exports and what Spoon noted about them with it.
+window.addEventListener('spoon:project-forgotten', (e) => {
+  const path = (e as CustomEvent<string>).detail
+  for (const kind of ['', 'auto', 'handled', 'wrote', 'skipNew', 'base']) storage.removeItem(key(kind, path))
+  states.delete(path)
+  setExportSources(path, null)
+  void window.spoon.forgetExportRuns(path).catch(() => undefined)
+  linkedVersion++
+  notify()
+})
+
 // ---------- generations ----------
 
 // Bumped when a repository's exports are linked differently or its agent stops: work started before

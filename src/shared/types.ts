@@ -64,8 +64,8 @@ export interface ExportLink {
   sourceHash?: string
   /** The copy is as Unity's export run wrote it (not edited since, whatever the save times say). */
   inRun?: boolean
-  /** linked: the export is a symlink to the source; else a copy, the same or with one side edited. */
-  state: 'linked' | 'same' | 'export-newer' | 'source-newer'
+  /** linked: the export is a symlink to the source (dangling: to one that's gone); else a copy, the same or with one side edited. */
+  state: 'linked' | 'dangling' | 'same' | 'export-newer' | 'source-newer'
   /** When the export's copy was last saved: an edit already brought back (or set aside) keeps its time. */
   exportMtime: number
   /** When the source was last saved: tells Spoon's own bring-back apart from your edits in Assets. */
@@ -675,7 +675,10 @@ export interface SpoonApi {
   onProgress(handler: (repo: string, line: string) => void): () => void
 
   /** Closes the window the way its close button would. */
-  closeWindow(): void
+  /** `afterUnsaved`: closing after "Don't Save" on unsaved edits; a quit that was held up goes on. */
+  closeWindow(afterUnsaved?: boolean): void
+  /** A background fetch that never waits for (or holds up) other git work; skipped while some runs. */
+  fetchQuietly(path: string): Promise<void>
   revealInFinder(path: string): Promise<void>
   openExternal(url: string): Promise<void>
   appInfo(): Promise<AppInfo>
@@ -737,6 +740,8 @@ export interface SpoonApi {
   openAtCommit(path: string, hash: string, rel: string): Promise<string>
   /** Unity projects: exported Android/iOS projects and their native files' sources under Assets/. */
   isUnityProject(path: string): Promise<boolean>
+  /** Forgets what Spoon noted about a repository's export runs (it was removed from Spoon). */
+  forgetExportRuns(path: string): Promise<void>
   findExports(path: string): Promise<ExportCandidate[]>
   scanExports(path: string, dirs: string[]): Promise<ExportLink[]>
   /** Watches the linked exports (an empty list stops); onExportsChanged hears about edits in them. */

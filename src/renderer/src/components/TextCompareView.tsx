@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DiffTarget } from '../../../shared/types'
 import { readStored, usePersistentState } from '../hooks'
 import * as storage from '../storage'
-import { textClosed, textKey, type TextSides } from '../compare'
+import { setLiveText, textClosed, textKey, type TextSides } from '../compare'
 import { checkJson, formatJson, type JsonCheck } from '../json'
 import { DiffView } from './DiffView'
 import { Split } from './Split'
@@ -82,6 +82,8 @@ export function TextCompareView({ id }: { id: string }) {
   // …and right away when the tab closes or Spoon quits, so the last edit isn't lost.
   const latest = useRef(sides)
   latest.current = sides
+  useEffect(() => setLiveText(id, JSON.stringify(sides)), [id, sides])
+  useEffect(() => () => setLiveText(id, null), [id])
   useEffect(() => {
     const save = (): void => void (!textClosed(id) && storage.setItem(textKey(id), JSON.stringify(latest.current)))
     window.addEventListener('beforeunload', save)

@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import type { CommitDetails, FileChange } from '../../../shared/types'
 import { fullDate, hueFor, initials } from '../format'
-import { useCachedAsync } from '../hooks'
+import { cleanError, useCachedAsync } from '../hooks'
 import { detailsCache } from '../repoCache'
 import { authorColorMap, useSettings } from '../settings'
 import { jiraConfig, jiraUrl, splitByTickets } from '../jira'
@@ -51,11 +51,14 @@ async function fileMenu(path: string, d: CommitDetails, f: FileChange, ops: Ops)
   if (choice === 'edit') openFileEditor({ repo: path, file: f.path, at })
   else if (choice === 'view') openFileEditor({ repo: path, file: f.path, at, show: 'commit' })
   else if (choice === 'default') window.spoon.openWithDefaultApp(path, f.path)
-  else if (choice === 'compare-working')
-    requestCompare(await window.spoon.fileAtCommitToTemp(path, d.hash, f.path), `${path}/${f.path}`)
-  else if (choice === 'compare') {
-    const other = await window.spoon.pickFile(`Compare ${f.path} at ${short} with…`)
-    if (other) requestCompare(await window.spoon.fileAtCommitToTemp(path, d.hash, f.path), other)
+  else if (choice === 'compare-working' || choice === 'compare') {
+    const other = choice === 'compare' ? await window.spoon.pickFile(`Compare ${f.path} at ${short} with…`) : `${path}/${f.path}`
+    if (!other) return
+    try {
+      requestCompare(await window.spoon.fileAtCommitToTemp(path, d.hash, f.path), other)
+    } catch (err) {
+      await confirm({ message: `Couldn’t compare ${f.path}`, detail: cleanError(err), confirmLabel: 'OK' })
+    }
   } else if (choice === 'restore' && at) {
     const ok = await confirm({
       message: deleted ? `Restore ${f.path}?` : `Put the ${short} version of ${f.path} in your working copy?`,
@@ -99,6 +102,8 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
       )
     )
 
+  // Until this commit's details are in, ⌘E has nothing to open (never the previous commit's file).
+  if (!hash || error || !details) openShown.current = null
   if (!hash) return <div className="empty-state muted">Select a commit.</div>
   if (error) return <div className="empty-state error-text">{error}</div>
   if (!details) return <div className="panel" />

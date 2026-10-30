@@ -508,7 +508,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   // Simple Mode looks for the team's new saves by itself, without errors when offline.
   const fetchQuietly = async (): Promise<void> => {
     if (!repoRef.current?.remotes.length || opStateOf(path).busy) return
-    await window.spoon.fetch(path, false).catch(() => undefined)
+    await window.spoon.fetchQuietly(path).catch(() => undefined)
     await load()
   }
 
