@@ -887,6 +887,33 @@ export async function createBranch(cwd: string, name: string, base: string): Pro
   await exclusive(cwd, () => git(cwd, ['branch', '--no-track', name, base]))
 }
 
+// ---------- MainLib releases ----------
+
+/** Where the MainLib repository keeps its version (a Unity resource the library reads at runtime). */
+const MAINLIB_VERSION_FILE = 'Version/Resources/mainlib-version.txt'
+
+/** The MainLib version in a repository that is MainLib (has its version file), or null. */
+export async function mainlibVersion(cwd: string): Promise<string | null> {
+  const text = await readFile(join(cwd, MAINLIB_VERSION_FILE), 'utf8').catch(() => null)
+  return text === null ? null : text.trim()
+}
+
+/**
+ * Writes a new version into the MainLib version file (keeping its line ending) and commits just that
+ * file as "bumping version to <version>", on the branch that's checked out.
+ */
+export async function bumpMainlibVersion(cwd: string, version: string): Promise<void> {
+  if (!/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Not a version: ${version}`)
+  const file = join(cwd, MAINLIB_VERSION_FILE)
+  await exclusive(cwd, async () => {
+    const old = await readFile(file, 'utf8')
+    const ending = /\r\n$/.test(old) ? '\r\n' : /\n$/.test(old) ? '\n' : ''
+    await writeFile(file, version + ending)
+    // --only: whatever else is staged stays out of this commit.
+    await run(cwd, ['commit', '-F', '-', '--only', '--', MAINLIB_VERSION_FILE], { input: `bumping version to ${version}` })
+  })
+}
+
 /** git's user.name for the repository (its own config, else the global one), or "". */
 export async function userName(cwd: string): Promise<string> {
   return (await git(cwd, ['config', '--get', 'user.name'], [0, 1])).trim()

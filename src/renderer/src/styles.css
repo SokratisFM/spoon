@@ -7856,3 +7856,20 @@ kbd.setting-key {
 .nt-mode button {
   white-space: nowrap;
 }
+
+.nb-checkout {
+  white-space: nowrap;
+}
+.nb-checkout + .nb-checkout {
+  margin-left: 0.8rem;
+}
+.nb-release-row .nb-version {
+  flex: 1;
+}
+.nb-release-toggles {
+  gap: 1.2rem;
+  margin-top: 0.2rem;
+}
+.nb-release-toggles .nb-checkout + .nb-checkout {
+  margin-left: 0;
+}

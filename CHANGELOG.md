@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.39.0 — 2026-10-30
+
+- **New:** `⇧⌘B` opens New branch too, as in Fork.
+- **New:** In the MainLib repository, New branch has a third option, "New MainLib release": type the version (or pick the next patch, minor or major), and Spoon makes `candidates/<version>` from the branch you choose, checks it out and, with "Bump the version and commit" on, writes it into `Version/Resources/mainlib-version.txt` and commits just that as "bumping version to <version>".
+
 ## 0.38.3 — 2026-10-30
 
 - **New:** Create the Jira ticket and its branch in one go: in New branch (`⌘N`), pick "Create a new ticket", fill in the project, type (Task, Bug or Defect), title, description (Markdown) and fix version, then the branch is made for the new ticket (a bug or defect makes it a "fix"). Defaults for each live in Settings → Accounts → New tickets. If a ticket type needs fields Spoon can't set, it says so before you create it.

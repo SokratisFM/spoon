@@ -2,6 +2,8 @@
 // ("{type}/{dev}/{ticket}/{description}"); each /-separated part is its own box, filled in from the
 // ticket, git's user.name and (with an Atlassian account) the ticket's title. Every part stays editable.
 // With "New ticket", the ticket is created in Jira first (NewTicketForm), then the branch for it.
+// In the MainLib repository, "New MainLib release" makes candidates/<version> instead, and can bump
+// the version file and commit that on it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NewTicketForm, type CreatedTicket } from './NewTicketForm'
 import type { JiraIssue, RepoState } from '../../../shared/types'
@@ -78,7 +80,13 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const [creating, setCreating] = useState(false)
   const firstEmpty = useRef<HTMLInputElement | null>(null)
   // A ticket to create first (step 1), or one that exists already (pasted, or just created).
-  const [mode, setMode] = usePersistentState<'existing' | 'create'>('spoon.newBranch.mode', 'existing')
+  const [savedMode, setMode] = usePersistentState<'existing' | 'create' | 'release'>('spoon.newBranch.mode', 'existing')
+  // The MainLib version, when this repository is MainLib (only then is there a release to make).
+  const [mainlibNow, setMainlibNow] = useState<string | null>(null)
+  const mode = savedMode === 'release' && mainlibNow === null ? 'existing' : savedMode
+  const release = mode === 'release'
+  const [version, setVersion] = useState('')
+  const [bump, setBump] = usePersistentState('spoon.newBranch.bump', true)
   const [created, setCreated] = useState<CreatedTicket | null>(null)
   const ticketStep = mode === 'create' && !created
   const submitTicket = useRef<() => void>(() => undefined)
@@ -90,8 +98,10 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     Promise.all([
       window.spoon.readClipboard().catch(() => ''),
       window.spoon.userName(path).catch(() => ''),
-      window.spoon.atlassianAccount().catch(() => null)
-    ]).then(([clip, name, account]) => {
+      window.spoon.atlassianAccount().catch(() => null),
+      window.spoon.mainlibVersion(path).catch(() => null)
+    ]).then(([clip, name, account, mainlib]) => {
+      setMainlibNow(mainlib)
       // A Jira link just copied: that's the ticket, so there's none to create.
       if (/jira|atlassian/i.test(clip) && clip.length < 500 && ticketFrom(clip)) {
         setTicketText(clip.trim())
@@ -162,7 +172,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     .join('/')
   const locals = repo.refs.filter((r) => r.kind === 'head')
   const remotes = repo.refs.filter((r) => r.kind === 'remote' && !r.name.endsWith('/HEAD'))
-  const exists = locals.some((r) => r.name === name)
+  const releaseName = `${s.mainlibPrefix}${version.trim()}`
+  const exists = locals.some((r) => r.name === (release ? releaseName : name))
 
   // Starts from the branch in Settings (develop): the local one if it's up to date, else its remote copy.
   const defaultBase = useMemo(() => {
@@ -177,7 +188,15 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const [base, setBase] = useState(defaultBase)
   const baseRef = [...locals, ...remotes].find((r) => r.name === base)
 
-  const problem = !name
+  const problem = release
+    ? !/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(version.trim())
+      ? 'Type the version, like 4.3.0.'
+      : exists
+        ? `${releaseName} already exists.`
+        : !base
+          ? 'Pick the branch to start from.'
+          : null
+    : !name
       ? 'Fill in at least one part.'
       : exists
         ? `${name} already exists.`
@@ -189,6 +208,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const started = !!key || Object.keys(typed).length > 0
 
   const create = async (): Promise<void> => {
+    if (release) return createRelease()
     if (problem || creating) return
     // The dialog stays until it worked, so a failure doesn't lose what was filled in.
     setCreating(true)
@@ -198,6 +218,32 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     onClose()
     if (checkout) ops.checkout({ kind: 'branch', name }, name)
   }
+
+  // A MainLib release: candidates/<version>, checked out, and (with the toggle) the version file bumped
+  // and committed there, one step after the other.
+  const createRelease = async (): Promise<void> => {
+    if (problem || creating) return
+    const v = version.trim()
+    setCreating(true)
+    const ok = await ops.run(
+      `Creating ${releaseName}…`,
+      async () => {
+        await window.spoon.createBranch(path, releaseName, base)
+        if (checkout || bump) await window.spoon.checkout(path, { kind: 'branch', name: releaseName })
+        if (bump) await window.spoon.bumpMainlibVersion(path, v)
+      },
+      'Couldn’t make the release branch'
+    )
+    setCreating(false)
+    if (ok) onClose()
+  }
+  // The next patch, minor and major version after the current one.
+  const nextVersions = ((): string[] => {
+    const m = /^(\d+)\.(\d+)\.(\d+)/.exec(mainlibNow ?? '')
+    if (!m) return []
+    const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])]
+    return [`${a}.${b}.${c + 1}`, `${a}.${b + 1}.0`, `${a + 1}.0.0`]
+  })()
 
   // Focus goes to the first part still to fill in (the ticket field when there's no ticket yet).
   const ticketInput = useRef<HTMLInputElement>(null)
@@ -220,10 +266,65 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     if (!ticketState.busy) onClose()
   }
 
+  // Where the new branch starts: the same for every kind of branch.
+  const basedOn = (
+    <div className="field">
+      <span className="field-label">Based on</span>
+      <select value={base} onChange={(e) => setBase(e.target.value)}>
+        {locals.length > 0 && (
+          <optgroup label="Branches">
+            {locals.map((r) => (
+              <option key={r.name} value={r.name}>
+                {r.name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {remotes.length > 0 && (
+          <optgroup label="Remote branches">
+            {remotes.map((r) => (
+              <option key={r.name} value={r.name}>
+                {r.name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+      {baseRef?.kind === 'head' && !!baseRef.behind && (
+        <span className="hint warn">
+          {base} is {baseRef.behind} commit{baseRef.behind === 1 ? '' : 's'} behind {baseRef.upstream}.
+        </span>
+      )}
+    </div>
+  )
+
+  // After creating: check out, and (for a MainLib release) bump the version; in the footer, or for a
+  // release (two of them) under Based on.
+  const toggles = (
+    <>
+      <label className="check nb-checkout">
+        <input
+          type="checkbox"
+          checked={checkout || (release && bump)}
+          disabled={release && bump}
+          title={release && bump ? 'Bumping the version commits on the new branch, so it’s checked out' : undefined}
+          onChange={(e) => setCheckout(e.target.checked)}
+        />
+        Check out after creating
+      </label>
+      {release && (
+        <label className="check nb-checkout" title={`Write the version into Version/Resources/mainlib-version.txt and commit it as “bumping version to ${version.trim() || '…'}”`}>
+          <input type="checkbox" checked={bump} onChange={(e) => setBump(e.target.checked)} />
+          Bump the version and commit
+        </label>
+      )}
+    </>
+  )
+
   let firstEmptySet = false
   return (
     <Modal
-      title={mode === 'create' ? 'New ticket and branch' : 'New branch from ticket'}
+      title={release ? 'New MainLib release' : mode === 'create' ? 'New ticket and branch' : 'New branch from ticket'}
       titleExtra={
         mode === 'create' ? (
           <span className="nt-steps">
@@ -232,7 +333,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
             <span className={ticketStep ? '' : 'now'}>2 Branch</span>
           </span>
         ) : (
-          keys('⌘N')
+          `${keys('⌘N')} · ${keys('⇧⌘B')}`
         )
       }
       onClose={close}
@@ -252,15 +353,12 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
           </>
         ) : (
         <>
-          <label className="check nb-checkout">
-            <input type="checkbox" checked={checkout} onChange={(e) => setCheckout(e.target.checked)} />
-            Check out after creating
-          </label>
+          {!release && toggles}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
           <button className="btn primary" onClick={create} disabled={!!problem || creating} title={problem ?? undefined}>
-            Create branch
+            {release && !problem ? `Create ${releaseName}` : 'Create branch'}
           </button>
         </>
         )
@@ -279,9 +377,62 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
           >
             Create a new ticket
           </button>
+          {mainlibNow !== null && (
+            <button className={release ? 'on' : ''} onClick={() => setMode('release')}>
+              New MainLib release
+            </button>
+          )}
         </div>
       )}
-      {ticketStep ? (
+      {release ? (
+        <>
+          <div className="field">
+            <span className="field-label">Version</span>
+            <div className="form-row nb-release-row">
+              <input
+                className="mono nb-version"
+                value={version}
+                autoFocus
+                placeholder={nextVersions[1] ?? '4.3.0'}
+                spellCheck={false}
+                onChange={(e) => setVersion(e.target.value.replace(/\s/g, ''))}
+              />
+              <span className="hint">now {mainlibNow || '—'}</span>
+              {nextVersions.map((v) => (
+                <button key={v} className={`nb-type ${version === v ? 'on' : ''}`} onClick={() => setVersion(v)}>
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="field">
+            <span className="field-label">Branch</span>
+            <div className="nb-segments">
+              <div className="nb-seg">
+                <span className="nb-seg-label">version branches</span>
+                <span className="mono nb-fixed">{s.mainlibPrefix}</span>
+              </div>
+              <div className="nb-seg-wrap grow">
+                <div className="nb-seg-col">
+                  <div className={`nb-seg ${version.trim() ? '' : 'empty'}`}>
+                    <span className="nb-seg-label">version</span>
+                    <span className="mono">{version.trim() || <span className="faint">version</span>}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <span className={`hint nb-name ${problem && version ? 'warn' : ''}`}>
+              {problem && version
+                ? problem
+                : bump && version.trim()
+                  ? `Then mainlib-version.txt goes ${mainlibNow || '?'} → ${version.trim()}, committed as “bumping version to ${version.trim()}”.`
+                  : 'The prefix is Settings → MainLib → Version branches.'}
+            </span>
+          </div>
+          {basedOn}
+          <div className="form-row nb-release-toggles">{toggles}</div>
+        </>
+      ) : ticketStep ? (
         <NewTicketForm site={s.jiraSite} submit={submitTicket} onState={onTicketState} onCreated={ticketMade} />
       ) : (
       <>
@@ -388,34 +539,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
         </span>
       </div>
 
-      <div className="field">
-        <span className="field-label">Based on</span>
-        <select value={base} onChange={(e) => setBase(e.target.value)}>
-          {locals.length > 0 && (
-            <optgroup label="Branches">
-              {locals.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {remotes.length > 0 && (
-            <optgroup label="Remote branches">
-              {remotes.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-        {baseRef?.kind === 'head' && !!baseRef.behind && (
-          <span className="hint warn">
-            {base} is {baseRef.behind} commit{baseRef.behind === 1 ? '' : 's'} behind {baseRef.upstream}.
-          </span>
-        )}
-      </div>
+      {basedOn}
       </>
       )}
     </Modal>

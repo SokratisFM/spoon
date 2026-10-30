@@ -663,6 +663,10 @@ export interface SpoonApi {
   checkout(path: string, target: CheckoutTarget): Promise<void>
   /** A new branch at `base`, not tracking it (and not checked out). */
   createBranch(path: string, name: string, base: string): Promise<void>
+  /** The MainLib version, when this repository is MainLib (has Version/Resources/mainlib-version.txt); else null. */
+  mainlibVersion(path: string): Promise<string | null>
+  /** Writes a new MainLib version and commits just that file ("bumping version to …") on the checked-out branch. */
+  bumpMainlibVersion(path: string, version: string): Promise<void>
   /** git's user.name, or "". */
   userName(path: string): Promise<string>
   syncInfo(path: string): Promise<SyncInfo>

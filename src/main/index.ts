@@ -100,6 +100,8 @@ function buildMenu(): void {
           { label: 'Commit and Push', accelerator: 'CmdOrCtrl+Alt+Enter', click: () => send('commit-push') },
           { label: 'Discard Selected Changes…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('discard') },
           { label: 'New Branch from Ticket…', accelerator: 'CmdOrCtrl+N', click: () => send('new-branch') },
+          // Fork's shortcut for a new branch: the same popup.
+          { label: 'New Branch…', accelerator: 'CmdOrCtrl+Shift+B', click: () => send('new-branch') },
           { label: 'Open File in Spoon…', accelerator: 'CmdOrCtrl+E', click: () => send('open-file') },
           { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('new-tag') },
           { id: 'review', label: 'Review with Claude…', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('review') },
@@ -346,6 +348,8 @@ function registerIpc(): void {
   )
   ipcMain.handle('repo:checkout', (_e, path: string, target: CheckoutTarget) => git.checkout(path, target))
   ipcMain.handle('repo:createBranch', (_e, path: string, name: string, base: string) => git.createBranch(path, name, base))
+  ipcMain.handle('mainlib:version', (_e, path: string) => git.mainlibVersion(path))
+  ipcMain.handle('mainlib:bump', (_e, path: string, version: string) => git.bumpMainlibVersion(path, version))
   ipcMain.handle('repo:userName', (_e, path: string) => git.userName(path))
   ipcMain.handle('repo:syncInfo', (_e, path: string) => git.syncInfo(path))
   ipcMain.handle('repo:updateSubmodule', (_e, path: string, sub: string, backup?: string) =>
