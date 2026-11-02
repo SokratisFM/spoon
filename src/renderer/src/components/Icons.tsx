@@ -302,6 +302,12 @@ export const GridIcon = (p: P) => (
     <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2" />
   </Icon>
 )
+/** Grip dots: something you can drag. */
+export const DragIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01" strokeWidth={3} />
+  </Icon>
+)
 /** One box: a single list. */
 export const SingleIcon = (p: P) => (
   <Icon {...p}>

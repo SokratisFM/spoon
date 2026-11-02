@@ -104,6 +104,8 @@ export interface Settings {
   dialogPosition: DialogPosition
   /** Local changes as a folder tree instead of a flat list. */
   fileTree: boolean
+  /** Local Changes: files can be dragged between Unstaged and Staged. */
+  dragFiles: boolean
   diffSyntax: DiffSyntax
   /** Syntax colors taken from an IDE scheme (null: from Spoon's theme). */
   syntaxPalette: SyntaxPalette | null
@@ -188,6 +190,7 @@ const DEFAULTS: Settings = {
   headHighlight: 'band',
   dialogPosition: 'center',
   fileTree: false,
+  dragFiles: true,
   diffSyntax: 'full',
   syntaxPalette: null,
   syntaxFollowIde: true,

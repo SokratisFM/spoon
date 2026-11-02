@@ -87,9 +87,14 @@ interface Props {
   tree?: boolean
   /** Files to mark with a link icon, with its tooltip (sources of a Unity export's native files). */
   marks?: Map<string, string>
+  /** Rows can be dragged (to another list): the selection when the row is in it, else the row's file. */
+  draggable?: boolean
 }
 
-export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree, marks }: Props) {
+/** What a dragged row carries: its list's name is in the type (readable while dragging, unlike the data). */
+export const FILES_DRAG = 'application/x-spoon-files-'
+
+export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree, marks, draggable }: Props) {
   const settings = useSettings()
   const rowH = Math.round(rowHeight(settings) * 0.92)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -128,6 +133,19 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
   }, [rowH, virtualizer])
 
   const selectedFiles = (): FileChange[] => allFiles.filter((f) => selected.has(f.path))
+  const pendingSingle = useRef<number | null>(null)
+  const dragProps = (list: FileChange[]) =>
+    draggable
+      ? {
+          draggable: true,
+          onDragStart: (e: React.DragEvent) => {
+            pendingSingle.current = null
+            e.dataTransfer.effectAllowed = 'move'
+            e.dataTransfer.setData(`${FILES_DRAG}${area ?? 'list'}`, JSON.stringify(list.map((f) => f.path)))
+            e.dataTransfer.setData('text/plain', list.map((f) => f.path).join('\n'))
+          }
+        }
+      : {}
 
   const click = (index: number, e: React.MouseEvent): void => {
     // ⌃-click on a Mac is a right-click; the context menu decides what it applies to.
@@ -140,6 +158,12 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
       return
     }
     anchor.current = index
+    // A press on a selected row may start dragging the whole selection: it becomes the only one
+    // selected on release instead, if no drag started.
+    if (draggable && e.button === 0 && !e.metaKey && !e.ctrlKey && selected.has(f.path) && selected.size > 1) {
+      pendingSingle.current = index
+      return
+    }
     if (e.metaKey || e.ctrlKey) {
       const next = new Set(selected)
       if (next.has(f.path)) next.delete(f.path)
@@ -235,6 +259,7 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
                   onSelect(inside, r.files[0])
                 }}
                 onDoubleClick={() => onActivate?.(r.files)}
+                {...dragProps(r.files)}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   onContextMenu?.(r.files)
@@ -266,7 +291,13 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
               className={`file-row ${selected.has(f.path) ? 'selected' : ''} ${f.path === focused && focusDir === null ? 'focused' : ''}`}
               style={{ transform: `translateY(${v.start}px)`, height: rowH, ...(tree ? { paddingLeft: `calc(0.6rem + ${r.depth * 1.1}rem + 1.25rem)` } : {}) }}
               onMouseDown={(e) => click(index, e)}
+              onMouseUp={() => {
+                if (pendingSingle.current !== index) return
+                pendingSingle.current = null
+                onSelect(new Set([f.path]), f)
+              }}
               onDoubleClick={() => onActivate?.([f])}
+              {...dragProps(selected.has(f.path) ? selectedFiles() : [f])}
               onContextMenu={(e) => {
                 e.preventDefault()
                 onContextMenu?.(selected.has(f.path) ? selectedFiles() : [f])

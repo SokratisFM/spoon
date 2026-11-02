@@ -4,11 +4,11 @@ import { usePersistentState } from '../hooks'
 import { confirm } from '../dialogs'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
-import { FileList } from './FileList'
+import { FILES_DRAG, FileList } from './FileList'
 import { requestCompare } from '../compare'
 import { useExportMarks } from '../exportMarks'
 import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
-import { ListViewIcon, TreeViewIcon } from './Icons'
+import { DragIcon, ListViewIcon, TreeViewIcon } from './Icons'
 import { updateSettings, useSettings } from '../settings'
 import { DiffView, type HunkAction } from './DiffView'
 import { keys, mod, revealLabel } from '../platform'
@@ -246,6 +246,16 @@ export function ChangesView({
             <TreeViewIcon />
           </button>
         </span>
+        <span className="view-toggle" role="group" aria-label="Dragging files">
+          <button
+            className={settings.dragFiles ? 'on' : ''}
+            aria-pressed={settings.dragFiles}
+            title={settings.dragFiles ? 'Files can be dragged between Unstaged and Staged (click to turn off)' : 'Drag files between Unstaged and Staged'}
+            onClick={() => updateSettings({ dragFiles: !settings.dragFiles })}
+          >
+            <DragIcon />
+          </button>
+        </span>
         <button
           className="mini-btn"
           disabled={!selected.length}
@@ -282,18 +292,50 @@ export function ChangesView({
       area={area}
       tree={settings.fileTree}
       marks={exportMarks}
+      draggable={settings.dragFiles}
     />
   )
+
+  // A list takes files dragged from the other one: dropped on Staged they're staged, on Unstaged unstaged.
+  const [dropOn, setDropOn] = useState<Area | null>(null)
+  const dropTarget = (area: Area) => {
+    const from: Area = area === 'staged' ? 'unstaged' : 'staged'
+    const type = `${FILES_DRAG}${from}`
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        if (!settings.dragFiles || !e.dataTransfer.types.includes(type)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (dropOn !== area) setDropOn(area)
+      },
+      onDragLeave: (e: React.DragEvent) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropOn((d) => (d === area ? null : d))
+      },
+      onDrop: (e: React.DragEvent) => {
+        setDropOn(null)
+        if (!e.dataTransfer.types.includes(type)) return
+        e.preventDefault()
+        let paths: string[] = []
+        try {
+          paths = JSON.parse(e.dataTransfer.getData(type)) as string[]
+        } catch {
+          return
+        }
+        const files = tree[from].filter((f) => paths.includes(f.path))
+        if (files.length) (area === 'staged' ? stage : unstage)(files)
+      }
+    }
+  }
 
   return (
     <Split id="changes" direction="row" mode="fraction" initial={0.36} min={0.18} max={0.7}>
       <div className="panel changes-left">
         <Split id="changes-lists" direction="column" mode="fraction" initial={0.55} min={0.15} max={0.85}>
-          <div className="panel">
+          <div className={`panel ${dropOn === 'unstaged' ? 'drop-target' : ''}`} {...dropTarget('unstaged')}>
             {header('unstaged', 'Unstaged')}
             {list('unstaged', 'No unstaged changes.')}
           </div>
-          <div className="panel">
+          <div className={`panel ${dropOn === 'staged' ? 'drop-target' : ''}`} {...dropTarget('staged')}>
             {header('staged', 'Staged')}
             {list('staged', 'Nothing staged.')}
           </div>
