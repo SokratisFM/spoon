@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
-import { getSettings, resetScale, SCALE_STEP, updateSettings, useSettings } from './settings'
+import { getSettings, resetScale, SCALE_STEP, setTabColor, TAB_PALETTE, tabColorFor, updateSettings, useSettings } from './settings'
 import { ideSchemes } from './syntax'
 import { RepoView } from './components/RepoView'
 import { GitHistoryDialog } from './components/GitHistoryDialog'
@@ -382,10 +382,12 @@ export function App() {
     const textTab = !!compareTextId(path)
     const name = files ? `${fileName(files[0])} ↔ ${fileName(files[1])}` : textTab ? 'Text compare' : projectName(path)
     const parent = parents[path]
+    const color = files || textTab ? null : tabColorFor(settings, projectName(path))
     return (
       <div
         key={path}
-        className={`tab ${variant} ${path === current ? 'active' : ''}`}
+        className={`tab ${variant} ${path === current ? 'active' : ''} ${color ? 'colored' : ''}`}
+        style={color ? ({ '--tab-color': color } as React.CSSProperties) : undefined}
         onClick={() => setActive(path)}
         onAuxClick={(e) => e.button === 1 && closeTab(path)}
         onContextMenu={(e) => tabMenu(e, path)}
@@ -460,6 +462,10 @@ export function App() {
     e.stopPropagation()
     const order = tabOrder
     const after = order.slice(order.indexOf(path) + 1)
+    // Repositories (and submodules) can be colored, by name; compare tabs can't.
+    const colorable = !compareFiles(path) && !compareTextId(path)
+    const name = projectName(path)
+    const colorNow = colorable ? tabColorFor(settings, name) : null
     const choice = await contextMenu([
       { id: 'close', label: 'Close Tab' },
       { id: 'others', label: 'Close Other Tabs', enabled: tabs.length > 1 },
@@ -467,9 +473,22 @@ export function App() {
       { separator: true },
       { id: 'reveal', label: revealLabel, enabled: !compareTextId(path) },
       { id: 'copy', label: 'Copy Path', enabled: !compareTextId(path) },
+      ...(colorable
+        ? [
+            { separator: true },
+            { label: `Tab Color for “${name}”`, enabled: false },
+            {
+              swatches: [
+                ...TAB_PALETTE.map((c) => ({ id: `color:${c.color}`, color: c.color, label: c.label, checked: c.color === colorNow })),
+                { id: 'color:none', color: null, label: 'No color', checked: !colorNow }
+              ]
+            }
+          ]
+        : []),
       ...submoduleTabItems()
     ])
     if (applyTabChoice(choice)) return
+    if (choice?.startsWith('color:')) return setTabColor(name, choice === 'color:none' ? null : choice.slice(6))
     if (choice === 'close') closeTab(path)
     else if (choice === 'others') {
       closeTabs(tabs.filter((p) => p !== path))

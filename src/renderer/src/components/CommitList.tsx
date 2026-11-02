@@ -7,7 +7,7 @@ import { authorColorMap, reservedPrefixes, rowHeight, updateSettings, useSetting
 import { FOLD } from '../squish'
 import { jiraConfig, jiraUrl, splitByTickets, ticketKeys, type JiraConfig } from '../jira'
 import { CheckoutIcon, ChevronIcon, CloseIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, StashIcon, TagIcon } from './Icons'
-import { stashMenu } from './stashMenu'
+import { dropStash, stashMenu } from './stashMenu'
 import type { Ops } from './RepoView'
 import { contextMenu } from '../menus'
 import { confirm } from '../dialogs'
@@ -27,7 +27,7 @@ interface Props {
   ops: Ops
   /** Commits that just arrived from a fetch/pull: they slide in and flash once. */
   fresh?: { hashes: Set<string>; n: number } | null
-  /** Backspace/Delete on a commit that carries a local branch asks to delete that branch. */
+  /** Backspace/Delete on a commit that carries a local branch asks to delete that branch (on a stash, the stash). */
   onDeleteBranch: (ref: Ref) => void
   /** Squish branches: shows a squished group's commits again. */
   onExpand: (key: string) => void
@@ -215,7 +215,10 @@ export const CommitList = memo(function CommitList({
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if ((e.key === 'Backspace' || e.key === 'Delete') && selected) {
       e.preventDefault()
-      pickLocalBranch(selected, 'Delete').then((ref) => ref && onDeleteBranch(ref))
+      // A stash's row deletes the stash; any other commit, its local branch.
+      const stash = repo.stashes.find((s) => s.hash === selected)
+      if (stash) void dropStash(stash, repo.path, ops)
+      else pickLocalBranch(selected, 'Delete').then((ref) => ref && onDeleteBranch(ref))
       return
     }
     if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && selected && !q) {

@@ -892,6 +892,21 @@ export async function createBranch(cwd: string, name: string, base: string): Pro
 /** Where the MainLib repository keeps its version (a Unity resource the library reads at runtime). */
 const MAINLIB_VERSION_FILE = 'Version/Resources/mainlib-version.txt'
 
+/**
+ * Branches checked out here, newest first and once each, from git's own record of HEAD (so checkouts
+ * made outside Spoon count too). Detached checkouts are left out; the caller keeps the branches that
+ * still exist.
+ */
+export async function recentCheckouts(cwd: string): Promise<string[]> {
+  const out = await git(cwd, ['reflog', 'show', '--format=%gs', '-n', '400', 'HEAD', '--']).catch(() => '')
+  const names: string[] = []
+  for (const line of out.split('\n')) {
+    const m = /^checkout: moving from .+ to (.+)$/.exec(line.trim())
+    if (m && !/^[0-9a-f]{7,40}$/.test(m[1]) && !names.includes(m[1])) names.push(m[1])
+  }
+  return names
+}
+
 /** The MainLib version in a repository that is MainLib (has its version file), or null. */
 export async function mainlibVersion(cwd: string): Promise<string | null> {
   const text = await readFile(join(cwd, MAINLIB_VERSION_FILE), 'utf8').catch(() => null)

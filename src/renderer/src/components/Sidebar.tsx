@@ -1,4 +1,4 @@
-import { memo, Fragment, useMemo, useState, type ReactNode } from 'react'
+import { memo, Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { SIDEBAR_SECTIONS, updateSettings, useSettings, type SidebarSection } from '../settings'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { confirm } from '../dialogs'
@@ -90,6 +90,19 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   const { repo, changeCount, view, onView, onJump, ops, subActions, prs, prError, selectedPr, onSelectPr, onDeleteBranch } = props
   // The ref picked in the sidebar (click), so Backspace/Delete know what to act on.
   const [picked, setPicked] = useState<string | null>(null)
+
+  // Recents: the last branches checked out here (from git's reflog), re-read when the branch changes.
+  const [checkedOut, setCheckedOut] = useState<string[]>([])
+  useEffect(() => {
+    let live = true
+    window.spoon.recentCheckouts(repo.path).then(
+      (names) => live && setCheckedOut(names),
+      () => live && setCheckedOut([])
+    )
+    return () => {
+      live = false
+    }
+  }, [repo.path, repo.headBranch])
   const settings = useSettings()
   const checkoutRef = (ref: Ref): void => {
     if (ref.kind === 'head') {
@@ -299,6 +312,40 @@ export const Sidebar = memo(function Sidebar(props: Props) {
                 )
               })
           ),
+
+    recents: (() => {
+      // The five before the current one, that still exist as local branches.
+      const recent = checkedOut
+        .filter((n) => n !== repo.headBranch)
+        .map((n) => repo.refs.find((r) => r.kind === 'head' && r.name === n))
+        .filter((r): r is Ref => !!r && match(r))
+        .slice(0, 5)
+      return section(
+        'recents',
+        'Recents',
+        recent.length,
+        recent.length ? (
+          recent.map((r) => (
+            <div
+              key={r.fullName}
+              className={`side-item ${picked === r.fullName ? 'picked' : ''}`}
+              style={{ paddingLeft: '1.85rem' }}
+              title={`${r.name}\nDouble-click to check out`}
+              onClick={() => (setPicked(r.fullName), onJump(r.target))}
+              onDoubleClick={() => checkoutRef(r)}
+              onContextMenu={(e) => refMenu(e, r)}
+            >
+              <HistoryIcon />
+              <span className="side-label">{r.name}</span>
+              {!!r.ahead && <span className="badge">↑{r.ahead}</span>}
+              {!!r.behind && <span className="badge">↓{r.behind}</span>}
+            </div>
+          ))
+        ) : (
+          <div className="side-empty">Branches you check out show up here.</div>
+        )
+      )
+    })(),
 
     branches: section(
           'branches',

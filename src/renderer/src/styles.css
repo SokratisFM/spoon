@@ -294,6 +294,19 @@ body.resizing .split-handle {
   color: var(--text);
   box-shadow: 0 0 0 1px var(--border), 0 1px 3px color-mix(in srgb, var(--shadow) 45%, transparent);
 }
+/* A colored tab: a dotted outline in its color, tinted with a solid outline while it's the open one. */
+.tab.colored {
+  outline: 2px dotted color-mix(in srgb, var(--tab-color) 85%, transparent);
+  outline-offset: -2px;
+}
+.tab.colored:hover:not(.active) {
+  background: color-mix(in srgb, var(--tab-color) 10%, transparent);
+}
+.tab.colored.active {
+  outline: 1.5px solid var(--tab-color);
+  background: color-mix(in srgb, var(--tab-color) 20%, var(--bg-elev));
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow) 45%, transparent);
+}
 .tab-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1966,6 +1979,18 @@ input[type='color']::-webkit-color-swatch {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+.tab-color-pick {
+  flex: none;
+}
+.author-row input:not([type]) {
+  flex: 1;
+  min-width: 0;
+}
+.tab-color-count {
+  flex: none;
+  width: 5.5rem;
+  font-size: 0.9em;
 }
 .author-list.disabled {
   opacity: 0.5;
@@ -5115,6 +5140,31 @@ select:hover {
 /* On the highlighted row the marks take the row's text colour, so they never vanish into the accent. */
 .ctx-item.active:not(:disabled) .ctx-icon {
   color: inherit;
+}
+.ctx-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.3rem 0.6rem 0.4rem 1.6rem;
+}
+.ctx-swatch {
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: default;
+}
+.ctx-swatch.none {
+  background: none;
+  border: 1.5px dotted var(--text-faint);
+}
+.ctx-swatch:hover {
+  transform: scale(1.15);
+}
+.ctx-swatch.on {
+  box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3.5px var(--text);
 }
 .ctx-label {
   flex: 1;

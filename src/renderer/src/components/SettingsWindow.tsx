@@ -14,6 +14,8 @@ import { knownAuthors } from '../authors'
 import { askPin, setSimpleConfig, SIMPLE_DEFAULTS, TYPE_GROUPS, useSimpleConfig } from '../simpleMode'
 import {
   SIDEBAR_SECTIONS,
+  TAB_PALETTE,
+  tabRule,
   activeTheme,
   SCALE_MAX,
   SCALE_MIN,
@@ -556,6 +558,7 @@ function AppearanceTab() {
           onChange={(submoduleTabs) => updateSettings({ submoduleTabs })}
         />
       </div>
+      <TabColorsField />
       <BranchColorsField />
       <SidebarSectionsField />
       <PullGroupsField />
@@ -689,6 +692,68 @@ function SidebarSectionsField() {
 const COLOR_NAMES = ['Color 1', 'Color 2', 'Color 3', 'Color 4', 'Color 5', 'Color 6', 'Color 7', 'Color 8']
 
 /** Reserve any of the 8 branch colors for one or more branch-name prefixes. */
+/** Tab colors by repository name: a swatch (click for the palette), the name or pattern, remove. */
+function TabColorsField() {
+  const s = useSettings()
+  const projects = useProjects()
+  const rules = s.tabColors
+  const update = (i: number, patch: Partial<{ name: string; color: string }>): void =>
+    updateSettings({ tabColors: rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
+  const pick = async (i: number): Promise<void> => {
+    const choice = await contextMenu([
+      {
+        swatches: [
+          ...TAB_PALETTE.map((c) => ({ id: c.color, color: c.color, label: c.label, checked: c.color === rules[i].color })),
+          { id: 'none', color: null, label: 'No color', checked: !rules[i].color }
+        ]
+      }
+    ])
+    if (choice) update(i, { color: choice === 'none' ? '' : choice })
+  }
+  // How many of your projects a name or pattern matches, as a hint that it's typed right.
+  const matches = (pattern: string): number => {
+    if (!pattern.trim()) return 0
+    const re = tabRule(pattern)
+    return new Set(projects.map((p) => projectName(p.path)).filter((n) => re.test(n))).size
+  }
+  return (
+    <div className="field">
+      <span className="field-label">Tab colors</span>
+      <span className="hint">
+        Color the tabs of repositories and submodules by their folder name; <code>*</code> matches any text. The open tab
+        is tinted, the others get a dotted outline. You can also right-click a tab.
+      </span>
+      <div className="author-list">
+        {rules.map((r, i) => (
+          <div key={i} className="author-row">
+            <button
+              className={`ctx-swatch tab-color-pick ${r.color ? '' : 'none'}`}
+              style={r.color ? ({ '--swatch': r.color } as React.CSSProperties) : undefined}
+              aria-label="Color"
+              onClick={() => void pick(i)}
+            />
+            <input value={r.name} placeholder="MainLib or Solitaire*" onChange={(e) => update(i, { name: e.target.value })} />
+            <span className="muted tab-color-count">
+              {r.name.trim() ? `${matches(r.name)} project${matches(r.name) === 1 ? '' : 's'}` : ''}
+            </span>
+            <button className="icon-btn" aria-label="Remove" onClick={() => updateSettings({ tabColors: rules.filter((_, j) => j !== i) })}>
+              <CloseIcon />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="form-row">
+        <button
+          className="btn"
+          onClick={() => updateSettings({ tabColors: [...rules, { name: '', color: TAB_PALETTE[rules.length % TAB_PALETTE.length].color }] })}
+        >
+          <PlusIcon /> Add name
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function BranchColorsField() {
   const s = useSettings()
   const colors = activeTheme(s).colors

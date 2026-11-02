@@ -14,9 +14,10 @@ export type TagDisplay = 'diamond' | 'badge' | 'chip' | 'all'
 /** How the checked-out commit stands out: tinted row with an edge bar, a HEAD label, or a glowing dot. */
 export type HeadHighlight = 'band' | 'pill' | 'ring'
 
-export type SidebarSection = 'submodules' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'stale' | 'behind' | 'exports'
+export type SidebarSection = 'submodules' | 'recents' | 'branches' | 'remotes' | 'tags' | 'stashes' | 'stale' | 'behind' | 'exports'
 export const SIDEBAR_SECTIONS: { id: SidebarSection; label: string }[] = [
   { id: 'submodules', label: 'Submodules' },
+  { id: 'recents', label: 'Recents' },
   { id: 'branches', label: 'Branches' },
   { id: 'remotes', label: 'Remotes' },
   { id: 'tags', label: 'Tags' },
@@ -24,6 +25,24 @@ export const SIDEBAR_SECTIONS: { id: SidebarSection; label: string }[] = [
   { id: 'stale', label: 'Stale branches' },
   { id: 'behind', label: 'Behind branches' },
   { id: 'exports', label: 'Exports (Unity)' }
+]
+
+/** A tab color for repositories (and submodules) by folder name; `*` matches any text. An empty color means none. */
+export interface TabColor {
+  name: string
+  color: string
+}
+
+/** The colors offered for tabs. */
+export const TAB_PALETTE: { label: string; color: string }[] = [
+  { label: 'Red', color: '#e5484d' },
+  { label: 'Orange', color: '#f76b15' },
+  { label: 'Yellow', color: '#e2b93b' },
+  { label: 'Green', color: '#46a758' },
+  { label: 'Teal', color: '#2fb59a' },
+  { label: 'Blue', color: '#3e8ef7' },
+  { label: 'Purple', color: '#8b7cf6' },
+  { label: 'Pink', color: '#e93d82' }
 ]
 
 export interface AuthorColor {
@@ -57,6 +76,8 @@ export interface Settings {
   customColors: Partial<Record<ColorKey, string>>
   authorColorsEnabled: boolean
   authorColors: AuthorColor[]
+  /** Tab colors by repository name: exact names win over patterns, then the first match counts. */
+  tabColors: TabColor[]
   /** Folder the project palette searches for repos you haven't opened yet. */
   scanFolder: string
   scanDepth: number
@@ -144,6 +165,7 @@ const DEFAULTS: Settings = {
   customColors: {},
   authorColorsEnabled: false,
   authorColors: [],
+  tabColors: [],
   scanFolder: '~',
   scanDepth: 3,
   scanNested: false,
@@ -201,12 +223,17 @@ function load(): Settings {
     // Themes from before named themes existed.
     if ((s.theme as string) === 'dark') s.theme = 'spoon-dark'
     if ((s.theme as string) === 'light') s.theme = 'spoon-light'
-    // Sections added in later versions go to the end, visible.
+    // Sections added in later versions go where they'd be by default (after the section before them), visible.
     const known = new Set(s.sidebarSections.map((x: { id: SidebarSection }) => x.id))
-    s.sidebarSections = [
-      ...s.sidebarSections.filter((x: { id: SidebarSection }) => SIDEBAR_SECTIONS.some((d) => d.id === x.id)),
-      ...SIDEBAR_SECTIONS.filter((d) => !known.has(d.id)).map((d) => ({ id: d.id, visible: true }))
-    ]
+    const list: { id: SidebarSection; visible: boolean }[] = s.sidebarSections.filter((x: { id: SidebarSection }) =>
+      SIDEBAR_SECTIONS.some((d) => d.id === x.id)
+    )
+    SIDEBAR_SECTIONS.forEach((d, i) => {
+      if (known.has(d.id)) return
+      const before = SIDEBAR_SECTIONS.slice(0, i).reverse().find((p) => list.some((x) => x.id === p.id))
+      list.splice(before ? list.findIndex((x) => x.id === before.id) + 1 : 0, 0, { id: d.id, visible: true })
+    })
+    s.sidebarSections = list
     return s
   } catch {
     return DEFAULTS
@@ -332,6 +359,33 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /** Color for a commit author, if author coloring is on and the author is listed. */
+/** A tab color name or pattern as a matcher (`*` is any text, case ignored). */
+export const tabRule = (pattern: string): RegExp =>
+  new RegExp(`^${pattern.trim().split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i')
+
+/** The rule that colors a tab named `name`: an exact name first, else the first pattern it matches. */
+export function tabColorRule(s: Settings, name: string): TabColor | null {
+  const rules = s.tabColors.filter((r) => r.name.trim())
+  return (
+    rules.find((r) => !r.name.includes('*') && r.name.trim().toLowerCase() === name.toLowerCase()) ??
+    rules.find((r) => r.name.includes('*') && tabRule(r.name).test(name)) ??
+    null
+  )
+}
+
+/** A tab's color, or null for the normal look. */
+export function tabColorFor(s: Settings, name: string): string | null {
+  return tabColorRule(s, name)?.color || null
+}
+
+/** Colors tabs named exactly `name` (null: none, even where a pattern would color them). */
+export function setTabColor(name: string, color: string | null): void {
+  const s = getSettings()
+  const rest = s.tabColors.filter((r) => r.name.includes('*') || r.name.trim().toLowerCase() !== name.toLowerCase())
+  const patterned = rest.some((r) => r.name.trim() && r.name.includes('*') && tabRule(r.name).test(name) && r.color)
+  updateSettings({ tabColors: color || patterned ? [{ name, color: color ?? '' }, ...rest] : rest })
+}
+
 export function authorColorMap(s: Settings): Map<string, string> | null {
   if (!s.authorColorsEnabled || s.authorColors.length === 0) return null
   return new Map(s.authorColors.filter((a) => a.name.trim()).map((a) => [a.name.trim().toLowerCase(), a.color]))

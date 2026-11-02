@@ -29,6 +29,7 @@ const api: SpoonApi = {
   checkout: (path, target) => ipcRenderer.invoke('repo:checkout', path, target),
   createBranch: (path, name, base) => ipcRenderer.invoke('repo:createBranch', path, name, base),
   mainlibVersion: (path) => ipcRenderer.invoke('mainlib:version', path),
+  recentCheckouts: (path) => ipcRenderer.invoke('repo:recentCheckouts', path),
   bumpMainlibVersion: (path, version) => ipcRenderer.invoke('mainlib:bump', path, version),
   userName: (path) => ipcRenderer.invoke('repo:userName', path),
   syncInfo: (path) => ipcRenderer.invoke('repo:syncInfo', path),

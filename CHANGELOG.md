@@ -4,6 +4,12 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.41.0 — 2026-11-02
+
+- **New:** Tab colors. Color a repository's or submodule's tab by its name: right-click the tab, or add names (`*` matches any text) in Settings → Appearance. The open tab is tinted; the others get a dotted outline in their color.
+- **New:** Recents in the sidebar: the last 5 branches you checked out in this repository (including outside Spoon). Click to show one, double-click to check it out; right-click the sidebar to hide it.
+- **Improved:** Backspace on a stash in All Commits asks to delete that stash, as it does for branches.
+
 ## 0.40.2 — 2026-11-02
 
 - **Improved:** The file popup widens to fit files with long lines, up to the window's width.

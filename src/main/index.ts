@@ -349,6 +349,7 @@ function registerIpc(): void {
   ipcMain.handle('repo:checkout', (_e, path: string, target: CheckoutTarget) => git.checkout(path, target))
   ipcMain.handle('repo:createBranch', (_e, path: string, name: string, base: string) => git.createBranch(path, name, base))
   ipcMain.handle('mainlib:version', (_e, path: string) => git.mainlibVersion(path))
+  ipcMain.handle('repo:recentCheckouts', (_e, path: string) => git.recentCheckouts(path))
   ipcMain.handle('mainlib:bump', (_e, path: string, version: string) => git.bumpMainlibVersion(path, version))
   ipcMain.handle('repo:userName', (_e, path: string) => git.userName(path))
   ipcMain.handle('repo:syncInfo', (_e, path: string) => git.syncInfo(path))

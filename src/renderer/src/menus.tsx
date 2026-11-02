@@ -167,6 +167,19 @@ export function MenuHost() {
         {open.items.map((it, i) =>
           it.separator ? (
             <div key={i} className="ctx-sep" role="separator" />
+          ) : it.swatches ? (
+            <div key={i} className="ctx-swatches">
+              {it.swatches.map((sw) => (
+                <button
+                  key={sw.id}
+                  className={`ctx-swatch ${sw.color ? '' : 'none'} ${sw.checked ? 'on' : ''}`}
+                  style={sw.color ? ({ '--swatch': sw.color } as React.CSSProperties) : undefined}
+                  title={sw.label}
+                  aria-label={sw.label}
+                  onClick={() => close(sw.id)}
+                />
+              ))}
+            </div>
           ) : !it.id && it.enabled === false ? (
             <div key={i} className="ctx-heading">
               {it.label}

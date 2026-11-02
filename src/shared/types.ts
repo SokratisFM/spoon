@@ -497,6 +497,8 @@ export interface MenuItem {
   accelerator?: string
   /** The service the item goes to, drawn on its left. */
   icon?: 'jira' | 'github' | 'claude'
+  /** A row of color swatches instead of a label: picking one answers its id (a null color is "none"). */
+  swatches?: { id: string; color: string | null; label: string; checked?: boolean }[]
 }
 
 // ---------- GitHub ----------
@@ -667,6 +669,8 @@ export interface SpoonApi {
   createBranch(path: string, name: string, base: string): Promise<void>
   /** The MainLib version, when this repository is MainLib (has Version/Resources/mainlib-version.txt); else null. */
   mainlibVersion(path: string): Promise<string | null>
+  /** Branches checked out in the repository, newest first (from its reflog). */
+  recentCheckouts(path: string): Promise<string[]>
   /** Writes a new MainLib version and commits just that file ("bumping version to …") on the checked-out branch. */
   bumpMainlibVersion(path: string, version: string): Promise<void>
   /** git's user.name, or "". */

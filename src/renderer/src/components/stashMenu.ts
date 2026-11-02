@@ -25,13 +25,16 @@ export async function stashMenu(stash: Stash, path: string, ops: Ops, onShow?: (
     )
   else if (choice === 'show') onShow?.()
   else if (choice === 'copy') navigator.clipboard.writeText(stashTitle(stash))
-  else if (choice === 'drop') {
-    const ok = await confirm({
-      message: `Delete the stash “${stashTitle(stash)}”?`,
-      detail: 'Its changes are gone once it’s deleted.',
-      confirmLabel: 'Delete',
-      risky: true
-    })
-    if (ok) ops.run('Deleting stash…', () => window.spoon.stashDrop(path, stash.name, stash.hash), 'Couldn’t delete the stash')
-  }
+  else if (choice === 'drop') await dropStash(stash, path, ops)
+}
+
+/** Asks, then deletes the stash (Delete Stash…, or Backspace on its row in the history). */
+export async function dropStash(stash: Stash, path: string, ops: Ops): Promise<void> {
+  const ok = await confirm({
+    message: `Delete the stash “${stashTitle(stash)}”?`,
+    detail: 'Its changes are gone once it’s deleted.',
+    confirmLabel: 'Delete',
+    risky: true
+  })
+  if (ok) ops.run('Deleting stash…', () => window.spoon.stashDrop(path, stash.name, stash.hash), 'Couldn’t delete the stash')
 }
