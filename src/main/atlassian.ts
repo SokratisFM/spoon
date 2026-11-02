@@ -390,7 +390,7 @@ export async function jiraCreate(site: string, t: JiraNewIssue): Promise<{ key: 
 
 // ---------- Markdown → Atlassian Document Format ----------
 
-type AdfNode = { type: string; attrs?: Record<string, unknown>; content?: AdfNode[]; text?: string; marks?: { type: string; attrs?: Record<string, unknown> }[] }
+type AdfNode = { type: string; version?: number; attrs?: Record<string, unknown>; content?: AdfNode[]; text?: string; marks?: { type: string; attrs?: Record<string, unknown> }[] }
 
 /** **bold**, *italic*, `code` and [links](https://…) inside a line. */
 function inline(text: string): AdfNode[] {
@@ -457,5 +457,6 @@ export function markdownToAdf(md: string): AdfNode {
     }
     if (para.length) content.push({ type: 'paragraph', content: para })
   }
-  return { type: 'doc', attrs: { version: 1 }, content } as AdfNode
+  // The version is the document's own field, not an attribute: Jira rejects the whole description otherwise.
+  return { version: 1, type: 'doc', content }
 }

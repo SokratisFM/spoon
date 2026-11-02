@@ -4,6 +4,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MenuItem } from '../../shared/types'
 import { keys } from './platform'
+import { ClaudeIcon, GitHubLogoIcon, JiraLogoIcon } from './components/Icons'
+
+const ICONS = { jira: JiraLogoIcon, github: GitHubLogoIcon, claude: ClaudeIcon }
 
 interface Open {
   items: MenuItem[]
@@ -179,7 +182,12 @@ export function MenuHost() {
               onMouseLeave={() => setActive(-1)}
               onClick={() => close(it.id ?? null)}
             >
-              <span className="ctx-mark">{it.kind && it.checked ? (it.kind === 'radio' ? '•' : '✓') : ''}</span>
+              <span className={`ctx-mark ${it.icon ? `ctx-icon ${it.icon}` : ''}`}>
+                {it.kind && it.checked ? (it.kind === 'radio' ? '•' : '✓') : it.icon ? (() => {
+                  const I = ICONS[it.icon]
+                  return <I />
+                })() : ''}
+              </span>
               <span className="ctx-label">{it.label}</span>
               {it.accelerator && <kbd className="ctx-key">{shortcut(it.accelerator)}</kbd>}
             </button>

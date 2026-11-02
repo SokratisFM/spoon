@@ -5094,6 +5094,25 @@ select:hover {
   text-align: center;
   font-size: 0.9em;
 }
+.ctx-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ctx-icon .icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+.ctx-icon.jira {
+  color: #2684ff;
+}
+.ctx-icon.claude {
+  color: #d97757;
+}
+/* On the highlighted row the marks take the row's text colour, so they never vanish into the accent. */
+.ctx-item.active:not(:disabled) .ctx-icon {
+  color: inherit;
+}
 .ctx-label {
   flex: 1;
   min-width: 0;

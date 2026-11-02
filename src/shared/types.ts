@@ -495,6 +495,8 @@ export interface MenuItem {
   checked?: boolean
   /** Shortcut shown beside the item (display only; the app menu owns the real shortcut). */
   accelerator?: string
+  /** The service the item goes to, drawn on its left. */
+  icon?: 'jira' | 'github' | 'claude'
 }
 
 // ---------- GitHub ----------

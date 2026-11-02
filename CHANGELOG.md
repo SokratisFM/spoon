@@ -4,6 +4,13 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.40.0 — 2026-11-02
+
+- **New:** Right-click a commit or branch with an open pull request to open it in Spoon (“Open Pull Request #…”, under “Open … in Jira”). Branches that already have one no longer offer “Create Pull Request”.
+- **Improved:** Jira, GitHub and Claude items in right-click menus have their icons.
+- **Improved:** Clicking a ticket key in a branch name asks before opening Jira (Enter opens it).
+- **Fixed:** Creating a Jira ticket with a description no longer fails with “The field value is not valid Atlassian Document Format (ADF) content”.
+
 ## 0.39.0 — 2026-10-30
 
 - **New:** `⇧⌘B` opens New branch too, as in Fork.

@@ -10,6 +10,7 @@ import { CheckoutIcon, ChevronIcon, CloseIcon, CloudIcon, CloudOffIcon, CopyIcon
 import { stashMenu } from './stashMenu'
 import type { Ops } from './RepoView'
 import { contextMenu } from '../menus'
+import { confirm } from '../dialogs'
 import { isMac, keys } from '../platform'
 
 const MAX_GRAPH_LANES = 14
@@ -32,6 +33,12 @@ interface Props {
   onExpand: (key: string) => void
   /** ← / →: fold or open the run of the selected commit's branch. */
   onFoldRun: (hash: string, fold: boolean) => void
+}
+
+/** A ticket key in a branch name, clicked: easy to hit by accident, so it asks first (Enter opens it). */
+async function openTicket(jira: JiraConfig, key: string): Promise<void> {
+  if (await confirm({ message: `Open ${key} in Jira?`, detail: jiraUrl(jira, key), confirmLabel: 'Yes', enterConfirms: true }))
+    window.spoon.openExternal(jiraUrl(jira, key))
 }
 
 interface Badge {
@@ -286,12 +293,13 @@ export const CommitList = memo(function CommitList({
               ])
             ]
           : []),
+        // A branch that already has an open pull request gets "Open Pull Request" (below) instead.
         ...(ops.createPull
           ? branches
               .concat((badges.get(c.hash) ?? []).filter((b) => b.kind === 'head' && b.current))
-              .filter((b) => b.kind === 'head')
+              .filter((b) => b.kind === 'head' && !ops.pullFor(b.label))
               .slice(0, 3)
-              .map((b) => ({ id: `pr:${b.label}`, label: `Create Pull Request for ${b.label}…` }))
+              .map((b) => ({ id: `pr:${b.label}`, label: `Create Pull Request for ${b.label}…`, icon: 'github' as const }))
           : []),
         ...(repo.refs.some((r) => r.kind === 'head' && r.target === c.hash && r.name !== repo.headBranch)
           ? [{ separator: true }, { id: 'delete-branch', label: 'Delete Branch…' }]
@@ -299,7 +307,7 @@ export const CommitList = memo(function CommitList({
         { separator: true },
         { id: 'tag', label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G' },
         { separator: true },
-        ...(ops.review ? [{ id: 'review', label: 'Review This Commit with Claude…' }, { separator: true }] : []),
+        ...(ops.review ? [{ id: 'review', label: 'Review This Commit with Claude…', icon: 'claude' as const }, { separator: true }] : []),
         { id: 'hash', label: 'Copy Commit Hash' },
         { id: 'subject', label: 'Copy Commit Message' },
         // One "Copy" per branch on this commit (local and remote).
@@ -315,12 +323,28 @@ export const CommitList = memo(function CommitList({
             0,
             4
           )
-          return keys.length
+          // Open pull requests from the branches on this commit (local or remote), once each.
+          const pulls = [
+            ...new Map(
+              (badges.get(c.hash) ?? [])
+                .filter((b) => b.kind === 'head' || b.kind === 'remote')
+                .map((b) => ops.pullFor(b.shown))
+                .filter((p) => !!p)
+                .map((p) => [p.number, p])
+            ).values()
+          ].slice(0, 3)
+          return keys.length || pulls.length
             ? [
                 { separator: true },
                 ...keys.map((k) => ({
                   id: `jira:${k}`,
-                  label: `Open ${k} in Jira`
+                  label: `Open ${k} in Jira`,
+                  icon: 'jira' as const
+                })),
+                ...pulls.map((p) => ({
+                  id: `open-pr:${p.number}`,
+                  label: `Open Pull Request #${p.number}${p.draft ? ' (Draft)' : ''}`,
+                  icon: 'github' as const
                 }))
               ]
             : []
@@ -330,6 +354,7 @@ export const CommitList = memo(function CommitList({
       if (choice === 'review') return ops.review?.({ hash: c.hash, subject: c.subject })
       if (choice === 'tag') return ops.tag(c)
       if (choice.startsWith('pr:')) return ops.createPull?.(choice.slice(3))
+      if (choice.startsWith('open-pr:')) return ops.openPull(Number(choice.slice(8)))
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)
       if (choice.startsWith('copy:')) return void navigator.clipboard.writeText(choice.slice(5))
@@ -641,7 +666,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
                     onDoubleClick={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation()
-                      window.spoon.openExternal(jiraUrl(p.jira!, part.key!))
+                      openTicket(p.jira!, part.key!)
                     }}
                   >
                     {part.text}

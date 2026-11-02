@@ -109,6 +109,9 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           : `Checkout Tag ${ref.name}…`
     const canRebase = !!repo.headBranch && ref.kind !== 'tag' && !isCurrent && ref.target !== repo.headHash
     setPicked(ref.fullName)
+    // Its open pull request: a remote branch's name is looked up without its remote.
+    const remote = ref.kind === 'remote' ? repo.remotes.filter((x) => ref.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0] : undefined
+    const pull = ref.kind === 'tag' ? null : ops.pullFor(remote ? ref.name.slice(remote.length + 1) : ref.name)
     const choice = await contextMenu([
       { id: 'checkout', label: checkoutLabel, enabled: !isCurrent },
       ...(canRebase
@@ -118,11 +121,14 @@ export const Sidebar = memo(function Sidebar(props: Props) {
             { id: 'irebase', label: `Interactive Rebase ${repo.headBranch} onto ${ref.name}…` }
           ]
         : []),
-      ...(ref.kind === 'head' && ops.createPull ? [{ separator: true }, { id: 'pr', label: `Create Pull Request for ${ref.name}…` }] : []),
+      ...(ref.kind === 'head' && ops.createPull && !pull
+        ? [{ separator: true }, { id: 'pr', label: `Create Pull Request for ${ref.name}…`, icon: 'github' as const }]
+        : []),
       { separator: true },
       { id: 'show', label: 'Show in History' },
       { id: 'copy', label: 'Copy Name' },
-      ...ticketKeys(ref.name, jiraConfig(settings)).map((k) => ({ id: `jira:${k}`, label: `Open ${k} in Jira` })),
+      ...ticketKeys(ref.name, jiraConfig(settings)).map((k) => ({ id: `jira:${k}`, label: `Open ${k} in Jira`, icon: 'jira' as const })),
+      ...(pull ? [{ id: 'open-pr', label: `Open Pull Request #${pull.number}${pull.draft ? ' (Draft)' : ''}`, icon: 'github' as const }] : []),
       ...(ref.kind === 'head' ? [{ separator: true }, { id: 'delete', label: `Delete ${ref.name}…`, enabled: !isCurrent }] : [])
     ])
     const jira = jiraConfig(settings)
@@ -130,6 +136,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     else if (choice === 'delete') onDeleteBranch(ref)
     else if (choice === 'checkout') checkoutRef(ref)
     else if (choice === 'pr') ops.createPull?.(ref.name)
+    else if (choice === 'open-pr' && pull) ops.openPull(pull.number)
     else if (choice === 'rebase' || choice === 'irebase') ops.rebase(ref.name, choice === 'irebase')
     else if (choice === 'show') onJump(ref.target)
     else if (choice === 'copy') navigator.clipboard.writeText(ref.name)

@@ -83,6 +83,10 @@ export interface Ops {
   tag: (commit: Commit) => void
   /** Open Review with Claude: local changes by default, or one commit (null when Claude is turned off). */
   review: ((commit?: { hash: string; subject: string }) => void) | null
+  /** The open pull request from a branch (its name without the remote), if GitHub has one. */
+  pullFor: (branch: string) => PullSummary | null
+  /** Show a pull request in the Pull Requests view. */
+  openPull: (number: number) => void
 }
 
 type Busy = OpBusy
@@ -170,6 +174,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [prs, setPrs] = useState<PullSummary[] | null>(prState.prs)
   const [prError, setPrError] = useState<string | null>(prState.error)
   const [selectedPr, setSelectedPr] = usePersistentState<number | null>(`spoon.pr.selected.${path}`, null)
+  // Read by the menus when they open, so the ops below don't change with every PR refresh.
+  const prsRef = useRef(prs)
+  prsRef.current = prs
   const wasCancelled = useRef(false)
   const latestProgress = useRef('')
   const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -446,8 +453,14 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       push: () => quickPushRef.current(),
       createPull: canCreatePull ? setPrFor : null,
       tag: openTag,
-      review: claudeEnabled ? (commit) => setReviewing({ commit }) : null
+      review: claudeEnabled ? (commit) => setReviewing({ commit }) : null,
+      pullFor: (branch) => prsRef.current?.find((p) => p.headRef === branch) ?? null,
+      openPull: (number) => {
+        setSelectedPr(number)
+        setView('prs')
+      }
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [run, checkout, rebase, canCreatePull, claudeEnabled]
   )
   const [mainlibFor, setMainlibFor] = useState<Submodule | null>(null)
