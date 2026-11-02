@@ -517,7 +517,8 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
   const typesRow = (
     <div className="simple-types" role="group" aria-label="File types">
       <span className="muted">Show</span>
-      {TYPE_GROUPS.map((g) => {
+      {/* Only the types there are changes of (hidden ones included, so they can be shown again). */}
+      {TYPE_GROUPS.filter((g) => typeCounts.get(g.id)).map((g) => {
         const n = typeCounts.get(g.id) ?? 0
         const on = !hiddenTypes.has(g.id)
         return (
@@ -668,7 +669,7 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
   const primaryShares = config.shareOnSave
   return (
     <div className="simple-body">
-      {typesRow}
+      {typeCounts.size > 0 && typesRow}
 
       <div className="simple-summary">
         <span>

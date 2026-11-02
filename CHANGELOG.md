@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.42.3 — 2026-11-02
+
+- **Improved:** Simple Mode's “Show” filters list only the file types you have changes of.
+
 ## 0.42.2 — 2026-11-02
 
 - **New:** Simple Mode can show your changes in two sections, like git's unstaged and staged files: your changes on the left (or on top), what goes in the save on the right (or below). Drag files across, tick them, or use “Put all in the save”; nothing is in the save until you put it there. Side by side is the new default; the three buttons next to the list/preview switch pick one list, one above the other, or side by side.
