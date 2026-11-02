@@ -53,6 +53,33 @@ export function FileEditorHost({ path, ops }: { path: string; ops: Ops }) {
   return req ? <FileEditor key={`${req.file}|${req.at?.hash}`} req={req} ops={ops} onClose={() => setReq(null)} /> : null
 }
 
+/**
+ * The popup width that shows the editor's longest line without scrolling: the popup's own chrome
+ * (padding, gutter, scrollbar) plus the line, tabs counted at their width. 0 when it can't be measured.
+ */
+function fitWidth(ed: CodeEditor, box: HTMLElement | null): number {
+  const modal = box?.closest<HTMLElement>('.modal')
+  const scroller = ed.view.scrollDOM
+  if (!modal || !scroller.clientWidth) return 0
+  const tab = ed.view.state.tabSize
+  let cols = 0
+  for (const iter = ed.view.state.doc.iterLines(); !iter.next().done; ) {
+    const line = iter.value
+    let n = line.length
+    if (line.includes('\t')) {
+      n = 0
+      for (const ch of line) n = ch === '\t' ? n + tab - (n % tab) : n + 1
+    }
+    cols = Math.max(cols, n)
+  }
+  const gutters = (scroller.querySelector('.cm-gutters') as HTMLElement | null)?.offsetWidth ?? 0
+  const content = getComputedStyle(ed.view.contentDOM)
+  const line = scroller.querySelector('.cm-line')
+  const linePad = line ? parseFloat(getComputedStyle(line).paddingLeft) + parseFloat(getComputedStyle(line).paddingRight) : 0
+  const needed = gutters + parseFloat(content.paddingLeft) + parseFloat(content.paddingRight) + linePad + cols * ed.view.defaultCharacterWidth + 32
+  return Math.ceil(modal.offsetWidth - scroller.clientWidth + needed)
+}
+
 const sizeText = (n: number): string => (n < 1024 ? `${n} bytes` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
 function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onClose: () => void }) {
@@ -69,6 +96,8 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
   const [edited, setEdited] = useState(false)
   const [cursor, setCursor] = useState({ line: 1, col: 1 })
   const [saving, setSaving] = useState(false)
+  // Wide enough for the longest line (in px), once a version is shown; CSS keeps it within the window.
+  const [fit, setFit] = useState(0)
   const box = useRef<HTMLDivElement>(null)
   const editor = useRef<CodeEditor | null>(null)
   const sideRef = useRef(side)
@@ -135,6 +164,19 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
     ed.setText(side === 'working' ? draftDoc.current.toString() : shown.content.text.replace(/\r\n?/g, '\n'))
     ed.setReadOnly(side !== 'working')
     if (side === 'working') ed.view.focus()
+    // Grows (never shrinks) for what's loaded or switched to; typing doesn't resize it.
+    requestAnimationFrame(() => {
+      const w = fitWidth(ed, box.current)
+      if (w) setFit((f) => Math.max(f, w))
+    })
+    // Then, once it has grown, whatever a shown line still overflows by (the estimate's rounding).
+    const settle = setTimeout(() => {
+      const sc = ed.view.scrollDOM
+      const over = sc.scrollWidth - sc.clientWidth
+      const modal = box.current?.closest<HTMLElement>('.modal')
+      if (over > 0 && modal) setFit((f) => Math.max(f, modal.offsetWidth + over + 20))
+    }, 250)
+    return () => clearTimeout(settle)
     // Only when the side or what's loaded changes; typing updates `draft` from the editor itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [side, shown])
@@ -256,7 +298,7 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
     ) : null
 
   return (
-    <div className="file-editor-modal">
+    <div className="file-editor-modal" style={fit ? ({ '--fe-fit': `${fit}px` } as React.CSSProperties) : undefined}>
       <Modal
         title={name}
         ownKeys

@@ -6829,7 +6829,9 @@ kbd.setting-key {
 /* ---------- quick file popup ---------- */
 
 .file-editor-modal .modal.wide {
-  width: min(70rem, calc(100vw - 3rem));
+  /* At least the usual size; wider for files with longer lines (--fe-fit), up to the window. */
+  width: min(max(70rem, var(--fe-fit, 0px)), calc(100vw - 3rem));
+  transition: width 0.15s ease-out;
   max-width: none;
   height: min(48rem, calc(100vh - 4rem));
 }
