@@ -302,6 +302,26 @@ export const GridIcon = (p: P) => (
     <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2" />
   </Icon>
 )
+/** One box: a single list. */
+export const SingleIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="16" height="16" rx="1.5" />
+  </Icon>
+)
+/** Two stacked boxes: a list split in two sections. */
+export const SectionsIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="16" height="7" rx="1.5" />
+    <rect x="4" y="13" width="16" height="7" rx="1.5" strokeDasharray="2.5 2" />
+  </Icon>
+)
+/** Two boxes side by side: a list split in two columns. */
+export const ColumnsIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="4" y="4" width="7" height="16" rx="1.5" />
+    <rect x="13" y="4" width="7" height="16" rx="1.5" strokeDasharray="2.5 2" />
+  </Icon>
+)
 export const LinkIcon = (p: P) => (
   <Icon {...p}>
     <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />

@@ -4,6 +4,16 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.42.2 — 2026-11-02
+
+- **New:** Simple Mode can show your changes in two sections, like git's unstaged and staged files: your changes on the left (or on top), what goes in the save on the right (or below). Drag files across, tick them, or use “Put all in the save”; nothing is in the save until you put it there. Side by side is the new default; the three buttons next to the list/preview switch pick one list, one above the other, or side by side.
+- **Improved:** Pointing at Simple Mode's save buttons while they can't be used lights up the description box when that's what's missing.
+- **Improved:** The refresh button (and Simple Mode's settings button) are gone from the toolbar: Spoon refreshes by itself, ⌘R still does it, and Simple Mode's settings are in Settings.
+- **Improved:** Simple Mode's My changes / History switch sits in the middle of its top bar, where the full view has Fetch, Pull and Push.
+- **Improved:** Simple Mode's save bar is one row: when you last saved, then the description, then the buttons.
+- **Improved:** Simple Mode's changes start straight with your files: the three-step guide above them is gone, and “Tick all” is now “Select all” / “Deselect all”.
+- **Fixed:** Simple Mode's list of changes no longer squashes its rows on top of each other when there are many files.
+
 ## 0.41.2 — 2026-11-02
 
 - **New:** Tab colors. Color a repository's or submodule's tab by its name: right-click the tab, or add names (`*` matches any text) in Settings → Appearance. The open tab is tinted; the others get a dotted outline in their color.

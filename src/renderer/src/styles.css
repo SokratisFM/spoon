@@ -402,9 +402,6 @@ body.resizing .split-handle {
   align-items: center;
   margin-left: 0.5rem;
 }
-.refresh-btn.spinning .icon {
-  animation: spin 0.6s linear infinite;
-}
 /* Shortcut hint inside the commit filter; hidden while you type in it. */
 .search-key {
   flex: none;
@@ -7138,13 +7135,24 @@ kbd.setting-key {
 }
 .simple-bar {
   flex: none;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 0.8rem;
   height: 4.1rem;
   padding: 0 1.1rem;
   background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
+}
+/* Either side of the switch in the middle: equally wide, so the switch sits in the very middle. */
+.simple-bar-side {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+.simple-bar-side.end {
+  justify-content: flex-end;
 }
 .simple-bar .segmented button {
   white-space: nowrap;
@@ -7249,53 +7257,6 @@ kbd.setting-key {
   color: var(--text-faint);
 }
 
-.simple-steps {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  color: var(--text-faint);
-}
-.simple-steps li {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-.simple-steps li + li::before {
-  content: '›';
-  margin: 0 0.5rem 0 0.2rem;
-  color: var(--text-faint);
-}
-.simple-step-n {
-  display: grid;
-  place-items: center;
-  width: 1.55rem;
-  height: 1.55rem;
-  border-radius: 50%;
-  border: 1px solid var(--border-strong);
-  font-size: 0.85em;
-  font-weight: 600;
-}
-.simple-steps li.now {
-  color: var(--text);
-  font-weight: 600;
-}
-.simple-steps li.now .simple-step-n {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
-}
-.simple-steps li.done {
-  color: var(--text-muted);
-}
-.simple-steps li.done .simple-step-n {
-  background: var(--add-bg);
-  border-color: transparent;
-  color: var(--add);
-}
-
 .simple-summary {
   display: flex;
   align-items: center;
@@ -7306,6 +7267,7 @@ kbd.setting-key {
 /* file cards (previews) and rows (list) */
 .simple-cards {
   display: grid;
+  flex: none;
   grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
   gap: 0.9rem;
 }
@@ -7324,6 +7286,10 @@ kbd.setting-key {
 }
 .simple-card.off {
   opacity: 0.5;
+}
+/* In two sections, a file not in the save yet is simply one of your changes: drawn normally. */
+.simple-split .simple-card.off {
+  opacity: 1;
 }
 .simple-card-open {
   display: block;
@@ -7554,6 +7520,7 @@ kbd.setting-key {
 
 .simple-list {
   display: flex;
+  flex: none; /* its full height: the page scrolls, the list (and its rows) never squeeze to fit */
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -7561,6 +7528,7 @@ kbd.setting-key {
   overflow: hidden;
 }
 .simple-list .simple-card {
+  flex: none;
   flex-direction: row;
   align-items: center;
   gap: 0.7rem;
@@ -7599,28 +7567,120 @@ kbd.setting-key {
   margin: 0;
 }
 
+/* Split view: what's saved and what's left out, files dragged between them. */
+.simple-section {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.7rem;
+  border: 1px dashed transparent;
+  border-radius: calc(var(--radius) + 0.2rem);
+  background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+  transition: border-color 0.15s, background 0.15s;
+}
+.simple-section.out {
+  background: none;
+  border-color: var(--border);
+}
+.simple-section.drop {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.simple-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.simple-section-title {
+  font-weight: 600;
+}
+.simple-section-empty {
+  padding: 1.4rem;
+  text-align: center;
+  color: var(--text-faint);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+.simple-section .simple-card[draggable='true'] {
+  cursor: grab;
+}
+.simple-split-switch.on {
+  color: var(--accent-fg);
+  background: var(--bg-selected);
+}
+
 .simple-save {
   position: sticky;
   bottom: -1.6rem;
   margin: auto -1.6rem -1.6rem;
-  padding: 0.9rem 1.6rem 1.1rem;
+  padding: 0.8rem 1.6rem 0.9rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+  align-items: center;
+  gap: 0.9rem;
   background: var(--bg-chrome);
   border-top: 1px solid var(--border);
 }
+.simple-save-when {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  white-space: nowrap;
+}
+.simple-save-paused {
+  max-width: 13rem;
+  white-space: normal;
+  font-size: 0.9em;
+}
 .simple-save textarea {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   resize: vertical;
-  min-height: 3.2rem;
+  min-height: 2.4rem;
   font: inherit;
   font-size: 1.05em;
 }
 .simple-save-row {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 0.6rem;
+}
+/* Disabled buttons let the pointer through to their row, which lights up what's missing. */
+.simple-save-row .btn:disabled {
+  pointer-events: none;
+}
+.simple-save textarea.nudge {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: simple-nudge 0.9s ease-in-out infinite alternate;
+}
+.simple-save textarea.nudge::placeholder {
+  color: var(--text);
+}
+@keyframes simple-nudge {
+  to {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+}
+
+/* Split side by side: the two sections in columns, equally tall (a short one is still easy to drop on). */
+.simple-split {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  flex: none;
+}
+.simple-split.side {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+.simple-split.side .simple-section-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
 }
 .simple-save-row .btn.primary {
   display: inline-flex;

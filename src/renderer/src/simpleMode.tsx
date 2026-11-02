@@ -16,6 +16,12 @@ export interface SimpleConfig {
   folder: string
   /** Changed files as preview cards, or as a compact list. */
   view: 'previews' | 'list'
+  /**
+   * Changed files in one list (every file in the save unless unticked), or in two sections like git's
+   * unstaged and staged files: your changes, then what goes in the save, one above the other or side
+   * by side, with files dragged (or ticked) between them and none in the save to start with.
+   */
+  sections: Sections
   /** The main button saves and shares (commit and push) in one go. */
   shareOnSave: boolean
   /** The title bar's Simple/Full switch is hidden (Settings can still turn Simple Mode off). */
@@ -56,6 +62,7 @@ export const SIMPLE_DEFAULTS: SimpleConfig = {
   branch: '',
   folder: '',
   view: 'previews',
+  sections: 'side',
   shareOnSave: true,
   hideSwitch: false,
   pin: '',
@@ -67,6 +74,8 @@ export const SIMPLE_DEFAULTS: SimpleConfig = {
 const KEY = 'spoon.simple'
 const listeners = new Set<() => void>()
 let configs = readStored<Record<string, SimpleConfig>>(KEY, {})
+
+export type Sections = 'none' | 'stacked' | 'side'
 
 /** The project's Simple Mode setup, or null when it was never set up. */
 export function simpleConfig(path: string | null): SimpleConfig | null {

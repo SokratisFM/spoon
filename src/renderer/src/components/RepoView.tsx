@@ -61,7 +61,7 @@ import { SubmoduleUpdateDialog } from './SubmoduleUpdateDialog'
 import { MainLibDialog } from './MainLibDialog'
 import { CreatePullDialog } from './CreatePullDialog'
 import { ReviewDialog } from './ReviewDialog'
-import { ClaudeIcon, CloseIcon, FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, RefreshIcon, SearchIcon } from './Icons'
+import { ClaudeIcon, CloseIcon, FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, SearchIcon } from './Icons'
 import { keys } from '../platform'
 
 const PullRequestIconLarge = () => <PullRequestIcon className="icon big-icon" />
@@ -184,12 +184,6 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const latestProgress = useRef('')
   const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const filterInput = useRef<HTMLInputElement>(null)
-  // The refresh button spins for at least one turn, so a quick refresh still shows it happened.
-  const [refreshing, setRefreshing] = useState(false)
-  const manualRefresh = (): void => {
-    setRefreshing(true)
-    Promise.all([load(), new Promise((r) => setTimeout(r, 600))]).finally(() => setRefreshing(false))
-  }
 
   const loadOnce = useCallback(async () => {
     try {
@@ -571,7 +565,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       setView('history')
       filterInput.current?.focus()
       filterInput.current?.select()
-    } else if (command.name === 'refresh') manualRefresh()
+    } else if (command.name === 'refresh') void load()
     else if (command.name === 'fetch') fetchAll()
     else if (command.name === 'pull') setDialog('pull')
     else if (command.name === 'push') setDialog('push')
@@ -743,9 +737,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           commitRequest={commitRequest}
           onCommitHandled={clearCommitRequest}
           onGetLatest={getLatest}
-          onRefresh={manualRefresh}
           onFetchQuietly={fetchQuietly}
-          onOpenSettings={() => onOpenSettings('simple')}
           onFullView={async () => {
             if (await askPin(simple, 'Enter the PIN to show the full view.')) setSimpleConfig(path, { on: false })
           }}
@@ -865,13 +857,6 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
               <kbd className="search-key">{keys('⌘F')}</kbd>
             )}
           </div>
-          <button
-            className={`icon-btn refresh-btn ${refreshing ? 'spinning' : ''}`}
-            onClick={manualRefresh}
-            title={`Re-read the repository from disk (${keys('⌘R')})`}
-          >
-            <RefreshIcon />
-          </button>
         </div>
       </div>
 

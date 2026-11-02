@@ -20,16 +20,17 @@ import {
   CheckIcon,
   CloudOffIcon,
   CodeIcon,
-  CogIcon,
   FileIcon,
   GridIcon,
   ImageIcon,
+  ColumnsIcon,
   ListViewIcon,
   LockIcon,
+  SectionsIcon,
+  SingleIcon,
   ModelIcon,
   PullIcon,
   PushIcon,
-  RefreshIcon,
   SceneIcon,
   VideoIcon
 } from './Icons'
@@ -210,14 +211,13 @@ interface Props {
   commitRequest: { push: boolean; n: number } | null
   onCommitHandled: () => void
   onGetLatest: () => void
-  onRefresh: () => void
   onFetchQuietly: () => void
-  onOpenSettings: () => void
   onFullView: () => void
 }
 
 export function SimpleView(p: Props) {
   const { path, repo, tree, config, ops, busy } = p
+  const sections = config.sections
   const [tab, setTab] = usePersistentState<Tab>(`spoon.simple.tab.${path}`, 'changes')
   const head = repo.refs.find((r) => r.kind === 'head' && r.name === repo.headBranch)
   const branch = config.branch || repo.headBranch
@@ -273,11 +273,15 @@ export function SimpleView(p: Props) {
 
   return (
     <div className="simple">
+      {/* The branch on the left, My changes / History in the middle (where the full view has Fetch, Pull
+          and Push), the rest on the right. */}
       <div className="simple-bar">
-        <span className="simple-branch" title={config.branch ? 'Simple Mode works on this branch only' : 'The branch you’re working on'}>
-          {config.branch && <LockIcon />}
-          <span className="muted">Your work:</span> <b>{branch ?? 'none'}</b>
-        </span>
+        <div className="simple-bar-side">
+          <span className="simple-branch" title={config.branch ? 'Simple Mode works on this branch only' : 'The branch you’re working on'}>
+            {config.branch && <LockIcon />}
+            <span className="muted">Your work:</span> <b>{branch ?? 'none'}</b>
+          </span>
+        </div>
         <Segmented
           // The badge changes the History label's width: start the sliding highlight afresh.
           key={behind > 0 ? 'news' : 'quiet'}
@@ -298,7 +302,7 @@ export function SimpleView(p: Props) {
           ]}
           onChange={setTab}
         />
-        <span className="spacer" />
+        <div className="simple-bar-side end">
         {busy && (
           <div className="activity">
             <span className="spinner" />
@@ -315,16 +319,28 @@ export function SimpleView(p: Props) {
             </button>
           </div>
         )}
+        {tab === 'changes' && (
+          // One list, or your changes and what goes in the save as two sections (one above the other,
+          // or side by side).
+          <div className="segmented simple-view-switch" role="group" aria-label="Arrange the files">
+            {(
+              [
+                ['none', 'One list: every file is in the save unless you untick it', <SingleIcon key="n" />],
+                ['stacked', 'Your changes above, what goes in the save below: drag files between them', <SectionsIcon key="s" />],
+                ['side', 'Your changes on the left, what goes in the save on the right: drag files between them', <ColumnsIcon key="v" />]
+              ] as const
+            ).map(([mode, title, icon]) => (
+              <button key={mode} className={sections === mode ? 'on' : ''} aria-pressed={sections === mode} title={title} onClick={() => setSimpleConfig(path, { sections: mode })}>
+                {icon}
+              </button>
+            ))}
+          </div>
+        )}
         <button className={`btn simple-get ${behind > 0 ? 'primary has-news' : ''}`} disabled={!!busy || !repo.remotes.length || !!stuck} onClick={p.onGetLatest} title="Get the saves your team has shared">
           <PullIcon /> Get latest
           {behind > 0 && <span className="badge accent">{behind}</span>}
         </button>
-        <button className="icon-btn" onClick={p.onRefresh} title={`Look for changes again (${keys('⌘R')})`}>
-          <RefreshIcon />
-        </button>
-        <button className="icon-btn" onClick={p.onOpenSettings} title="Simple Mode settings">
-          <CogIcon />
-        </button>
+        </div>
       </div>
 
       {stuck ? (
@@ -391,6 +407,7 @@ export function SimpleView(p: Props) {
 
 function SimpleChanges(p: Props & { blocked: boolean }) {
   const { path, repo, tree, config, ops, busy, refreshN } = p
+  const sections = config.sections
   const { files: all, folderMetas } = useMemo(() => foldMetas(simpleFiles(tree)), [tree])
   const shownTest = inFolder(config.folder)
   const inScope = all.filter((f) => shownTest(f.path) || (!!f.oldPath && shownTest(f.oldPath)))
@@ -408,10 +425,19 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
     setSimpleConfig(path, { hiddenTypes: hiddenTypes.has(id) ? config.hiddenTypes.filter((t) => t !== id) : [...config.hiddenTypes, id] })
   // Cards are shown a page at a time: a change to thousands of files stays quick.
   const [limit, setLimit] = useState(CARDS)
-  // Files left out of the next save (unticked); new files are in by default.
-  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  // Which files go in the next save: with one list every file does unless unticked; with two sections
+  // none does until moved there (like git's unstaged files). `flipped` holds the files not as by default.
+  const startsIn = sections === 'none'
+  const [flipped, setFlipped] = useState<Set<string>>(new Set())
+  const inSave = (f: SimpleFile): boolean => startsIn !== flipped.has(f.path) && f.kind !== 'conflict'
+  // Another arrangement starts afresh from its own default.
+  useEffect(() => setFlipped(new Set()), [startsIn])
+  // With the files split in two: the section a file is being dragged over.
+  const [dragOver, setDragOver] = useState<'in' | 'out' | null>(null)
+  // The pointer is on the save buttons while they can't be used: what's missing lights up.
+  const [nudge, setNudge] = useState(false)
   const [message, setMessage] = usePersistentState(`spoon.simple.message.${path}`, '')
-  const chosen = files.filter((f) => !excluded.has(f.path) && f.kind !== 'conflict')
+  const chosen = files.filter(inSave)
   const headCommit = p.commits.find((c) => c.hash === repo.headHash)
 
   const save = async (share: boolean): Promise<void> => {
@@ -432,7 +458,7 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
     )
     if (!ok) return
     setMessage('')
-    setExcluded(new Set())
+    setFlipped(new Set())
     if (share) ops.push()
   }
   const saveRef = useRef(save)
@@ -478,13 +504,15 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
     else openFileEditor({ repo: path, file: f.path })
   }
   const toggle = (f: SimpleFile): void =>
-    setExcluded((s) => {
+    setFlipped((s) => {
       const next = new Set(s)
       if (next.has(f.path)) next.delete(f.path)
       else next.add(f.path)
       return next
     })
-  const allTicked = files.every((f) => !excluded.has(f.path))
+  const allTicked = files.every((f) => f.kind === 'conflict' || inSave(f))
+  /** Every file in the save, or none. */
+  const selectAll = (on: boolean): void => setFlipped(on === startsIn ? new Set() : new Set(files.map((f) => f.path)))
 
   const typesRow = (
     <div className="simple-types" role="group" aria-label="File types">
@@ -541,19 +569,105 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
       </div>
     )
 
-  const step = !chosen.length ? 1 : !message.trim() ? 2 : 3
+  const isIn = inSave
+  // Moves files into the save or out of it (dropped on a section, or a section's "all" link).
+  const place = (paths: string[], into: boolean): void =>
+    setFlipped((s) => {
+      const next = new Set(s)
+      for (const p of paths) {
+        if (into !== startsIn) next.add(p)
+        else next.delete(p)
+      }
+      return next
+    })
+  // Files are dragged between the sections (each card carries its path).
+  const DRAG_TYPE = 'application/x-spoon-simple-files'
+
+  const renderCard = (f: SimpleFile) => {
+    const { dir, name } = splitPath(f.path)
+    const on = isIn(f)
+    return (
+      <div
+        key={f.path}
+        className={`simple-card ${on ? '' : 'off'} kind-${f.kind}`}
+        onDoubleClick={() => open(f)}
+        title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}
+        draggable={sections !== 'none' && f.kind !== 'conflict'}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData(DRAG_TYPE, JSON.stringify([f.path]))
+          e.dataTransfer.setData('text/plain', f.path)
+        }}
+        onDragEnd={() => setDragOver(null)}
+      >
+        {config.view === 'list' && <Include on={on} conflict={f.kind === 'conflict'} onToggle={() => toggle(f)} />}
+        <button className="simple-card-open" onClick={() => open(f)} title={f.kind === 'removed' ? 'Open the last saved version' : 'Open'}>
+          <Preview repo={path} file={f.path} hash={f.kind === 'removed' ? repo.headHash : null} refreshN={refreshN} size={config.view === 'list' ? 64 : 320} />
+        </button>
+        <div className="simple-card-text">
+          <span className="simple-card-name">{name}</span>
+          <span className="simple-card-dir">{dir.replace(/\/$/, '') || '(top folder)'}</span>
+        </div>
+        <span className={`simple-kind ${f.kind}`}>{KIND_LABEL[f.kind]}</span>
+        <span className="simple-card-actions">
+          {f.kind !== 'removed' && (
+            <button className="link-btn" onClick={() => window.spoon.revealInFinder(`${path}/${f.path}`)}>
+              {revealLabel}
+            </button>
+          )}
+          {f.kind !== 'conflict' && (
+            <button className="link-btn" disabled={!!busy} onClick={() => undo([f])}>
+              Undo…
+            </button>
+          )}
+        </span>
+        {config.view !== 'list' && <Include on={on} conflict={f.kind === 'conflict'} onToggle={() => toggle(f)} />}
+      </div>
+    )
+  }
+  const cards = (list: SimpleFile[]) => <div className={config.view === 'list' ? 'simple-list' : 'simple-cards'}>{list.map(renderCard)}</div>
+
+  /** One of the two sections: a drop target for files dragged from the other one. */
+  const section = (id: 'in' | 'out', title: string, list: SimpleFile[], empty: string) => (
+    <section
+      className={`simple-section ${id} ${dragOver === id ? 'drop' : ''}`}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(DRAG_TYPE)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (dragOver !== id) setDragOver(id)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver((d) => (d === id ? null : d))
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(null)
+        try {
+          const paths = JSON.parse(e.dataTransfer.getData(DRAG_TYPE)) as string[]
+          place(paths.filter((p) => files.some((f) => f.path === p && f.kind !== 'conflict')), id === 'in')
+        } catch {
+          // not files from here
+        }
+      }}
+    >
+      <div className="simple-section-head">
+        <span className="simple-section-title">{title}</span>
+        <span className="badge">{list.length}</span>
+        <span className="spacer" />
+        {list.some((f) => f.kind !== 'conflict') && (
+          <button className="link-btn" onClick={() => place(list.filter((f) => f.kind !== 'conflict').map((f) => f.path), id !== 'in')}>
+            {id === 'in' ? 'Take all out' : 'Put all in the save'}
+          </button>
+        )}
+      </div>
+      {list.length ? cards(list.slice(0, limit)) : <div className="simple-section-empty">{empty}</div>}
+    </section>
+  )
+
   const primaryShares = config.shareOnSave
   return (
     <div className="simple-body">
-      <ol className="simple-steps">
-        {['Check your changes', 'Describe them', primaryShares ? 'Save & share' : 'Save'].map((label, i) => (
-          <li key={label} className={i + 1 < step ? 'done' : i + 1 === step ? 'now' : ''}>
-            <span className="simple-step-n">{i + 1 < step ? <CheckIcon /> : i + 1}</span>
-            {label}
-          </li>
-        ))}
-      </ol>
-
       {typesRow}
 
       <div className="simple-summary">
@@ -562,51 +676,23 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
           {chosen.length < files.length && <span className="muted"> {chosen.length} will be saved.</span>}
         </span>
         <span className="spacer" />
-        <button className="link-btn" onClick={() => setExcluded(allTicked ? new Set(files.map((f) => f.path)) : new Set())}>
-          {allTicked ? 'Untick all' : 'Tick all'}
+        <button className="link-btn" onClick={() => selectAll(!allTicked)}>
+          {allTicked ? 'Deselect all' : 'Select all'}
         </button>
         <button className="btn" disabled={!!busy} onClick={() => undo(files)}>
           Undo all my changes…
         </button>
       </div>
 
-      <div className={config.view === 'list' ? 'simple-list' : 'simple-cards'}>
-        {files.slice(0, limit).map((f) => {
-          const { dir, name } = splitPath(f.path)
-          const on = !excluded.has(f.path) && f.kind !== 'conflict'
-          return (
-            <div
-              key={f.path}
-              className={`simple-card ${on ? '' : 'off'} kind-${f.kind}`}
-              onDoubleClick={() => open(f)}
-              title={f.oldPath ? `${f.oldPath} → ${f.path}` : f.path}
-            >
-              {config.view === 'list' && <Include on={on} conflict={f.kind === 'conflict'} onToggle={() => toggle(f)} />}
-              <button className="simple-card-open" onClick={() => open(f)} title={f.kind === 'removed' ? 'Open the last saved version' : 'Open'}>
-                <Preview repo={path} file={f.path} hash={f.kind === 'removed' ? repo.headHash : null} refreshN={refreshN} size={config.view === 'list' ? 64 : 320} />
-              </button>
-              <div className="simple-card-text">
-                <span className="simple-card-name">{name}</span>
-                <span className="simple-card-dir">{dir.replace(/\/$/, '') || '(top folder)'}</span>
-              </div>
-              <span className={`simple-kind ${f.kind}`}>{KIND_LABEL[f.kind]}</span>
-              <span className="simple-card-actions">
-                {f.kind !== 'removed' && (
-                  <button className="link-btn" onClick={() => window.spoon.revealInFinder(`${path}/${f.path}`)}>
-                    {revealLabel}
-                  </button>
-                )}
-                {f.kind !== 'conflict' && (
-                  <button className="link-btn" disabled={!!busy} onClick={() => undo([f])}>
-                    Undo…
-                  </button>
-                )}
-              </span>
-              {config.view !== 'list' && <Include on={on} conflict={f.kind === 'conflict'} onToggle={() => toggle(f)} />}
-            </div>
-          )
-        })}
-      </div>
+      {sections !== 'none' ? (
+        // Your changes first (on the left or on top), what goes in the save after: like git's unstaged and staged.
+        <div className={`simple-split ${sections}`}>
+          {section('out', 'Your changes', files.filter((f) => !isIn(f)), 'Every change is in the save.')}
+          {section('in', 'To save', files.filter(isIn), 'Drag files here (or tick them) to put them in the save.')}
+        </div>
+      ) : (
+        cards(files.slice(0, limit))
+      )}
       {files.length > limit && (
         <button className="btn simple-more" onClick={() => setLimit((l) => l + CARDS)}>
           Show {Math.min(CARDS, files.length - limit)} more of {files.length - limit}
@@ -624,24 +710,38 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
         </p>
       )}
 
+      {/* One row: when you last saved, what you changed, and the buttons. */}
       <div className="simple-save">
+        <span className="muted simple-save-when">
+          {headCommit && (
+            <span>
+              Last saved <span title={fullDate(headCommit.authorTime)}>{timeAgo(headCommit.authorTime)}</span>
+            </span>
+          )}
+          {p.blocked && <span className="simple-save-paused">Saving is paused: see the note at the top.</span>}
+        </span>
         <textarea
+          className={nudge && !message.trim() ? 'nudge' : ''}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="What did you change? For example: “New idle animation for the hero”"
-          rows={2}
+          rows={1}
           spellCheck
         />
-        <div className="simple-save-row">
-          <span className="muted">
-            {headCommit && (
-              <>
-                Last saved <span title={fullDate(headCommit.authorTime)}>{timeAgo(headCommit.authorTime)}</span>
-              </>
-            )}
-          </span>
-          <span className="spacer" />
-          {p.blocked && <span className="muted">Saving is paused: see the note at the top.</span>}
+        <div
+          className="simple-save-row"
+          onMouseEnter={() => setNudge(true)}
+          onMouseLeave={() => setNudge(false)}
+          title={
+            p.blocked || busy
+              ? undefined
+              : !chosen.length
+                ? 'Pick at least one file to save'
+                : !message.trim()
+                  ? 'Describe what you changed first'
+                  : undefined
+          }
+        >
           {primaryShares ? (
             <button className="btn" disabled={p.blocked || !!busy || !chosen.length || !message.trim()} onClick={() => save(false)}>
               Save only
