@@ -204,6 +204,9 @@ export const CommitList = memo(function CommitList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTo])
 
+  // A local branch's upstream ("origin/feature/x"), for finding its pull request.
+  const upstreamOf = (name: string): string | undefined => repo.refs.find((r) => r.kind === 'head' && r.name === name)?.upstream
+
   // The local branches on a commit (other than the checked-out one); if several, ask which.
   const pickLocalBranch = async (hash: string, verb: string): Promise<Ref | null> => {
     const locals = repo.refs.filter((r) => r.kind === 'head' && r.target === hash && r.name !== repo.headBranch)
@@ -300,7 +303,7 @@ export const CommitList = memo(function CommitList({
         ...(ops.createPull
           ? branches
               .concat((badges.get(c.hash) ?? []).filter((b) => b.kind === 'head' && b.current))
-              .filter((b) => b.kind === 'head' && !ops.pullFor(b.label))
+              .filter((b) => b.kind === 'head' && !ops.pullFor(b.label, upstreamOf(b.label)))
               .slice(0, 3)
               .map((b) => ({ id: `pr:${b.label}`, label: `Create Pull Request for ${b.label}…`, icon: 'github' as const }))
           : []),
@@ -331,7 +334,7 @@ export const CommitList = memo(function CommitList({
             ...new Map(
               (badges.get(c.hash) ?? [])
                 .filter((b) => b.kind === 'head' || b.kind === 'remote')
-                .map((b) => ops.pullFor(b.shown))
+                .map((b) => ops.pullFor(b.shown, b.kind === 'head' ? upstreamOf(b.label) : undefined))
                 .filter((p) => !!p)
                 .map((p) => [p.number, p])
             ).values()

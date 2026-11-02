@@ -31,6 +31,8 @@ export const SIDEBAR_SECTIONS: { id: SidebarSection; label: string }[] = [
 export interface TabColor {
   name: string
   color: string
+  /** Set from a tab: the name as it is, `*` included. */
+  exact?: boolean
 }
 
 /** The colors offered for tabs. */
@@ -44,6 +46,8 @@ export const TAB_PALETTE: { label: string; color: string }[] = [
   { label: 'Purple', color: '#8b7cf6' },
   { label: 'Pink', color: '#e93d82' }
 ]
+
+export type TabHighlight = 'off' | 'open' | 'named'
 
 export interface AuthorColor {
   name: string // author name (or email), matched case-insensitively
@@ -78,6 +82,10 @@ export interface Settings {
   authorColors: AuthorColor[]
   /** Tab colors by repository name: exact names win over patterns, then the first match counts. */
   tabColors: TabColor[]
+  /** off: tabs look as usual; open: the open tab is highlighted; named: that, and tabs colored by name. */
+  tabHighlight: TabHighlight
+  /** The open tab's highlight when its name has no color ('' = the theme's accent). */
+  tabDefaultColor: string
   /** Folder the project palette searches for repos you haven't opened yet. */
   scanFolder: string
   scanDepth: number
@@ -166,6 +174,8 @@ const DEFAULTS: Settings = {
   authorColorsEnabled: false,
   authorColors: [],
   tabColors: [],
+  tabHighlight: 'named',
+  tabDefaultColor: '',
   scanFolder: '~',
   scanDepth: 3,
   scanNested: false,
@@ -283,6 +293,7 @@ function apply(s: Settings): void {
   appliedExtra = Object.keys(theme.extra ?? {})
   for (const [k, v] of Object.entries(theme.extra ?? {})) root.style.setProperty(k, v)
   root.style.colorScheme = theme.scheme
+  root.dataset.scheme = theme.scheme
   // Windows draws its caption buttons natively over the title bar; match them to the theme.
   window.spoon.setTitleBarColors?.(theme.colors['bg-chrome'], theme.colors.text, BASE_FONT_PX * s.uiScale * 3)
 }
@@ -359,31 +370,63 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /** Color for a commit author, if author coloring is on and the author is listed. */
-/** A tab color name or pattern as a matcher (`*` is any text, case ignored). */
-export const tabRule = (pattern: string): RegExp =>
-  new RegExp(`^${pattern.trim().split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i')
+/**
+ * Whether a tab color's name matches a repository's name: case ignored, `*` any text (unless the rule
+ * is exact, as one set from a tab is: a folder can be named with a `*`). Linear time, however many
+ * stars: two pointers, going back only to the last star.
+ */
+export function tabNameMatches(rule: { name: string; exact?: boolean }, name: string): boolean {
+  const p = rule.name.trim().toLowerCase()
+  const n = name.toLowerCase()
+  if (rule.exact || !p.includes('*')) return p === n
+  let i = 0
+  let j = 0
+  let star = -1
+  let mark = 0
+  while (j < n.length) {
+    if (i < p.length && p[i] !== '*' && p[i] === n[j]) {
+      i++
+      j++
+    } else if (i < p.length && p[i] === '*') {
+      star = i++
+      mark = j
+    } else if (star >= 0) {
+      i = star + 1
+      j = ++mark
+    } else return false
+  }
+  while (i < p.length && p[i] === '*') i++
+  return i === p.length
+}
+
+const isPattern = (r: TabColor): boolean => !r.exact && r.name.includes('*')
 
 /** The rule that colors a tab named `name`: an exact name first, else the first pattern it matches. */
 export function tabColorRule(s: Settings, name: string): TabColor | null {
   const rules = s.tabColors.filter((r) => r.name.trim())
-  return (
-    rules.find((r) => !r.name.includes('*') && r.name.trim().toLowerCase() === name.toLowerCase()) ??
-    rules.find((r) => r.name.includes('*') && tabRule(r.name).test(name)) ??
-    null
-  )
+  return rules.find((r) => !isPattern(r) && tabNameMatches(r, name)) ?? rules.find((r) => isPattern(r) && tabNameMatches(r, name)) ?? null
 }
 
-/** A tab's color, or null for the normal look. */
+/** A tab's color by its name (when colors by name are on), or null. */
 export function tabColorFor(s: Settings, name: string): string | null {
-  return tabColorRule(s, name)?.color || null
+  return s.tabHighlight === 'named' ? tabColorRule(s, name)?.color || null : null
+}
+
+/** A tab's color as drawn: its own, else for the open tab the default highlight (when that's on). */
+export function tabLook(s: Settings, name: string, open: boolean): string | null {
+  return tabColorFor(s, name) ?? (open && s.tabHighlight !== 'off' ? s.tabDefaultColor || 'var(--accent)' : null)
 }
 
 /** Colors tabs named exactly `name` (null: none, even where a pattern would color them). */
 export function setTabColor(name: string, color: string | null): void {
   const s = getSettings()
-  const rest = s.tabColors.filter((r) => r.name.includes('*') || r.name.trim().toLowerCase() !== name.toLowerCase())
-  const patterned = rest.some((r) => r.name.trim() && r.name.includes('*') && tabRule(r.name).test(name) && r.color)
-  updateSettings({ tabColors: color || patterned ? [{ name, color: color ?? '' }, ...rest] : rest })
+  const rest = s.tabColors.filter((r) => isPattern(r) || r.name.trim().toLowerCase() !== name.toLowerCase())
+  const patterned = rest.some((r) => r.name.trim() && isPattern(r) && tabNameMatches(r, name) && r.color)
+  updateSettings({
+    tabColors: color || patterned ? [{ name, color: color ?? '', exact: true }, ...rest] : rest,
+    // Picking a color for a tab turns colors by name on.
+    ...(color ? { tabHighlight: 'named' as const } : {})
+  })
 }
 
 export function authorColorMap(s: Settings): Map<string, string> | null {

@@ -232,23 +232,118 @@ export function PreviewCard() {
                 {o.current && <span className="pv-now">current</span>}
               </div>
               <div className="pv-stage mini">
-                <div className="pv-mini-inner">
+                <FitStage fitKey={JSON.stringify(o.spec)} fixed={SIZE_SCENES.has(o.spec.kind)}>
                   <Stage spec={o.spec} phase />
-                </div>
+                </FitStage>
               </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="pv-stage">
-          <Stage spec={preview.spec} phase={phase} />
+          <FitStage fitKey={specKey} fixed={SIZE_SCENES.has(preview.spec.kind)}>
+            <Stage spec={preview.spec} phase={phase} />
+          </FitStage>
         </div>
       )}
     </div>
   )
 }
 
+/**
+ * A scene drawn as large as its stage allows. Scenes are made for a small card, so what they show
+ * (text, dots, bars, drawings) is measured and scaled up to fill the stage, centered, keeping its
+ * proportions; rows that span the width keep spanning it. Measured when the scene or the stage's
+ * size changes, not while it animates between its two looks. `fixed` scenes stay as they are: ones about
+ * size (interface size, font size, row spacing), where scaling would make every option look the same.
+ */
+function FitStage({ fitKey, fixed, children }: { fitKey: string; fixed?: boolean; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null)
+  const inner = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  useLayoutEffect(() => {
+    const el = box.current?.parentElement
+    if (!el) return
+    const read = (): void => setSize((p) => (p.w === el.clientWidth && p.h === el.clientHeight ? p : { w: el.clientWidth, h: el.clientHeight }))
+    read()
+    const ro = new ResizeObserver(read)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  useLayoutEffect(() => {
+    const el = inner.current
+    const { w: W, h: H } = size
+    if (!el || !W || !H) return
+    let k = 1
+    let used = 1
+    let dx = 0
+    let dy = 0
+    for (let round = 0; !fixed && round < 3; round++) {
+      // The scene lays itself out in the room it's given, which changes with the scale: a few rounds.
+      el.style.width = `${W / k}px`
+      el.style.height = `${H / k}px`
+      el.style.transform = `scale(${k})`
+      used = k
+      const origin = el.getBoundingClientRect()
+      let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
+      let spans = false
+      const take = (r: DOMRect): void => {
+        if (!r.width || !r.height) return
+        x0 = Math.min(x0, r.left)
+        y0 = Math.min(y0, r.top)
+        x1 = Math.max(x1, r.right)
+        y1 = Math.max(y1, r.bottom)
+      }
+      const range = document.createRange()
+      for (const n of el.querySelectorAll<HTMLElement | SVGElement>('*')) {
+        const svg = n.closest('svg')
+        if (svg && svg !== n) continue
+        const r = n.getBoundingClientRect()
+        // Rows and bands as wide as the scene, and lines as tall as it (a graph's): they stretch with it,
+        // so they're not measured.
+        if (r.width >= origin.width * 0.95) {
+          spans = true
+          if (!n.children.length) continue
+        }
+        if (r.height >= origin.height * 0.95 && !n.children.length) continue
+        // Text by its own extent (not its box, which may be a whole row).
+        for (const t of n.childNodes)
+          if (t.nodeType === Node.TEXT_NODE && t.textContent?.trim()) {
+            range.selectNodeContents(t)
+            take(range.getBoundingClientRect())
+          }
+        if (n.tagName.toLowerCase() === 'svg' || (!n.children.length && r.width < origin.width * 0.95)) take(r)
+      }
+      if (!Number.isFinite(x0)) break
+      // In the scene's own (unscaled) units.
+      const cw = (x1 - x0) / k
+      const ch = (y1 - y0) / k
+      const next = Math.max(0.7, Math.min(2.2, (H * 0.78) / ch, (W * 0.9) / cw))
+      const cx = (x0 - origin.left) / k + cw / 2
+      const cy = (y0 - origin.top) / k + ch / 2
+      // Its middle moved to the stage's middle; one with rows across stays where its rows are.
+      dx = spans ? 0 : W / 2 - cx * k
+      dy = H / 2 - cy * k
+      if (Math.abs(next - k) < 0.01) break
+      k = next
+    }
+    el.style.width = `${W / used}px`
+    el.style.height = `${H / used}px`
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${used})`
+  }, [fitKey, size, fixed])
+  return (
+    <div ref={box} style={{ position: 'absolute', inset: 0 }}>
+      <div ref={inner} className="pv-fit">
+        {children}
+      </div>
+    </div>
+  )
+}
+
 // ---------- the scenes ----------
+
+/** Scenes never scaled to fit: ones that show a size, and the diff layout, drawn in shares of the width. */
+const SIZE_SCENES = new Set(['size', 'code', 'density', 'layout'])
 
 const lane = (i: number): CSSProperties => ({ '--lane': `var(--lane-${i % 8})` }) as CSSProperties
 const laneColor = (i: number): string => `var(--lane-${i % 8})`
@@ -538,7 +633,7 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
       const op = (lane: number): number => (!lit || lane === 1 ? 1 : 0.22)
       return (
         <div className="pv-list">
-          <svg viewBox="0 0 240 120" style={{ width: '100%', height: '9rem' }}>
+          <svg viewBox="0 0 240 120" style={{ width: '18rem', height: '9rem' }}>
             <path d="M20 10V112" stroke={laneColor(0)} strokeWidth="2" opacity={op(0)} />
             <path d="M20 26q0 12 22 16V112" stroke={laneColor(1)} strokeWidth={lit ? 2.8 : 2} fill="none" opacity={op(1)} />
             <path d="M20 56q0 12 44 16V112" stroke={laneColor(2)} strokeWidth="2" fill="none" opacity={op(2)} />

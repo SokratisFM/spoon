@@ -56,10 +56,12 @@ export function setForgetGuard(fn: (paths: string[]) => Promise<boolean>): void 
   guard = fn
 }
 
-export async function forgetProject(path: string): Promise<void> {
-  if (guard && !(await guard([path]))) return
+/** Resolves to whether it was removed (a PIN asked for can be refused). */
+export async function forgetProject(path: string): Promise<boolean> {
+  if (guard && !(await guard([path]))) return false
   save(projects.filter((p) => p.path !== path))
   forgotten([path])
+  return true
 }
 
 export async function forgetProjects(paths: string[]): Promise<void> {

@@ -4,11 +4,23 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
-## 0.41.0 — 2026-11-02
+## 0.41.2 — 2026-11-02
 
 - **New:** Tab colors. Color a repository's or submodule's tab by its name: right-click the tab, or add names (`*` matches any text) in Settings → Appearance. The open tab is tinted; the others get a dotted outline in their color.
-- **New:** Recents in the sidebar: the last 5 branches you checked out in this repository (including outside Spoon). Click to show one, double-click to check it out; right-click the sidebar to hide it.
+- **New:** Tab colors can highlight the open tab with a color of its own (the theme's accent unless you pick one): off, the open tab only, or the open tab plus colors by name.
+- **New:** Recents in the sidebar: the last 5 branches you were on in this repository (including outside Spoon). Click to show one, double-click to check it out; right-click the sidebar to hide it.
+- **Improved:** Settings → Appearance keeps the color options together at the end: Theme, syntax colors, Tab colors, Branch colors.
+- **Improved:** Settings is wider, and its previews fill their space instead of showing a small picture in the middle.
 - **Improved:** Backspace on a stash in All Commits asks to delete that stash, as it does for branches.
+- **Improved:** New MainLib release with the version bump is one step: if any part fails, nothing is left half-done (no stray branch, no uncommitted version file). It starts from the version on the branch you pick, suggests versions after the newest release branch (including ones only on the remote), won't remake one that's on the remote, and won't bump to the version that's already there.
+- **Improved:** “Open Pull Request” matches a branch by its upstream too, and ignores pull requests from forks that happen to use the same branch name. The list is refreshed after a push.
+- **Fixed:** Relinking an export whose folder is itself a link into Assets could turn the source file into a broken link. Such files now count as linked, and are never written over.
+- **Fixed:** A bring-back from exports that stopped partway (a read-only file) no longer makes Spoon's own earlier writes look like your edits. Read-only sources are found before anything is written.
+- **Fixed:** Relinking several files checks them all first: one that differs stops the batch untouched, and missing ones are skipped and listed. On Windows, only a link that can't be made asks for Developer Mode.
+- **Fixed:** Native files reached through two paths in Assets pair with their exports again.
+- **Fixed:** Removing a missing project that has a Simple Mode PIN keeps its tab when the PIN isn't given, and Locate… keeps its Simple Mode setup and PIN at the new location.
+- **Fixed:** “Compare with Working Copy” files are kept with Spoon's data, so macOS no longer clears them from under an open compare tab.
+- **Fixed:** The file popup's width now follows zoom (⌘+ / ⌘−).
 
 ## 0.40.2 — 2026-11-02
 

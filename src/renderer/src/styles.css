@@ -296,14 +296,19 @@ body.resizing .split-handle {
 }
 /* A colored tab: a dotted outline in its color, tinted with a solid outline while it's the open one. */
 .tab.colored {
-  outline: 2px dotted color-mix(in srgb, var(--tab-color) 85%, transparent);
+  /* The outline's color: darker in light themes, where yellow or teal on a pale bar is hard to see. */
+  --tab-line: var(--tab-color);
+  outline: 2px dotted color-mix(in srgb, var(--tab-line) 85%, transparent);
   outline-offset: -2px;
+}
+[data-scheme='light'] .tab.colored {
+  --tab-line: color-mix(in srgb, var(--tab-color) 68%, #000);
 }
 .tab.colored:hover:not(.active) {
   background: color-mix(in srgb, var(--tab-color) 10%, transparent);
 }
 .tab.colored.active {
-  outline: 1.5px solid var(--tab-color);
+  outline: 1.5px solid var(--tab-line);
   background: color-mix(in srgb, var(--tab-color) 20%, var(--bg-elev));
   box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow) 45%, transparent);
 }
@@ -1982,6 +1987,13 @@ input[type='color']::-webkit-color-swatch {
 }
 .tab-color-pick {
   flex: none;
+}
+.tab-default {
+  gap: 0.6rem;
+  align-items: center;
+}
+.tab-default.disabled {
+  opacity: 0.5;
 }
 .author-row input:not([type]) {
   flex: 1;
@@ -4438,7 +4450,7 @@ select:hover {
   position: absolute;
   left: 0.94rem;
   top: 1.4rem;
-  bottom: 0;
+  height: 7.8rem; /* through the four rows and a little past: the line goes on */
   width: 0.18rem;
 }
 .pv-branch-row {
@@ -5160,8 +5172,12 @@ select:hover {
   background: none;
   border: 1.5px dotted var(--text-faint);
 }
-.ctx-swatch:hover {
+.ctx-swatch:hover,
+.ctx-swatch.focus {
   transform: scale(1.15);
+}
+.ctx-swatch.focus:not(.on) {
+  box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3.5px var(--accent);
 }
 .ctx-swatch.on {
   box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3.5px var(--text);
@@ -5403,24 +5419,23 @@ select:hover {
 }
 /* A full-size scene drawn smaller, so each option fits in a tile: three in a row are scaled most. */
 .pv-stage.mini {
-  height: 9.6rem;
-  --mini: 0.88;
+  height: 11rem;
 }
 .cols-3 .pv-stage.mini {
-  height: 7.8rem;
-  --mini: 0.72;
+  height: 9.5rem;
 }
 .cols-1 .pv-stage.mini {
-  height: 11rem;
-  --mini: 1;
+  height: 12rem;
 }
-.pv-mini-inner {
-  width: calc(100% / var(--mini));
-  height: calc(100% / var(--mini));
-  transform: scale(var(--mini));
-  transform-origin: top left;
+/* A scene scaled (and moved) to fill its stage: FitStage sets its size and transform. */
+.pv-stage .pv-fit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  transition: none; /* measured right after it's set */
 }
-.pv-mini-inner > * {
+.pv-fit > * {
   height: 100%;
 }
 /* The preview as a drawer inside the Settings window (position and width set from the window). */
@@ -5472,7 +5487,7 @@ select:hover {
 
 /* Settings gets more room than other wide dialogs (its previews use the full width). */
 .modal.wide:has(.settings-tabs) {
-  width: min(60rem, calc(100vw - 2rem));
+  width: min(72rem, calc(100vw - 2rem));
 }
 
 /* ---------- switches ----------

@@ -15,7 +15,8 @@ import { askPin, setSimpleConfig, SIMPLE_DEFAULTS, TYPE_GROUPS, useSimpleConfig 
 import {
   SIDEBAR_SECTIONS,
   TAB_PALETTE,
-  tabRule,
+  tabNameMatches,
+  type TabHighlight,
   activeTheme,
   SCALE_MAX,
   SCALE_MIN,
@@ -358,30 +359,6 @@ function AppearanceTab() {
         />
         <span className="hint">Also switchable from any diff’s header.</span>
       </div>
-      <div className="field">
-        <span className="field-label">
-          Syntax colors in diffs
-          <PreviewEye label={'Syntax colors in diffs'} make={() => choicePreviews<DiffSyntax>('Syntax colors in diffs', s.diffSyntax, [
-            ['full', 'Full'],
-            ['subtle', 'Subtle'],
-            ['off', 'Off']
-          ], (from, to) => ({ kind: 'syntax', from, to, words: s.diffWordChanges }))} />
-        </span>
-        <Segmented<DiffSyntax>
-          value={s.diffSyntax}
-          options={[
-            ['full', 'Full'],
-            ['subtle', 'Subtle'],
-            ['off', 'Off']
-          ]}
-          onChange={(diffSyntax) => updateSettings({ diffSyntax })}
-        />
-        <span className="hint">
-          The language comes from the file’s extension; click it in a diff’s header to pick another. Unity scenes,
-          prefabs and assets fade object ids and name the GameObject a change is in.
-        </span>
-      </div>
-      <SyntaxSourceField />
       {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
       <div className="check">
         <input
@@ -457,17 +434,6 @@ function AppearanceTab() {
         />
         <span className="hint">
           Click a fold row or bead to show those commits again. {keys('⇧⌘S')} turns squishing on and off from anywhere.
-        </span>
-      </div>
-      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
-      <div className="check">
-        <input id="set-branch-labels-in-lane-colors"
-          type="checkbox"
-          checked={s.laneColoredBranches}
-          onChange={(e) => updateSettings({ laneColoredBranches: e.target.checked })}
-        />
-        <span>
-          <label htmlFor="set-branch-labels-in-lane-colors">Color branch labels like their graph line</label> <ToggleEye title={'Branch labels in lane colors'} on={s.laneColoredBranches} spec={(from, to) => ({ kind: 'laneLabels', from, to })} />
         </span>
       </div>
       {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
@@ -558,10 +524,9 @@ function AppearanceTab() {
           onChange={(submoduleTabs) => updateSettings({ submoduleTabs })}
         />
       </div>
-      <TabColorsField />
-      <BranchColorsField />
       <SidebarSectionsField />
       <PullGroupsField />
+      {/* Colors, together at the end: the theme, then code, tabs and branches. */}
       <div className="field">
         <span className="field-label">Theme</span>
         <div className="theme-grid">
@@ -570,6 +535,43 @@ function AppearanceTab() {
           ))}
         </div>
         {s.theme === 'custom' && <CustomColors />}
+      </div>
+      <div className="field">
+        <span className="field-label">
+          Syntax colors in diffs
+          <PreviewEye label={'Syntax colors in diffs'} make={() => choicePreviews<DiffSyntax>('Syntax colors in diffs', s.diffSyntax, [
+            ['full', 'Full'],
+            ['subtle', 'Subtle'],
+            ['off', 'Off']
+          ], (from, to) => ({ kind: 'syntax', from, to, words: s.diffWordChanges }))} />
+        </span>
+        <Segmented<DiffSyntax>
+          value={s.diffSyntax}
+          options={[
+            ['full', 'Full'],
+            ['subtle', 'Subtle'],
+            ['off', 'Off']
+          ]}
+          onChange={(diffSyntax) => updateSettings({ diffSyntax })}
+        />
+        <span className="hint">
+          The language comes from the file’s extension; click it in a diff’s header to pick another. Unity scenes,
+          prefabs and assets fade object ids and name the GameObject a change is in.
+        </span>
+      </div>
+      <SyntaxSourceField />
+      <TabColorsField />
+      <BranchColorsField />
+      {/* The eye sits outside the label, so pressing it never presses the checkbox. */}
+      <div className="check">
+        <input id="set-branch-labels-in-lane-colors"
+          type="checkbox"
+          checked={s.laneColoredBranches}
+          onChange={(e) => updateSettings({ laneColoredBranches: e.target.checked })}
+        />
+        <span>
+          <label htmlFor="set-branch-labels-in-lane-colors">Color branch labels like their graph line</label> <ToggleEye title={'Branch labels in lane colors'} on={s.laneColoredBranches} spec={(from, to) => ({ kind: 'laneLabels', from, to })} />
+        </span>
       </div>
     </>
   )
@@ -697,7 +699,7 @@ function TabColorsField() {
   const s = useSettings()
   const projects = useProjects()
   const rules = s.tabColors
-  const update = (i: number, patch: Partial<{ name: string; color: string }>): void =>
+  const update = (i: number, patch: Partial<{ name: string; color: string; exact: boolean | undefined }>): void =>
     updateSettings({ tabColors: rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
   const pick = async (i: number): Promise<void> => {
     const choice = await contextMenu([
@@ -711,19 +713,51 @@ function TabColorsField() {
     if (choice) update(i, { color: choice === 'none' ? '' : choice })
   }
   // How many of your projects a name or pattern matches, as a hint that it's typed right.
-  const matches = (pattern: string): number => {
-    if (!pattern.trim()) return 0
-    const re = tabRule(pattern)
-    return new Set(projects.map((p) => projectName(p.path)).filter((n) => re.test(n))).size
+  const matches = (rule: { name: string; exact?: boolean }): number => {
+    if (!rule.name.trim()) return 0
+    return new Set(projects.map((p) => projectName(p.path)).filter((n) => tabNameMatches(rule, n))).size
+  }
+  const pickDefault = async (): Promise<void> => {
+    const choice = await contextMenu([
+      {
+        swatches: [
+          { id: 'accent', color: 'var(--accent)', label: 'Theme accent', checked: !s.tabDefaultColor },
+          ...TAB_PALETTE.map((c) => ({ id: c.color, color: c.color, label: c.label, checked: c.color === s.tabDefaultColor }))
+        ]
+      }
+    ])
+    if (choice) updateSettings({ tabDefaultColor: choice === 'accent' ? '' : choice })
   }
   return (
     <div className="field">
       <span className="field-label">Tab colors</span>
+      <Segmented<TabHighlight>
+        value={s.tabHighlight}
+        options={[
+          ['off', 'Off'],
+          ['open', 'Highlight the open tab'],
+          ['named', 'Open tab and colors by name']
+        ]}
+        onChange={(tabHighlight) => updateSettings({ tabHighlight })}
+      />
+      <div className={`form-row tab-default ${s.tabHighlight === 'off' ? 'disabled' : ''}`}>
+        <button
+          className={`ctx-swatch tab-color-pick`}
+          style={{ '--swatch': s.tabDefaultColor || 'var(--accent)' } as React.CSSProperties}
+          aria-label="Highlight color"
+          disabled={s.tabHighlight === 'off'}
+          onClick={() => void pickDefault()}
+        />
+        <span>
+          Highlight color for the open tab{s.tabHighlight === 'named' ? ', when its name has no color of its own' : ''}
+          {!s.tabDefaultColor && <span className="muted"> (the theme’s accent)</span>}
+        </span>
+      </div>
       <span className="hint">
         Color the tabs of repositories and submodules by their folder name; <code>*</code> matches any text. The open tab
         is tinted, the others get a dotted outline. You can also right-click a tab.
       </span>
-      <div className="author-list">
+      <div className={`author-list ${s.tabHighlight === 'named' ? '' : 'disabled'}`}>
         {rules.map((r, i) => (
           <div key={i} className="author-row">
             <button
@@ -732,9 +766,9 @@ function TabColorsField() {
               aria-label="Color"
               onClick={() => void pick(i)}
             />
-            <input value={r.name} placeholder="MainLib or Solitaire*" onChange={(e) => update(i, { name: e.target.value })} />
+            <input value={r.name} placeholder="MainLib or Solitaire*" onChange={(e) => update(i, { name: e.target.value, exact: undefined })} />
             <span className="muted tab-color-count">
-              {r.name.trim() ? `${matches(r.name)} project${matches(r.name) === 1 ? '' : 's'}` : ''}
+              {r.name.trim() ? `${matches(r)} project${matches(r) === 1 ? '' : 's'}` : ''}
             </span>
             <button className="icon-btn" aria-label="Remove" onClick={() => updateSettings({ tabColors: rules.filter((_, j) => j !== i) })}>
               <CloseIcon />

@@ -532,6 +532,8 @@ export interface PullSummary {
   author: GhUser
   draft: boolean
   headRef: string
+  /** Its branch is in this repository (not a fork's branch that happens to have the same name). */
+  sameRepo: boolean
   baseRef: string
   updatedAt: string
   url: string
@@ -667,12 +669,12 @@ export interface SpoonApi {
   checkout(path: string, target: CheckoutTarget): Promise<void>
   /** A new branch at `base`, not tracking it (and not checked out). */
   createBranch(path: string, name: string, base: string): Promise<void>
-  /** The MainLib version, when this repository is MainLib (has Version/Resources/mainlib-version.txt); else null. */
-  mainlibVersion(path: string): Promise<string | null>
+  /** The MainLib version, when this repository is MainLib (has Version/Resources/mainlib-version.txt), or as branch `at` has it; else null. */
+  mainlibVersion(path: string, at?: string): Promise<string | null>
   /** Branches checked out in the repository, newest first (from its reflog). */
   recentCheckouts(path: string): Promise<string[]>
-  /** Writes a new MainLib version and commits just that file ("bumping version to …") on the checked-out branch. */
-  bumpMainlibVersion(path: string, version: string): Promise<void>
+  /** Makes release branch `name` from `base`, switches to it and commits the new version ("bumping version to …"); undone on failure. */
+  createMainlibRelease(path: string, name: string, base: string, version: string): Promise<void>
   /** git's user.name, or "". */
   userName(path: string): Promise<string>
   syncInfo(path: string): Promise<SyncInfo>
@@ -790,7 +792,10 @@ export interface SpoonApi {
   watchExports(path: string, dirs: string[]): Promise<string[]>
   onExportsChanged(handler: (repo: string) => void): () => void
   /** Copies exports' edits over their sources (each checked unchanged since the scan, and copied to the Trash first); resolves to the sources' new save times. */
-  exportBringBack(path: string, items: { exp: string; src: string; exportMtime: number; sourceMtime: number }[]): Promise<Record<string, number>>
+  exportBringBack(
+    path: string,
+    items: { exp: string; src: string; exportMtime: number; sourceMtime: number }[]
+  ): Promise<{ wrote: Record<string, number>; failed?: string }>
   /** Replaces the export's copy with a link to the source; one that differs only with `force`. */
   /** Replaces exports' copies with links to their sources (checked as pairs together). */
   exportRelink(path: string, items: { exp: string; src: string }[], force?: boolean): Promise<void>

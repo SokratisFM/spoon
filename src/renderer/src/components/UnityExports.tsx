@@ -237,7 +237,7 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
             >
               {linkedCount} linked · {copies.length} copies{outdated > 0 ? ` · ${outdated} out of date` : ''}
               {broken > 0 && (
-                <span className="error-text" title="Links whose source is gone (moved, deleted, or on another branch). Export from Unity again.">
+                <span className="error-text" title="Links that no longer lead to their source: it was moved or deleted, is on another branch, or the link points at another file. Export from Unity again.">
                   {' '}
                   · {broken} broken {broken === 1 ? 'link' : 'links'}
                 </span>

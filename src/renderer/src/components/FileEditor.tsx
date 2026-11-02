@@ -57,6 +57,9 @@ export function FileEditorHost({ path, ops }: { path: string; ops: Ops }) {
  * The popup width that shows the editor's longest line without scrolling: the popup's own chrome
  * (padding, gutter, scrollbar) plus the line, tabs counted at their width. 0 when it can't be measured.
  */
+/** The size of 1rem now, in px. */
+const remPx = (): number => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+
 function fitWidth(ed: CodeEditor, box: HTMLElement | null): number {
   const modal = box?.closest<HTMLElement>('.modal')
   const scroller = ed.view.scrollDOM
@@ -97,6 +100,7 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
   const [cursor, setCursor] = useState({ line: 1, col: 1 })
   const [saving, setSaving] = useState(false)
   // Wide enough for the longest line (in px), once a version is shown; CSS keeps it within the window.
+  // In rem, so it scales with ⌘+ / ⌘− like the rest of the popup.
   const [fit, setFit] = useState(0)
   const box = useRef<HTMLDivElement>(null)
   const editor = useRef<CodeEditor | null>(null)
@@ -167,14 +171,14 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
     // Grows (never shrinks) for what's loaded or switched to; typing doesn't resize it.
     requestAnimationFrame(() => {
       const w = fitWidth(ed, box.current)
-      if (w) setFit((f) => Math.max(f, w))
+      if (w) setFit((f) => Math.max(f, w / remPx()))
     })
     // Then, once it has grown, whatever a shown line still overflows by (the estimate's rounding).
     const settle = setTimeout(() => {
       const sc = ed.view.scrollDOM
       const over = sc.scrollWidth - sc.clientWidth
       const modal = box.current?.closest<HTMLElement>('.modal')
-      if (over > 0 && modal) setFit((f) => Math.max(f, modal.offsetWidth + over + 20))
+      if (over > 0 && modal) setFit((f) => Math.max(f, (modal.offsetWidth + over + 20) / remPx()))
     }, 250)
     return () => clearTimeout(settle)
     // Only when the side or what's loaded changes; typing updates `draft` from the editor itself.
@@ -298,7 +302,7 @@ function FileEditor({ req, ops, onClose }: { req: FileEditRequest; ops: Ops; onC
     ) : null
 
   return (
-    <div className="file-editor-modal" style={fit ? ({ '--fe-fit': `${fit}px` } as React.CSSProperties) : undefined}>
+    <div className="file-editor-modal" style={fit ? ({ '--fe-fit': `${fit.toFixed(2)}rem` } as React.CSSProperties) : undefined}>
       <Modal
         title={name}
         ownKeys

@@ -22,7 +22,8 @@ import type { NewRelease,
 } from '../shared/types'
 
 const API = 'https://api.github.com'
-const KEYCHAIN_SERVICE = 'Spoon GitHub'
+// A test copy (its own SPOON_USER_DATA) keeps its own Keychain item: it never reads or changes yours.
+const KEYCHAIN_SERVICE = process.env.SPOON_USER_DATA ? 'Spoon GitHub (test)' : 'Spoon GitHub'
 const SCOPES = 'repo read:org'
 const env = { ...process.env, PATH: git.toolPath }
 // A request that hangs (captive portal, dead proxy) fails instead of spinning forever.
@@ -329,6 +330,7 @@ export async function pulls(path: string): Promise<PullSummary[]> {
     author: user(p.user),
     draft: p.draft,
     headRef: p.head.ref,
+    sameRepo: p.head.repo?.full_name.toLowerCase() === slug.toLowerCase(),
     baseRef: p.base.ref,
     updatedAt: p.updated_at,
     url: p.html_url,

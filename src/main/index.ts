@@ -348,9 +348,11 @@ function registerIpc(): void {
   )
   ipcMain.handle('repo:checkout', (_e, path: string, target: CheckoutTarget) => git.checkout(path, target))
   ipcMain.handle('repo:createBranch', (_e, path: string, name: string, base: string) => git.createBranch(path, name, base))
-  ipcMain.handle('mainlib:version', (_e, path: string) => git.mainlibVersion(path))
+  handleRepo('mainlib:version', (_e, path: string, at?: string) => git.mainlibVersion(path, at))
   ipcMain.handle('repo:recentCheckouts', (_e, path: string) => git.recentCheckouts(path))
-  ipcMain.handle('mainlib:bump', (_e, path: string, version: string) => git.bumpMainlibVersion(path, version))
+  handleRepo('mainlib:release', (_e, path: string, name: string, base: string, version: string) =>
+    git.createMainlibRelease(path, name, base, version)
+  )
   ipcMain.handle('repo:userName', (_e, path: string) => git.userName(path))
   ipcMain.handle('repo:syncInfo', (_e, path: string) => git.syncInfo(path))
   ipcMain.handle('repo:updateSubmodule', (_e, path: string, sub: string, backup?: string) =>
@@ -404,15 +406,28 @@ function registerIpc(): void {
     if (item) item.visible = visible
   })
   // A quit that a window held up (unsaved edits in the file popup) goes on once that window closes.
-  // Set by a quit, until a window holding it up says the person chose to stay.
+  // Each held-up close remembers whether a quit asked for it: the prompt it shows belongs to that
+  // quit, so answering one prompt never decides for another (a close-window prompt and a ⌘Q one).
   let quitPending = false
+  const heldForQuit = new Set<number>() // web contents whose prompt is holding up a quit
   app.on('before-quit', () => (quitPending = true))
-  ipcMain.on('ui:quitCancelled', () => (quitPending = false))
+  app.on('browser-window-created', (_e, win) => {
+    const id = win.webContents.id
+    win.webContents.on('will-prevent-unload', () => {
+      if (quitPending) heldForQuit.add(id)
+      else heldForQuit.delete(id)
+      // This prompt holds the quit now; a later close is a close of its own.
+      quitPending = false
+    })
+    win.on('closed', () => heldForQuit.delete(id))
+  })
+  ipcMain.on('ui:quitCancelled', (e) => void heldForQuit.delete(e.sender.id))
   ipcMain.on('ui:closeWindow', (e, afterUnsaved?: boolean) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) return
-    const resumeQuit = !!afterUnsaved && quitPending
-    if (resumeQuit) win.once('closed', () => app.quit())
+    if (afterUnsaved && heldForQuit.has(e.sender.id)) win.once('closed', () => app.quit())
+    // A plain close: whatever quit was in the air didn't happen.
+    if (!afterUnsaved) quitPending = false
     win.close()
   })
 }
@@ -434,6 +449,7 @@ app.whenReady().then(() => {
   initStore()
   buildMenu()
   initUpdater()
+  git.setCompareRoot(join(app.getPath('userData'), 'compare'))
   registerIpc()
   createWindow()
   app.on('activate', () => {

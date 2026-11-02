@@ -20,8 +20,10 @@ export interface ExportsState {
   /** Sources with uncommitted changes, by absolute path: an export edit never overwrites those by itself. */
   dirty: Set<string>
   error: string | null
-  /** The last automatic step that failed: kept (scans don't clear it) until dismissed or one works. */
+  /** The last automatic step that failed: kept (scans don't clear it) until dismissed or that step works. */
   failure: string | null
+  /** Which step that was: only that step working again (or relinking the exports) clears it. */
+  failureKind: FailureKind | null
   /** Export edits already brought back or set aside, by the export copy's save time. */
   handled: Record<string, number>
   /** Sources Spoon brought back, by their save time then: still that time = not edited since. */
@@ -37,6 +39,8 @@ export interface ExportsState {
 }
 
 const fileName = (p: string): string => p.split('/').pop() ?? p
+
+type FailureKind = 'bring-back' | 'add' | 'watch'
 
 // ---------- the store ----------
 
@@ -64,6 +68,7 @@ export function exportsState(path: string): ExportsState {
       dirty: new Set(),
       error: null,
       failure: null,
+      failureKind: null,
       handled: readStored(key('handled', path), {}),
       wrote: readStored(key('wrote', path), {}),
       skipped: readStored(key('skipNew', path), []),
@@ -129,9 +134,14 @@ const genOf = (path: string): number => gens.get(path) ?? 0
 const bump = (path: string): void => void gens.set(path, genOf(path) + 1)
 
 /** An automatic step failed: shown in the Exports section and as a toast, whichever tab is showing. */
-function reportFailure(path: string, message: string): void {
-  update(path, { failure: message })
+function reportFailure(path: string, message: string, kind: FailureKind): void {
+  update(path, { failure: message, failureKind: kind })
   window.dispatchEvent(new CustomEvent<string>('spoon:toast', { detail: `${path.split('/').pop()}: ${message}` }))
+}
+
+/** A step worked (automatic or asked for): a failure it reported earlier is over. */
+function clearFailure(path: string, kind: FailureKind): void {
+  if (exportsState(path).failureKind === kind) update(path, { failure: null, failureKind: null })
 }
 
 // ---------- repositories changing ----------
@@ -146,7 +156,7 @@ function changed(paths: string[]): void {
  * work, with its busy label, and git's error kept for when its tab shows. Repositories it touched
  * refresh afterwards.
  */
-function run(path: string, label: string, fn: () => Promise<unknown>, failTitle: string, touched: string[], auto = false): Promise<boolean> {
+function run(path: string, label: string, fn: () => Promise<unknown>, failTitle: string, touched: string[], auto: FailureKind | false = false): Promise<boolean> {
   const task = opStateOf(path).queue.then(async () => {
     setOpState(path, { busy: { label, network: false } })
     try {
@@ -155,7 +165,7 @@ function run(path: string, label: string, fn: () => Promise<unknown>, failTitle:
     } catch (err) {
       // Automatic steps report in the Exports section and a toast (the Unity project's tab may not
       // be showing); what you asked for shows its error right away.
-      if (auto) reportFailure(path, `${failTitle}: ${cleanError(err)}`)
+      if (auto) reportFailure(path, `${failTitle}: ${cleanError(err)}`, auto)
       else setOpState(path, { error: { title: failTitle, message: cleanError(err) } })
       return false
     } finally {
@@ -262,7 +272,7 @@ export function markHandled(path: string, list: ExportLink[]): void {
 
 export function setDirs(path: string, dirs: string[] | null): void {
   bump(path)
-  update(path, { dirs, links: null, added: [], error: null })
+  update(path, { dirs, links: null, added: [], error: null, failure: null, failureKind: null })
   if (!dirs) setExportSources(path, null)
   linkedVersion++
   notify()
@@ -281,7 +291,7 @@ export function setAuto(path: string, auto: boolean): void {
 }
 
 export function dismissFailure(path: string): void {
-  update(path, { failure: null })
+  update(path, { failure: null, failureKind: null })
 }
 
 export function skipNew(path: string, exp: string): void {
@@ -308,19 +318,21 @@ export function bringBackNow(path: string, list: ExportLink[], label: string, au
       }
       if (!done.length) return
       // Main checks each file is still as scanned (else it fails, and the next scan looks again).
-      const times = await window.spoon.exportBringBack(
+      const result = await window.spoon.exportBringBack(
         path,
         done.map((l) => ({ exp: l.export, src: l.source, exportMtime: l.exportMtime, sourceMtime: l.sourceMtime }))
       )
-      update(path, { wrote: { ...exportsState(path).wrote, ...times } })
+      // What was written is recorded even when a later file failed: those are Spoon's writes, not yours.
+      update(path, { wrote: { ...exportsState(path).wrote, ...result.wrote } })
+      if (result.failed) throw new Error(result.failed)
     },
     'Bring back failed',
     list.map((l) => l.sourceRepo).filter(Boolean),
-    auto
+    auto && 'bring-back'
   ).then((ok) => {
     if (ok) {
       markHandled(path, done)
-      if (auto && done.length) update(path, { failure: null })
+      if (done.length) clearFailure(path, 'bring-back')
     } else if (auto) for (const l of list) failedOf(path)[l.export] = l.exportMtime
     void scan(path)
     return ok
@@ -354,9 +366,10 @@ export async function addNew(path: string, n: ExportNew, folder: string, auto = 
     async () => Object.assign(result, await window.spoon.exportAdd(path, n.export, folder)),
     auto ? 'Couldn’t add a new file from the export' : 'Couldn’t add the file',
     touched ? [touched] : [],
-    auto
+    auto && 'add'
   )
-  if (!ok && auto) failedOf(path)[n.export] = n.saved
+  if (ok) clearFailure(path, 'add')
+  else if (auto) failedOf(path)[n.export] = n.saved
   void scan(path)
   return { ok, meta: result.meta }
 }
@@ -403,7 +416,8 @@ function start(path: string): Agent {
     timer = setTimeout(() => void scan(path), 300)
   }
   void window.spoon.watchExports(path, dirs).then((missing) => {
-    if (missing.length) reportFailure(path, `Not watching ${missing.join(', ')}: ${missing.length === 1 ? 'it isn’t' : 'they aren’t'} there. Export again, or change the linked exports.`)
+    if (missing.length) reportFailure(path, `Not watching ${missing.join(', ')}: ${missing.length === 1 ? 'it isn’t' : 'they aren’t'} there. Export again, or change the linked exports.`, 'watch')
+    else clearFailure(path, 'watch')
   })
   const off = window.spoon.onExportsChanged((repo) => repo === path && soon())
   // A refresh of this repository, a submodule of it or a source's repository (a commit, a checkout).

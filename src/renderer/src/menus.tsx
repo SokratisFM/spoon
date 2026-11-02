@@ -70,6 +70,8 @@ export function MenuHost() {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number; origin: string } | null>(null)
   const [active, setActive] = useState(-1)
+  // In a row of swatches, which one the arrow keys are on.
+  const [swatch, setSwatch] = useState(0)
 
   // Open where the pointer is, flipped left/up when it would run off the window.
   useLayoutEffect(() => {
@@ -89,6 +91,11 @@ export function MenuHost() {
     return () => before?.focus?.({ preventScroll: true })
   }, [open?.n])
 
+  const activeRef = useRef(active)
+  activeRef.current = active
+  const swatchRef = useRef(swatch)
+  swatchRef.current = swatch
+
   // Keyboard moves keep the highlighted item in view in long, scrolling menus.
   useEffect(() => {
     ref.current?.querySelector('.ctx-item.active')?.scrollIntoView({ block: 'nearest' })
@@ -97,7 +104,7 @@ export function MenuHost() {
   // Keyboard: arrows move, Enter picks, Escape closes. Captured, so nothing behind reacts.
   useEffect(() => {
     if (!open) return
-    const usable = open.items.map((it, i) => (!it.separator && it.enabled !== false && it.id ? i : -1)).filter((i) => i >= 0)
+    const usable = open.items.map((it, i) => (!it.separator && it.enabled !== false && (it.id || it.swatches) ? i : -1)).filter((i) => i >= 0)
     const onKey = (e: KeyboardEvent): void => {
       // The menu is the top layer: no key reaches the dialog or the view behind it.
       e.stopImmediatePropagation()
@@ -109,14 +116,20 @@ export function MenuHost() {
         setActive((a) => {
           const at = usable.indexOf(a)
           const next = e.key === 'ArrowDown' ? at + 1 : at < 0 ? usable.length - 1 : at - 1
-          return usable[(next + usable.length) % usable.length] ?? -1
+          const to = usable[(next + usable.length) % usable.length] ?? -1
+          // Onto a row of swatches: the one that's picked now, else the first.
+          const sw = open.items[to]?.swatches
+          if (sw) setSwatch(Math.max(0, sw.findIndex((x) => x.checked)))
+          return to
         })
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && activeRef.current >= 0 && open.items[activeRef.current].swatches) {
+        e.preventDefault()
+        const n = open.items[activeRef.current].swatches!.length
+        setSwatch((k) => (k + (e.key === 'ArrowRight' ? 1 : -1) + n) % n)
       } else if (e.key === 'Enter') {
         e.preventDefault()
-        setActive((a) => {
-          if (a >= 0) close(open.items[a].id ?? null)
-          return a
-        })
+        const a = activeRef.current
+        if (a >= 0) close(open.items[a].swatches?.[swatchRef.current]?.id ?? open.items[a].id ?? null)
       }
     }
     const dismiss = (): void => close(null)
@@ -168,11 +181,12 @@ export function MenuHost() {
           it.separator ? (
             <div key={i} className="ctx-sep" role="separator" />
           ) : it.swatches ? (
-            <div key={i} className="ctx-swatches">
-              {it.swatches.map((sw) => (
+            <div key={i} className="ctx-swatches" onMouseLeave={() => setActive(-1)}>
+              {it.swatches.map((sw, k) => (
                 <button
                   key={sw.id}
-                  className={`ctx-swatch ${sw.color ? '' : 'none'} ${sw.checked ? 'on' : ''}`}
+                  className={`ctx-swatch ${sw.color ? '' : 'none'} ${sw.checked ? 'on' : ''} ${active === i && swatch === k ? 'focus' : ''}`}
+                  onMouseEnter={() => (setActive(i), setSwatch(k))}
                   style={sw.color ? ({ '--swatch': sw.color } as React.CSSProperties) : undefined}
                   title={sw.label}
                   aria-label={sw.label}

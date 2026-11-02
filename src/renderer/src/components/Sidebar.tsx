@@ -91,18 +91,6 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   // The ref picked in the sidebar (click), so Backspace/Delete know what to act on.
   const [picked, setPicked] = useState<string | null>(null)
 
-  // Recents: the last branches checked out here (from git's reflog), re-read when the branch changes.
-  const [checkedOut, setCheckedOut] = useState<string[]>([])
-  useEffect(() => {
-    let live = true
-    window.spoon.recentCheckouts(repo.path).then(
-      (names) => live && setCheckedOut(names),
-      () => live && setCheckedOut([])
-    )
-    return () => {
-      live = false
-    }
-  }, [repo.path, repo.headBranch])
   const settings = useSettings()
   const checkoutRef = (ref: Ref): void => {
     if (ref.kind === 'head') {
@@ -124,7 +112,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     setPicked(ref.fullName)
     // Its open pull request: a remote branch's name is looked up without its remote.
     const remote = ref.kind === 'remote' ? repo.remotes.filter((x) => ref.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0] : undefined
-    const pull = ref.kind === 'tag' ? null : ops.pullFor(remote ? ref.name.slice(remote.length + 1) : ref.name)
+    const pull = ref.kind === 'tag' ? null : ops.pullFor(remote ? ref.name.slice(remote.length + 1) : ref.name, ref.upstream)
     const choice = await contextMenu([
       { id: 'checkout', label: checkoutLabel, enabled: !isCurrent },
       ...(canRebase
@@ -161,6 +149,23 @@ export const Sidebar = memo(function Sidebar(props: Props) {
   })
   const toggle = (key: string): void => setCollapsed((c) => ({ ...c, [key]: !c[key] }))
   const isOpen = (key: string): boolean => !!query || !collapsed[key]
+
+  // Recents: the last branches checked out here (from git's reflog), re-read whenever the repository
+  // is (a checkout and back outside Spoon leaves the same branch), while the section is showing.
+  const [checkedOut, setCheckedOut] = useState<string[]>([])
+  const recentsShown = settings.sidebarSections.some((x) => x.id === 'recents' && x.visible) && isOpen('recents')
+  useEffect(() => {
+    if (!recentsShown) return
+    let live = true
+    window.spoon.recentCheckouts(repo.path).then(
+      (names) => live && setCheckedOut(names),
+      () => live && setCheckedOut([])
+    )
+    return () => {
+      live = false
+    }
+  }, [repo, recentsShown])
+  const localByName = useMemo(() => new Map(repo.refs.filter((r) => r.kind === 'head').map((r) => [r.name, r])), [repo.refs])
 
   const q = query.toLowerCase()
   const match = (r: { name: string }): boolean => !q || r.name.toLowerCase().includes(q)
@@ -264,7 +269,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     if (e.defaultPrevented) return // an item showed its own menu
     e.preventDefault()
     // Only the headers and the empty space between sections; an item without a menu has none.
-    if ((e.target as HTMLElement).closest('.side-item, .side-empty, .stale-actions')) return
+    if ((e.target as HTMLElement).closest('.side-item, .stale-actions')) return
     const list = settings.sidebarSections
     const choice = await contextMenu([
       { label: 'Show in sidebar', enabled: false },
@@ -317,7 +322,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       // The five before the current one, that still exist as local branches.
       const recent = checkedOut
         .filter((n) => n !== repo.headBranch)
-        .map((n) => repo.refs.find((r) => r.kind === 'head' && r.name === n))
+        .map((n) => localByName.get(n))
         .filter((r): r is Ref => !!r && match(r))
         .slice(0, 5)
       return section(

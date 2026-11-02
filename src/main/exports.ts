@@ -6,7 +6,7 @@
 // source (what Unity's "Symlink Sources" build setting does at export time).
 import { existsSync, readFileSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { constants as fsConstants } from 'node:fs'
-import { chmod, copyFile, lstat, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { access, chmod, copyFile, lstat, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { createHash, randomBytes } from 'node:crypto'
 import { app, shell } from 'electron'
 import * as git from './git'
@@ -103,13 +103,17 @@ interface SourceRoot {
   ios: string
 }
 async function sourceRoots(root: string): Promise<SourceRoot[]> {
-  const roots: SourceRoot[] = [{ abs: join(root, 'Assets'), ios: '' }]
-  const seen = new Set<string>()
+  const assets = join(root, 'Assets')
+  const roots: SourceRoot[] = [{ abs: assets, ios: '' }]
+  // Where each root really is (links followed): a package that is (or is inside) one already listed
+  // isn't listed again, so no file is a source twice through two roots.
+  const reals = [await realpath(assets).catch(() => assets)]
   const add = async (abs: string, fallbackName: string): Promise<void> => {
-    if (seen.has(abs)) return
+    const real = await realpath(abs).catch(() => abs)
+    if (reals.some((r) => real === r || real.startsWith(r + sep))) return
     const pkg = await readFile(join(abs, 'package.json'), 'utf8').then((t) => JSON.parse(t) as { name?: string }, () => null)
     if (!pkg) return
-    seen.add(abs)
+    reals.push(real)
     roots.push({ abs, ios: pkg.name || fallbackName })
   }
   const packages = join(root, 'Packages')
@@ -124,6 +128,8 @@ async function sourceRoots(root: string): Promise<SourceRoot[]> {
 interface Source {
   id: string
   abs: string
+  /** Where it really is (links followed): one file can be reached by two paths in Assets. */
+  real: string
   /** Its path under the iOS export's Libraries/. */
   ios: string
 }
@@ -132,9 +138,10 @@ interface Source {
 // Walking Assets takes a while in a big project: a walk is reused for a few seconds (a scan and
 // the bring-backs or links right after it).
 const indexCache = new Map<string, { at: number; index: Promise<Source[]> }>()
-function sourceIndex(root: string): Promise<Source[]> {
+/** `fresh`: walked again now (a scan, which may follow a checkout); else a walk of the last few seconds will do. */
+function sourceIndex(root: string, fresh = false): Promise<Source[]> {
   const hit = indexCache.get(root)
-  if (hit && Date.now() - hit.at < 5000) return hit.index
+  if (!fresh && hit && Date.now() - hit.at < 5000) return hit.index
   const index = walkSources(root)
   indexCache.set(root, { at: Date.now(), index })
   index.catch(() => indexCache.delete(root))
@@ -143,18 +150,15 @@ function sourceIndex(root: string): Promise<Source[]> {
 
 async function walkSources(root: string): Promise<Source[]> {
   const out: Source[] = []
-  // A file reached twice (a package inside Assets, a package listed twice) is one source.
-  const seen = new Set<string>()
+  // A file reached by two paths (a linked folder in Assets) is kept under both: Unity exports both.
   for (const r of await sourceRoots(root)) {
     for (const rel of await walk(r.abs, (x) => NATIVE.has(extname(x).toLowerCase()), SOURCE_SKIP)) {
       const abs = join(r.abs, rel)
-      const real = await realpath(abs).catch(() => abs)
-      if (seen.has(real)) continue
-      seen.add(real)
       const inRepo = toSlash(relative(root, abs))
       out.push({
         id: inRepo.startsWith('..') || isAbsolute(inRepo) ? toSlash(abs) : inRepo,
         abs,
+        real: await realpath(abs).catch(() => abs),
         ios: r.ios ? `${r.ios}/${rel}` : rel
       })
     }
@@ -202,8 +206,13 @@ async function pairs(root: string, dir: string, platform: ExportPlatform, index:
     return found
   }
   // Java and Kotlin end up under src/main/java/<package path>/: matched by file name and package.
+  // One per real file: a file reached by two paths isn't two candidates (which would be ambiguous).
   const byName = new Map<string, Source[]>()
-  for (const s of index) if (/\.(java|kt)$/.test(s.id) && !/\.androidlib\//.test(s.id)) byName.set(basename(s.id), [...(byName.get(basename(s.id)) ?? []), s])
+  for (const s of index) {
+    if (!/\.(java|kt)$/.test(s.id) || /\.androidlib\//.test(s.id)) continue
+    const list = byName.get(basename(s.id)) ?? []
+    if (!list.some((x) => x.real === s.real)) byName.set(basename(s.id), [...list, s])
+  }
   for (const base of ['java', 'kotlin']) {
     const srcDir = `${dir}/unityLibrary/src/main/${base}`
     for (const r of await walk(join(root, srcDir), (x) => /\.(java|kt)$/.test(x), EXPORT_SKIP)) {
@@ -219,9 +228,14 @@ async function pairs(root: string, dir: string, platform: ExportPlatform, index:
   }
   // Android Library plug-ins: Assets/…/Foo.androidlib/… is exported as a folder of the same name.
   const libs = new Map<string, string | null>() // "Foo.androidlib" → "Assets/Plugins/Android/Foo.androidlib" (null: two of that name)
+  const libReal = new Map<string, string>()
   for (const s of index) {
     const m = /^(.*\/([^/]+\.androidlib))\//.exec(s.id)
-    if (m) libs.set(m[2], libs.has(m[2]) && libs.get(m[2]) !== m[1] ? null : m[1])
+    if (!m || libs.get(m[2]) === m[1]) continue
+    if (!libReal.has(m[1])) libReal.set(m[1], await realpath(resolve(root, m[1])).catch(() => m[1]))
+    const known = libs.get(m[2])
+    // Two folders of that name are ambiguous, unless they're one folder reached by two paths.
+    libs.set(m[2], known === undefined ? m[1] : known && libReal.get(known) === libReal.get(m[1]) ? known : null)
   }
   if (libs.size) {
     for (const parent of [dir, `${dir}/unityLibrary`]) {
@@ -270,6 +284,35 @@ const RUN_SLACK = 120_000
 
 const hashOf = (data: Buffer): string => createHash('sha1').update(data).digest('hex')
 
+// The native files under an export's subtrees: a scan's broken-link pass and the new-files pass right
+// after it share one walk (an iOS export can hold thousands of headers).
+const subtreeCache = new Map<string, { at: number; files: Promise<string[]> }>()
+function subtreeFiles(root: string, sub: string): Promise<string[]> {
+  const key = join(root, sub)
+  const hit = subtreeCache.get(key)
+  if (hit && Date.now() - hit.at < 3000) return hit.files
+  const files = walk(key, (x) => NATIVE.has(extname(x).toLowerCase()), sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)
+  subtreeCache.set(key, { at: Date.now(), files })
+  files.catch(() => subtreeCache.delete(key))
+  return files
+}
+
+/** Where the source roots really are (links followed). */
+const realRoots = async (root: string): Promise<string[]> =>
+  Promise.all((await sourceRoots(root)).map((r) => realpath(r.abs).catch(() => r.abs)))
+
+/**
+ * An export file that is its source (the same file, through a link of its own or a linked folder),
+ * or that sits in a folder inside Assets or a package: never written over or replaced by a link,
+ * which would write into the source itself.
+ */
+async function intoSource(e: string, s: string, roots: string[]): Promise<'same' | 'inside' | null> {
+  const [re, rs, dir] = await Promise.all([realpath(e).catch(() => null), realpath(s).catch(() => null), realpath(dirname(e)).catch(() => null)])
+  if (re && re === rs) return 'same'
+  if (dir && roots.some((r) => dir === r || dir.startsWith(r + sep))) return 'inside'
+  return null
+}
+
 /** Where an export keeps the native files it got from Unity's plug-ins. */
 async function exportSubtrees(root: string, dir: string, platform: ExportPlatform): Promise<string[]> {
   return platform === 'ios'
@@ -279,7 +322,7 @@ async function exportSubtrees(root: string, dir: string, platform: ExportPlatfor
 
 /** How each linked export's native files compare with their sources. */
 export async function scanExports(root: string, dirs: string[]): Promise<ExportLink[]> {
-  const index = await sourceIndex(root)
+  const index = await sourceIndex(root, true)
   const links: ExportLink[] = []
   // Which sources git tracks, per repository: an untracked or ignored source has no history to fall
   // back on, so it's never overwritten by itself.
@@ -301,11 +344,15 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
       const where = { platform, export: exp, source: src.id, sourcePath: toSlash(s), sourceRepo: toSlash(repo), sourceTracked: await isTracked(repo, s) }
       try {
         const info = await lstat(e)
+        const [to, want] = await Promise.all([realpath(e).catch(() => null), realpath(s).catch(() => null)])
+        // The source itself, through a link of its own or a linked folder above it: linked.
+        if (to && to === want) {
+          found.push({ ...where, state: 'linked', exportMtime: 0, sourceMtime: 0 })
+          continue
+        }
         if (info.isSymbolicLink()) {
-          // Linked only when it leads to this very source; one that's gone, or that leads to another
-          // file, is broken.
-          const [to, want] = await Promise.all([realpath(e).catch(() => null), realpath(s).catch(() => null)])
-          found.push({ ...where, state: to && to === want ? 'linked' : 'dangling', exportMtime: 0, sourceMtime: 0 })
+          // A link that's gone, or that leads to another file, is broken.
+          found.push({ ...where, state: 'dangling', exportMtime: 0, sourceMtime: 0 })
           continue
         }
         const [a, b, sInfo] = await Promise.all([readFile(e), readFile(s), stat(s)])
@@ -324,7 +371,7 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
     // where they point, and counted as broken.
     const paired = new Set(found.map((l) => l.export))
     for (const sub of await exportSubtrees(root, dir, platform)) {
-      for (const r of await walk(join(root, sub), (x) => NATIVE.has(extname(x).toLowerCase()), sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)) {
+      for (const r of await subtreeFiles(root, sub)) {
         const exp = `${sub}/${r}`
         const e = join(root, exp)
         if (paired.has(exp) || !(await lstat(e).catch(() => null))?.isSymbolicLink() || (await stat(e).then(() => true, () => false))) continue
@@ -335,7 +382,8 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
           export: exp,
           source: inRepo.startsWith('..') || isAbsolute(inRepo) ? toSlash(target) : inRepo,
           sourcePath: toSlash(target),
-          sourceRepo: toSlash(repoOf(target)),
+          // Nothing there to have changes: no repository to read.
+          sourceRepo: '',
           sourceTracked: false,
           state: 'dangling',
           exportMtime: 0,
@@ -418,39 +466,52 @@ export interface BringBackItem {
 }
 
 /**
- * Copies exports' versions of files over their sources; resolves to each source's new save time.
- * Each source is checked first (still there, unchanged since the scan) and copied to the Trash, so
- * it can be got back; the write waits for any git command in the source's repository.
+ * Copies exports' versions of files over their sources. Each source is checked first (still there,
+ * unchanged since the scan, writable) and copied to the Trash, so it can be got back; the write waits
+ * for any git command in the source's repository. Resolves to each written source's new save time,
+ * and what stopped it when one couldn't be written (the ones before it stay written).
  */
-export async function bringBack(root: string, items: BringBackItem[]): Promise<Record<string, number>> {
+export async function bringBack(root: string, items: BringBackItem[]): Promise<{ wrote: Record<string, number>; failed?: string }> {
   const out: Record<string, number> = {}
   const checked: { e: string; s: string; item: BringBackItem }[] = []
   const verified = await verifiedPairs(root, items)
+  const roots = await realRoots(root)
   for (const item of items) {
     const e = inside(root, item.exp)
     const s = verified.get(item.exp)!.abs
-    const [eInfo, sInfo] = await Promise.all([lstat(e), stat(s).catch(() => null)])
+    const [eInfo, sInfo, sLink] = await Promise.all([lstat(e), stat(s).catch(() => null), lstat(s).catch(() => null)])
     if (!sInfo) throw new Error(`${item.src} isn’t there any more.`)
     if (eInfo.isSymbolicLink()) continue // a link is the source itself
+    const into = await intoSource(e, s, roots)
+    if (into === 'same') continue // the source itself, through a linked folder
+    if (into) throw new Error(`${basename(item.exp)} is inside Assets or a package (its export folder is linked there), so it isn’t brought back.`)
     if (eInfo.mtimeMs !== item.exportMtime || sInfo.mtimeMs !== item.sourceMtime)
       throw new Error(`${basename(item.src)} or its export copy changed since Spoon looked. Look again and retry.`)
+    // Before anything is written: a source that can't be written stops the whole batch here.
+    if (!sLink?.isSymbolicLink() && !(sInfo.mode & 0o200)) throw new Error(`${basename(item.src)} is read-only, so nothing was brought back.`)
+    if (!(await access(s, fsConstants.W_OK).then(() => true, () => false))) throw new Error(`${basename(item.src)} can’t be written, so nothing was brought back.`)
     checked.push({ e, s, item })
   }
-  if (!checked.length) return out
+  if (!checked.length) return { wrote: out }
   await git.backupToTrash(
     checked.map((c) => ({ abs: c.s, rel: c.item.src.startsWith('/') ? basename(c.s) : c.item.src })),
     `${basename(root)} – before bringing back from the export ${git.backupStamp()}`,
     (p) => shell.trashItem(p)
   )
   for (const c of checked) {
-    out[c.item.src] = await git.exclusive(repoOf(c.s) || root, async () => {
-      // Once more right before writing: a checkout or pull queued ahead of this may have changed it.
-      if ((await stat(c.s)).mtimeMs !== c.item.sourceMtime) throw new Error(`${basename(c.item.src)} changed while waiting. Look again and retry.`)
-      await replaceContents(c.s, await readFile(c.e))
-      return (await stat(c.s)).mtimeMs
-    })
+    try {
+      out[c.item.src] = await git.exclusive(repoOf(c.s) || root, async () => {
+        // Once more right before writing: a checkout or pull queued ahead of this may have changed it.
+        if ((await stat(c.s)).mtimeMs !== c.item.sourceMtime) throw new Error(`${basename(c.item.src)} changed while waiting. Look again and retry.`)
+        await replaceContents(c.s, await readFile(c.e))
+        return (await stat(c.s)).mtimeMs
+      })
+    } catch (err) {
+      // The ones written so far are reported too: Spoon's own writes must never look like your edits.
+      return { wrote: out, failed: err instanceof Error ? err.message : String(err) }
+    }
   }
-  return out
+  return { wrote: out }
 }
 
 /**
@@ -503,27 +564,66 @@ async function replaceContents(file: string, data: Buffer): Promise<void> {
 export async function relink(root: string, items: { exp: string; src: string }[], force = false): Promise<void> {
   // Links already there are skipped first; the rest are checked as pairs once, together.
   const todo: { exp: string; src: string }[] = []
-  for (const it of items) if (!(await lstat(inside(root, it.exp))).isSymbolicLink()) todo.push(it)
+  for (const it of items) if (!(await lstat(inside(root, it.exp)).catch(() => null))?.isSymbolicLink()) todo.push(it)
   if (!todo.length) return
   const verified = await verifiedPairs(root, todo)
+  const roots = await realRoots(root)
+  // Every file is checked before any is linked: one that differs stops the batch untouched; one that's
+  // gone or already is its source is skipped (and said so at the end).
+  const ready: { exp: string; e: string; s: string }[] = []
+  const differs: string[] = []
+  const skipped: string[] = []
   for (const { exp } of todo) {
     const e = inside(root, exp)
     const s = verified.get(exp)!.abs
-    if (!force && !(await readFile(e)).equals(await readFile(s)))
-      throw new Error(`${basename(exp)} differs from its source. Bring it back (or discard the export's edit) first.`)
+    const into = await intoSource(e, s, roots)
+    if (into === 'same') continue // already the source itself, through a linked folder
+    if (into) {
+      skipped.push(`${basename(exp)} (its export folder is linked into Assets or a package)`)
+      continue
+    }
+    const [a, b] = await Promise.all([readFile(e).catch(() => null), readFile(s).catch(() => null)])
+    if (!a || !b) {
+      skipped.push(`${basename(exp)} (${a ? 'its source' : 'the export copy'} is gone)`)
+      continue
+    }
+    if (!force && !a.equals(b)) differs.push(basename(exp))
+    else ready.push({ exp, e, s })
+  }
+  if (differs.length)
+    throw new Error(`${differs.join(', ')} ${differs.length === 1 ? 'differs' : 'differ'} from ${differs.length === 1 ? 'its source' : 'their sources'}. Bring ${differs.length === 1 ? 'it' : 'them'} back (or discard the export's edits) first.`)
+  for (const { e, s } of ready) {
     // The link is made next to the copy and renamed over it: if that fails, the copy is untouched
-    // (its contents and its save time, which tell Spoon whether it was edited).
+    // (its contents and its save time, which tell Spoon whether it was edited). Its target is worked
+    // out from where the folder really is, which is where the link is read from.
     const tmp = join(dirname(e), `.${basename(e)}.spoon-link-${randomBytes(4).toString('hex')}`)
+    const [dir, target] = await Promise.all([realpath(dirname(e)), realpath(s)])
     try {
-      await symlink(relative(dirname(e), s), tmp, 'file')
-      await rename(tmp, e)
+      await symlink(relative(dir, target), tmp, 'file')
     } catch (err) {
       await rm(tmp, { force: true })
-      throw process.platform === 'win32'
+      throw process.platform === 'win32' && (err as NodeJS.ErrnoException).code === 'EPERM'
         ? new Error('Windows only lets apps create links with Developer Mode on (Settings → System → For developers).')
         : err
     }
+    try {
+      // Windows refuses a rename over a file another program has open (EPERM/EBUSY): a few tries.
+      for (let n = 0; ; n++) {
+        try {
+          await rename(tmp, e)
+          break
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code
+          if ((code !== 'EPERM' && code !== 'EBUSY') || n === 3) throw err
+          await new Promise((r) => setTimeout(r, 150))
+        }
+      }
+    } catch (err) {
+      await rm(tmp, { force: true })
+      throw err
+    }
   }
+  if (skipped.length) throw new Error(`Linked ${ready.length} of ${ready.length + skipped.length}. Skipped ${skipped.join('; ')}.`)
 }
 
 // ---------- files made in Android Studio or Xcode ----------
@@ -627,7 +727,7 @@ export async function newExportFiles(root: string, dirs: string[]): Promise<Expo
     const subtrees = await exportSubtrees(root, dir, platform)
     const files: { exp: string; born: number; saved: number }[] = []
     for (const sub of subtrees) {
-      for (const r of await walk(join(root, sub), (x) => NATIVE.has(extname(x).toLowerCase()), sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)) {
+      for (const r of await subtreeFiles(root, sub)) {
         const info = await lstat(join(root, sub, r)).catch(() => null)
         if (info?.isFile()) files.push({ exp: `${sub}/${r}`, born: info.birthtimeMs || info.ctimeMs, saved: info.mtimeMs })
       }
@@ -720,6 +820,7 @@ export async function addToSource(root: string, exp: string, folder: string): Pr
     throw err.code === 'EEXIST' ? new Error(`There’s already a ${basename(e)} in that folder.`) : err
   })
   const meta = await writeMeta(dest, file)
+  indexCache.delete(root) // a new source: the next pairing must see it
   await rm(e)
   try {
     await symlink(relative(dirname(e), file), e, 'file')

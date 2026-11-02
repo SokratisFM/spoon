@@ -8,7 +8,8 @@ import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
 import type { AtlassianAccount, ConfluencePage, JiraIssue, JiraNewIssue, JiraProject, JiraProjectMeta } from '../shared/types'
 
-const SERVICE = 'Spoon Atlassian'
+// A test copy (its own SPOON_USER_DATA) keeps its own Keychain item: it never reads or changes yours.
+const SERVICE = process.env.SPOON_USER_DATA ? 'Spoon Atlassian (test)' : 'Spoon Atlassian'
 const ACCOUNT = 'credentials'
 const secretFile = (): string => join(app.getPath('userData'), 'atlassian.bin')
 

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
-import { getSettings, resetScale, SCALE_STEP, setTabColor, TAB_PALETTE, tabColorFor, updateSettings, useSettings } from './settings'
+import { getSettings, resetScale, SCALE_STEP, setTabColor, TAB_PALETTE, tabColorFor, tabLook, updateSettings, useSettings } from './settings'
 import { ideSchemes } from './syntax'
 import { RepoView } from './components/RepoView'
 import { GitHistoryDialog } from './components/GitHistoryDialog'
 import { warmTabs } from './repoCache'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
-import { askPin, PinHost, setSimpleConfig, useSimpleConfig } from './simpleMode'
+import { askPin, PinHost, setSimpleConfig, simpleConfig, useSimpleConfig } from './simpleMode'
 import { runAgents, useLinkedExports } from './exportsAgent'
 import { Welcome } from './components/Welcome'
 import { ProjectPalette } from './components/ProjectPalette'
@@ -235,13 +235,17 @@ export function App() {
         { id: 'remove', label: 'Remove from Spoon', kind: 'primary' }
       ]
     })
+    // A PIN-locked project stays (tab and all) when the PIN isn't given.
     if (choice === 'remove') {
-      forgetProject(path)
-      dropTab(path)
+      if (await forgetProject(path)) dropTab(path)
     } else if (choice === 'locate') {
       const found = await window.spoon.pickFolder(`Locate ${projectName(path)}`)
       if (!found) return
-      forgetProject(path)
+      const root = await window.spoon.openRepo(found).then((r) => r.path, () => null)
+      // The project moved: its Simple Mode setup (and PIN) moves with it, so it doesn't open unlocked.
+      const setup = simpleConfig(path)
+      if (!(await forgetProject(path))) return
+      if (root && setup && !simpleConfig(root)) setSimpleConfig(root, setup)
       dropTab(path)
       openRepo(found)
     }
@@ -382,7 +386,7 @@ export function App() {
     const textTab = !!compareTextId(path)
     const name = files ? `${fileName(files[0])} ↔ ${fileName(files[1])}` : textTab ? 'Text compare' : projectName(path)
     const parent = parents[path]
-    const color = files || textTab ? null : tabColorFor(settings, projectName(path))
+    const color = files || textTab ? null : tabLook(settings, projectName(path), path === current)
     return (
       <div
         key={path}

@@ -894,38 +894,79 @@ const MAINLIB_VERSION_FILE = 'Version/Resources/mainlib-version.txt'
 
 /**
  * Branches checked out here, newest first and once each, from git's own record of HEAD (so checkouts
- * made outside Spoon count too). Detached checkouts are left out; the caller keeps the branches that
- * still exist.
+ * made outside Spoon count too): each switch's branch and the one it left, and the branch a rebase
+ * returned to. The caller keeps the names that are branches (a detached checkout names a commit).
  */
 export async function recentCheckouts(cwd: string): Promise<string[]> {
-  const out = await git(cwd, ['reflog', 'show', '--format=%gs', '-n', '400', 'HEAD', '--']).catch(() => '')
+  const out = await git(cwd, ['reflog', 'show', '--format=%gs', '-n', '3000', 'HEAD', '--']).catch(() => '')
   const names: string[] = []
+  const add = (n: string): void => void (!names.includes(n) && names.push(n))
   for (const line of out.split('\n')) {
-    const m = /^checkout: moving from .+ to (.+)$/.exec(line.trim())
-    if (m && !/^[0-9a-f]{7,40}$/.test(m[1]) && !names.includes(m[1])) names.push(m[1])
+    const m = /^checkout: moving from (.+) to (.+)$/.exec(line.trim())
+    if (m) {
+      add(m[2])
+      add(m[1])
+    }
+    const r = /^rebase(?: -i)? \(finish\): returning to refs\/heads\/(.+)$/.exec(line.trim())
+    if (r) add(r[1])
+    if (names.length >= 40) break
   }
   return names
 }
 
-/** The MainLib version in a repository that is MainLib (has its version file), or null. */
-export async function mainlibVersion(cwd: string): Promise<string | null> {
+/** The version a MainLib version file's text says: its first line, without a BOM. */
+const versionIn = (text: string): string => text.replace(/^\uFEFF/, '').split(/\r?\n/)[0].trim()
+
+/**
+ * The MainLib version in a repository that is MainLib (has its version file), or null: in the
+ * working copy, or as `at` (a branch) has it.
+ */
+export async function mainlibVersion(cwd: string, at?: string): Promise<string | null> {
+  if (at) {
+    assertArg(at, 'branch')
+    const text = await git(cwd, ['show', `${at}:${MAINLIB_VERSION_FILE}`]).catch(() => null)
+    return text === null ? null : versionIn(text)
+  }
   const text = await readFile(join(cwd, MAINLIB_VERSION_FILE), 'utf8').catch(() => null)
-  return text === null ? null : text.trim()
+  return text === null ? null : versionIn(text)
 }
 
 /**
- * Writes a new version into the MainLib version file (keeping its line ending) and commits just that
- * file as "bumping version to <version>", on the branch that's checked out.
+ * A MainLib release with its version bumped, as one step under the repository's lock: the release
+ * branch made from `base` and switched to, the version file's first line set to `version` (its BOM,
+ * line ending and any other lines kept) and committed alone as "bumping version to <version>". If
+ * any of it fails, what was done is undone (back on the branch you were on, the new branch gone).
  */
-export async function bumpMainlibVersion(cwd: string, version: string): Promise<void> {
+export async function createMainlibRelease(cwd: string, name: string, base: string, version: string): Promise<void> {
   if (!/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Not a version: ${version}`)
-  const file = join(cwd, MAINLIB_VERSION_FILE)
+  await assertBranchName(cwd, name)
+  assertArg(base, 'base branch')
   await exclusive(cwd, async () => {
-    const old = await readFile(file, 'utf8')
-    const ending = /\r\n$/.test(old) ? '\r\n' : /\n$/.test(old) ? '\n' : ''
-    await writeFile(file, version + ending)
-    // --only: whatever else is staged stays out of this commit.
-    await run(cwd, ['commit', '-F', '-', '--only', '--', MAINLIB_VERSION_FILE], { input: `bumping version to ${version}` })
+    // Your changes would be carried onto the release branch (or be in the way): it starts clean.
+    if ((await git(cwd, ['status', '--porcelain', '--untracked-files=no'])).trim())
+      throw new Error('You have uncommitted changes. Commit or stash them first, or make the branch without bumping the version.')
+    const was = await git(cwd, ['show', `${base}:${MAINLIB_VERSION_FILE}`]).catch(() => null)
+    if (was === null) throw new Error(`${base} has no ${MAINLIB_VERSION_FILE}.`)
+    if (versionIn(was) === version) throw new Error(`${base} is already at ${version}: there’s nothing to bump.`)
+    const back = (await git(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1])).trim() || (await git(cwd, ['rev-parse', 'HEAD'])).trim()
+    await git(cwd, ['switch', '--no-track', '-c', name, base])
+    try {
+      // Written only as a plain file inside the repository (never through a link).
+      const file = await realRepoFile(cwd, MAINLIB_VERSION_FILE)
+      if (!(await lstat(file)).isFile()) throw new Error(`${MAINLIB_VERSION_FILE} isn’t a plain file.`)
+      const old = await readFile(file, 'utf8')
+      const bom = old.startsWith('\uFEFF') ? '\uFEFF' : ''
+      const [first, ...rest] = old.slice(bom.length).split(/(?<=\n)/)
+      const ending = /\r\n$/.test(first) ? '\r\n' : /\n$/.test(first) ? '\n' : ''
+      await writeFile(file, bom + version + ending + rest.join(''))
+      // --only: whatever else is staged stays out of this commit.
+      await run(cwd, ['commit', '-F', '-', '--only', '--', MAINLIB_VERSION_FILE], { input: `bumping version to ${version}` })
+    } catch (err) {
+      await git(cwd, ['checkout', '-f', '--', MAINLIB_VERSION_FILE]).catch(() => undefined)
+      await git(cwd, ['switch', ...(/^[0-9a-f]{40}$/.test(back) ? ['--detach'] : []), back]).catch(() => undefined)
+      await git(cwd, ['branch', '-D', name]).catch(() => undefined)
+      throw err
+    }
   })
 }
 
@@ -1741,11 +1782,20 @@ export async function fileAtCommit(cwd: string, hash: string, rel: string): Prom
   return contentOf(data, data.length)
 }
 
-/** A commit's version of a file in a temporary folder, for comparing it with files on disk (streamed, not held in memory). */
+// Where commits' versions of files go for comparing: in Spoon's own data (set at startup), since
+// macOS empties the system's temporary folder after a few days and a compare tab may still show one.
+let compareRoot: string | null = null
+export function setCompareRoot(dir: string): void {
+  compareRoot = dir
+}
+
+/** A commit's version of a file in a folder of its own, for comparing it with files on disk (streamed, not held in memory). */
 export async function fileAtCommitToTemp(cwd: string, hash: string, rel: string): Promise<string> {
   assertHash(hash)
   repoFile(cwd, rel)
-  const dir = await mkdtemp(join(tmpdir(), 'spoon-at-'))
+  const root = compareRoot ?? tmpdir()
+  await mkdir(root, { recursive: true })
+  const dir = await mkdtemp(join(root, 'spoon-at-'))
   const out = join(dir, `${hash.slice(0, 7)}-${basename(rel)}`)
   try {
     await blobAt(cwd, hash, rel, out)
@@ -1761,13 +1811,14 @@ export async function fileAtCommitToTemp(cwd: string, hash: string, rel: string)
  * to the Trash) left from earlier runs: anything over a day old, so files still open aren't pulled away.
  */
 export async function cleanTempFolders(keep: string[] = []): Promise<void> {
-  const dir = tmpdir()
-  for (const name of await readdir(dir).catch(() => [] as string[])) {
-    if (!/^spoon-(at|backup)-/.test(name)) continue
-    // A folder a compare tab still shows a file from stays.
-    if (keep.some((k) => k.startsWith(join(dir, name) + sep))) continue
-    const info = await stat(join(dir, name)).catch(() => null)
-    if (info && Date.now() - info.mtimeMs > 86_400_000) await rm(join(dir, name), { recursive: true, force: true }).catch(() => undefined)
+  for (const dir of [...new Set([tmpdir(), ...(compareRoot ? [compareRoot] : [])])]) {
+    for (const name of await readdir(dir).catch(() => [] as string[])) {
+      if (!/^spoon-(at|backup)-/.test(name)) continue
+      // A folder a compare tab still shows a file from stays.
+      if (keep.some((k) => k.startsWith(join(dir, name) + sep))) continue
+      const info = await stat(join(dir, name)).catch(() => null)
+      if (info && Date.now() - info.mtimeMs > 86_400_000) await rm(join(dir, name), { recursive: true, force: true }).catch(() => undefined)
+    }
   }
 }
 

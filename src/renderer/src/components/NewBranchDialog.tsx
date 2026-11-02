@@ -33,6 +33,14 @@ export function parsePattern(pattern: string): Part[][] {
     })
 }
 
+/** Orders "4.2.0", "4.10.1" and "4.3.0-rc1" by their numbers. */
+function compareVersions(a: string, b: string): number {
+  const x = a.split(/[.\-_]/).map((p) => Number.parseInt(p, 10) || 0)
+  const y = b.split(/[.\-_]/).map((p) => Number.parseInt(p, 10) || 0)
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0)
+  return 0
+}
+
 /** The ticket key in a link or text ("…/browse/MAINLIB-2592", "mainlib-2592"), upper-cased. */
 export function ticketFrom(text: string): string {
   // Project keys can have underscores (MY_PROJ-12).
@@ -173,7 +181,10 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const locals = repo.refs.filter((r) => r.kind === 'head')
   const remotes = repo.refs.filter((r) => r.kind === 'remote' && !r.name.endsWith('/HEAD'))
   const releaseName = `${s.mainlibPrefix}${version.trim()}`
-  const exists = locals.some((r) => r.name === (release ? releaseName : name))
+  // A release branch already on a remote counts too: making it here would start a second one.
+  const exists = release
+    ? locals.some((r) => r.name === releaseName) || remotes.some((r) => r.name.endsWith(`/${releaseName}`))
+    : locals.some((r) => r.name === name)
 
   // Starts from the branch in Settings (develop): the local one if it's up to date, else its remote copy.
   const defaultBase = useMemo(() => {
@@ -188,14 +199,31 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const [base, setBase] = useState(defaultBase)
   const baseRef = [...locals, ...remotes].find((r) => r.name === base)
 
+  // The version the release starts from: what the chosen base has (the bump lands only on the release
+  // branch, so the working copy may say something else).
+  const [baseVersion, setBaseVersion] = useState<string | null>(null)
+  useEffect(() => {
+    if (!release || !base) return
+    let live = true
+    window.spoon.mainlibVersion(path, base).then(
+      (v) => live && setBaseVersion(v),
+      () => live && setBaseVersion(null)
+    )
+    return () => {
+      live = false
+    }
+  }, [path, base, release])
+
   const problem = release
     ? !/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(version.trim())
       ? 'Type the version, like 4.3.0.'
-      : exists
-        ? `${releaseName} already exists.`
-        : !base
-          ? 'Pick the branch to start from.'
-          : null
+      : bump && baseVersion === version.trim()
+        ? `${base} is already at ${version.trim()}.`
+        : exists
+          ? `${releaseName} already exists.`
+          : !base
+            ? 'Pick the branch to start from.'
+            : null
     : !name
       ? 'Fill in at least one part.'
       : exists
@@ -219,30 +247,34 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     if (checkout) ops.checkout({ kind: 'branch', name }, name)
   }
 
-  // A MainLib release: candidates/<version>, checked out, and (with the toggle) the version file bumped
-  // and committed there, one step after the other.
+  // A MainLib release: candidates/<version>. With the bump, made, switched to and committed in one step
+  // (undone if any of it fails); without it, made and checked out like any new branch.
   const createRelease = async (): Promise<void> => {
     if (problem || creating) return
     const v = version.trim()
     setCreating(true)
-    const ok = await ops.run(
-      `Creating ${releaseName}…`,
-      async () => {
-        await window.spoon.createBranch(path, releaseName, base)
-        if (checkout || bump) await window.spoon.checkout(path, { kind: 'branch', name: releaseName })
-        if (bump) await window.spoon.bumpMainlibVersion(path, v)
-      },
-      'Couldn’t make the release branch'
-    )
+    const ok = bump
+      ? await ops.run(`Creating ${releaseName}…`, () => window.spoon.createMainlibRelease(path, releaseName, base, v), 'Couldn’t make the release branch')
+      : await ops.run(`Creating ${releaseName}…`, () => window.spoon.createBranch(path, releaseName, base), 'Couldn’t make the release branch')
     setCreating(false)
-    if (ok) onClose()
+    if (!ok) return
+    onClose()
+    if (!bump && checkout) ops.checkout({ kind: 'branch', name: releaseName }, releaseName)
   }
-  // The next patch, minor and major version after the current one.
+  // The next patch, minor and major version after the latest one: the base's, or a release branch's
+  // (here or on a remote) when that's further on. A pre-release (4.3.0-rc1) is followed by its release.
   const nextVersions = ((): string[] => {
-    const m = /^(\d+)\.(\d+)\.(\d+)/.exec(mainlibNow ?? '')
+    const made = [...locals, ...remotes]
+      .map((r) => (r.kind === 'remote' ? r.name.slice(r.name.indexOf('/') + 1) : r.name))
+      .filter((n) => n.startsWith(s.mainlibPrefix))
+      .map((n) => n.slice(s.mainlibPrefix.length))
+      .filter((v) => /^\d+\.\d+\.\d+/.test(v))
+    const latest = [baseVersion ?? mainlibNow ?? '', ...made].filter(Boolean).sort((x, y) => compareVersions(y, x))[0]
+    const m = /^(\d+)\.(\d+)\.(\d+)(.*)$/.exec(latest ?? '')
     if (!m) return []
     const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])]
-    return [`${a}.${b}.${c + 1}`, `${a}.${b + 1}.0`, `${a + 1}.0.0`]
+    const pre = !!m[4] && !made.includes(`${a}.${b}.${c}`)
+    return [pre ? `${a}.${b}.${c}` : `${a}.${b}.${c + 1}`, `${a}.${b + 1}.0`, `${a + 1}.0.0`].filter((v) => !made.includes(v))
   })()
 
   // Focus goes to the first part still to fill in (the ticket field when there's no ticket yet).
@@ -397,7 +429,9 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
                 spellCheck={false}
                 onChange={(e) => setVersion(e.target.value.replace(/\s/g, ''))}
               />
-              <span className="hint">now {mainlibNow || '—'}</span>
+              <span className="hint" title={`Version/Resources/mainlib-version.txt on ${base}`}>
+                now {baseVersion ?? '—'}
+              </span>
               {nextVersions.map((v) => (
                 <button key={v} className={`nb-type ${version === v ? 'on' : ''}`} onClick={() => setVersion(v)}>
                   {v}
@@ -425,7 +459,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
               {problem && version
                 ? problem
                 : bump && version.trim()
-                  ? `Then mainlib-version.txt goes ${mainlibNow || '?'} → ${version.trim()}, committed as “bumping version to ${version.trim()}”.`
+                  ? `Then mainlib-version.txt goes ${baseVersion || '?'} → ${version.trim()}, committed as “bumping version to ${version.trim()}”.`
                   : 'The prefix is Settings → MainLib → Version branches.'}
             </span>
           </div>

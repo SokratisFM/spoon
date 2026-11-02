@@ -83,8 +83,11 @@ export interface Ops {
   tag: (commit: Commit) => void
   /** Open Review with Claude: local changes by default, or one commit (null when Claude is turned off). */
   review: ((commit?: { hash: string; subject: string }) => void) | null
-  /** The open pull request from a branch (its name without the remote), if GitHub has one. */
-  pullFor: (branch: string) => PullSummary | null
+  /**
+   * The open pull request from a branch of this repository: by its name (without the remote) or its
+   * upstream's ("origin/feature/x"), if GitHub has one. A fork's branch of the same name doesn't count.
+   */
+  pullFor: (branch: string, upstream?: string) => PullSummary | null
   /** Show a pull request in the Pull Requests view. */
   openPull: (number: number) => void
 }
@@ -287,11 +290,13 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   }, [path])
 
   // Pull requests: loaded when the account and a GitHub remote are there, refreshed at most once a minute.
+  // `fresh`: true to fetch now, or how old (ms) the list may be; by default a minute.
   const loadPrs = useCallback(
-    async (force = false) => {
+    async (fresh: boolean | number = false) => {
       if (!account || !ghSlug) return
       const st = prStateOf(path)
-      if (!force && st.prs && Date.now() - st.loadedAt < 60_000) return
+      const maxAge = fresh === true ? 0 : fresh === false ? 60_000 : fresh
+      if (st.prs && Date.now() - st.loadedAt < maxAge) return
       st.loadedAt = Date.now()
       try {
         st.prs = await window.spoon.ghPulls(path)
@@ -307,6 +312,16 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   useEffect(() => {
     loadPrs()
   }, [loadPrs])
+  const loadPrsRef = useRef(loadPrs)
+  loadPrsRef.current = loadPrs
+  // A push (or a fetch) moved a remote branch: a pull request may have been opened or updated for it.
+  const remoteTips = repo?.refs
+    .filter((r) => r.kind === 'remote')
+    .map((r) => `${r.name}@${r.target}`)
+    .join(',')
+  useEffect(() => {
+    if (remoteTips !== undefined) void loadPrsRef.current(10_000)
+  }, [remoteTips])
   useEffect(() => {
     const onFocus = (): void => void loadPrs()
     window.addEventListener('focus', onFocus)
@@ -454,7 +469,13 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       createPull: canCreatePull ? setPrFor : null,
       tag: openTag,
       review: claudeEnabled ? (commit) => setReviewing({ commit }) : null,
-      pullFor: (branch) => prsRef.current?.find((p) => p.headRef === branch) ?? null,
+      pullFor: (branch, upstream) => {
+        // Looked at when a menu opens: a list over 15 seconds old is fetched again (for the next one).
+        void loadPrsRef.current(15_000)
+        const remote = upstream ? repoRef.current?.remotes.filter((r) => upstream.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0] : undefined
+        const names = [branch, ...(remote ? [upstream!.slice(remote.length + 1)] : [])]
+        return prsRef.current?.find((p) => p.sameRepo && names.includes(p.headRef)) ?? null
+      },
       openPull: (number) => {
         setSelectedPr(number)
         setView('prs')
