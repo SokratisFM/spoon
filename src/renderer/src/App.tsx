@@ -515,6 +515,14 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
+  // Drops where the marker shows: on a tab, or anywhere in the bar (past the last tab, it goes last).
+  const dropDragged = (): void => {
+    const from = units.find((x) => x.key === drag?.unit)
+    const to = units.find((x) => x.key === drag?.over)
+    if (from && to && drag && from.key !== to.key) moveUnit(from.paths, to.paths, !!drag.after)
+    setDrag(null)
+  }
+  const unitKeys = units.map((u) => u.key)
   const tabBar = units.map((u) => (
     <div
       key={u.key}
@@ -538,9 +546,8 @@ export function App() {
       }}
       onDrop={(e) => {
         e.preventDefault()
-        const from = units.find((x) => x.key === drag?.unit)
-        if (from && drag && from.key !== u.key) moveUnit(from.paths, u.paths, !!drag.after)
-        setDrag(null)
+        e.stopPropagation()
+        dropDragged()
       }}
       onDragEnd={() => setDrag(null)}
     >
@@ -647,7 +654,25 @@ export function App() {
   return (
     <div className="app">
       <header className="titlebar">
-        <div className="tabs" onContextMenu={tabBarMenu}>
+        {/* While a tab is dragged the bar takes drops: its empty part is otherwise the window's drag area. */}
+        <div
+          className={`tabs ${drag ? 'tab-dragging' : ''}`}
+          onContextMenu={tabBarMenu}
+          onDragOver={(e) => {
+            if (!drag) return
+            e.preventDefault()
+            const units = e.currentTarget.querySelectorAll<HTMLElement>(':scope > .tab-unit')
+            const last = units[units.length - 1]
+            if (!last || e.clientX < last.getBoundingClientRect().right) return
+            const key = unitKeys[unitKeys.length - 1]
+            if (drag.over !== key || !drag.after) setDrag({ ...drag, over: key, after: true })
+          }}
+          onDrop={(e) => {
+            if (!drag) return
+            e.preventDefault()
+            dropDragged()
+          }}
+        >
           {tabBar}
           <button className="icon-btn tab-add" onClick={() => setActive(null)} onContextMenu={tabBarMenu} title="Open repository">
             <PlusIcon />

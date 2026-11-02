@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.40.1 — 2026-11-02
+
+- **Fixed:** Dragging a tab past the last one in the tab bar moves it to the end, instead of dropping it back where it was.
+
 ## 0.40.0 — 2026-11-02
 
 - **New:** Right-click a commit or branch with an open pull request to open it in Spoon (“Open Pull Request #…”, under “Open … in Jira”). Branches that already have one no longer offer “Create Pull Request”.

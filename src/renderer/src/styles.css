@@ -270,6 +270,9 @@ body.resizing .split-handle {
   overflow: hidden;
 }
 
+.tabs.tab-dragging {
+  -webkit-app-region: no-drag;
+}
 .tab {
   -webkit-app-region: no-drag;
   display: flex;
