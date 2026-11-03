@@ -27,6 +27,7 @@ const api: SpoonApi = {
   headMessage: (path) => ipcRenderer.invoke('repo:headMessage', path),
   commit: (path, message, amend) => ipcRenderer.invoke('repo:doCommit', path, message, amend),
   checkout: (path, target) => ipcRenderer.invoke('repo:checkout', path, target),
+  checkoutCarrying: (path, target, files, description) => ipcRenderer.invoke('repo:checkoutCarrying', path, target, files, description),
   createBranch: (path, name, base) => ipcRenderer.invoke('repo:createBranch', path, name, base),
   mainlibVersion: (path, at) => ipcRenderer.invoke('mainlib:version', path, at),
   recentCheckouts: (path) => ipcRenderer.invoke('repo:recentCheckouts', path),

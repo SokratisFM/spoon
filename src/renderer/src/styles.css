@@ -1692,6 +1692,9 @@ input[type='range'] {
   gap: 0.5rem;
   margin-top: 1.2rem;
 }
+.modal-footer .btn {
+  white-space: nowrap;
+}
 .sync-route {
   display: flex;
   align-items: center;

@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.46.0 — 2026-11-03
+
+- **New:** When local changes block a checkout, **Stash & Re-apply** stashes them, checks out, and puts them back on top. If they clash with the branch, the conflicts are marked in the files and the stash is kept; if they can't be put back at all (the branch has its own copy of a new file), the checkout still happens and they stay safe in the stash. If the checkout itself fails, your changes go straight back where they were.
+
 ## 0.45.0 — 2026-11-03
 
 - **New:** Double-click a branch's label in the commit list to check out that branch, even when several branches are on the same commit. Double-clicking elsewhere on the row works as before.

@@ -347,6 +347,9 @@ function registerIpc(): void {
     git.commit(path, message, amend)
   )
   ipcMain.handle('repo:checkout', (_e, path: string, target: CheckoutTarget) => git.checkout(path, target))
+  handleRepo('repo:checkoutCarrying', (_e, path: string, target: CheckoutTarget, files: string[], description: string) =>
+    git.checkoutCarrying(path, target, files, description)
+  )
   ipcMain.handle('repo:createBranch', (_e, path: string, name: string, base: string) => git.createBranch(path, name, base))
   handleRepo('mainlib:version', (_e, path: string, at?: string) => git.mainlibVersion(path, at))
   ipcMain.handle('repo:recentCheckouts', (_e, path: string) => git.recentCheckouts(path))

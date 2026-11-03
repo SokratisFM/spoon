@@ -1,5 +1,5 @@
 // Shown when a checkout stops because it would overwrite local changes: lists those files and lets
-// the user discard some of them, or all of them and check out.
+// the user discard some of them, or all of them and check out, or stash them and put them back after.
 import { useRef, useState } from 'react'
 import type { DiscardEntry, FileChange, WorkingTree } from '../../../shared/types'
 import { Modal } from './Modal'
@@ -27,9 +27,11 @@ interface Props {
   /** Discards the entries; resolves to whether that worked. */
   discard: (entries: DiscardEntry[]) => Promise<boolean>
   onCheckout: () => void
+  /** Stashes these files' changes, checks out and puts them back. */
+  onCarry: (files: string[]) => void
 }
 
-export function CheckoutBlockedDialog({ description, files, tree, onClose, discard, onCheckout }: Props) {
+export function CheckoutBlockedDialog({ description, files, tree, onClose, discard, onCheckout, onCarry }: Props) {
   const [done, setDone] = useState<Set<string>>(new Set())
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
@@ -88,15 +90,29 @@ export function CheckoutBlockedDialog({ description, files, tree, onClose, disca
           <button className="btn" disabled={busy || !selected.length} onClick={() => go(selected)}>
             Discard Selected{selected.length ? ` (${selected.length})` : ''}
           </button>
-          <button ref={allBtn} className="btn primary warn" disabled={busy} onClick={() => go(left)} autoFocus>
+          <button className="btn" disabled={busy} onClick={() => go(left)}>
             Discard All &amp; Check Out
+          </button>
+          {/* The default: nothing is lost. */}
+          <button
+            ref={allBtn}
+            className="btn primary"
+            disabled={busy}
+            onClick={() => {
+              onClose()
+              onCarry(left)
+            }}
+            autoFocus
+            title={`Stash these changes, check out ${description}, then put them back`}
+          >
+            Stash &amp; Re-apply
           </button>
         </>
       }
     >
       <p className="dialog-detail">
         Your local changes to {left.length === 1 ? 'this file' : `these ${left.length} files`} would be overwritten.
-        Discard them, or commit or stash them first.
+        Stash them and put them back after the checkout, or discard them.
       </p>
       <div className="blocked-files">
         {left.map((p) => {
@@ -111,7 +127,8 @@ export function CheckoutBlockedDialog({ description, files, tree, onClose, disca
         })}
       </div>
       <p className="hint">
-        Discarded versions go to the Trash, so you can get them back. Once none are left, the checkout goes ahead.
+        Re-applied changes that clash with {description} are marked as conflicts, and the stash is kept until you
+        drop it. Discarded versions go to the Trash, so you can get them back.
       </p>
     </Modal>
   )

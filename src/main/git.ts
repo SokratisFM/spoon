@@ -15,6 +15,7 @@ import type {
   FileStatus,
   Ref,
   RepoState,
+  CarryResult,
   CheckoutTarget,
   PullOptions,
   PushOptions,
@@ -878,6 +879,63 @@ async function checkoutNow(cwd: string, target: CheckoutTarget): Promise<void> {
     if (exists) await git(cwd, ['switch', local])
     else await git(cwd, ['switch', '-c', local, '--track', target.name])
   }
+}
+
+/**
+ * A checkout those files' local changes would block: they're stashed, the checkout runs, and they're
+ * put back on top, all in one lock. A checkout that still fails puts them back where they were.
+ * Changes that don't apply cleanly stay in the stash, with any conflicts marked in the files.
+ */
+export function checkoutCarrying(cwd: string, target: CheckoutTarget, files: string[], description: string): Promise<CarryResult> {
+  return exclusive(cwd, async () => {
+    const tip = async (): Promise<string> => (await git(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], [0, 1])).trim()
+    const before = await tip()
+    const stash = `Spoon: changes carried to ${description}`
+    // Paths as they are: a file named with * or [ isn't a pattern.
+    await run(cwd, ['stash', 'push', '--include-untracked', '-m', stash, '--', ...files], { env: { GIT_LITERAL_PATHSPECS: '1' } })
+    const hash = await tip()
+    if (!hash || hash === before) {
+      await checkoutNow(cwd, target) // nothing was stashed (the changes were already gone)
+      return { status: 'applied' }
+    }
+    const pop = async (index: boolean): Promise<void> =>
+      void (await git(cwd, ['stash', 'pop', ...(index ? ['--index'] : []), await currentStash(cwd, 'stash@{0}', hash)]))
+    try {
+      await checkoutNow(cwd, target)
+    } catch (err) {
+      // Nothing moved, so the changes go straight back, staged as they were.
+      await pop(true).catch(() => {
+        throw new Error(`${(err as Error).message}\n\nYour changes are kept in the stash “${stash}”.`)
+      })
+      throw err
+    }
+    // Untracked files the branch has too: git would put back the rest and then stop on those, half
+    // done, so nothing is put back (all of it is still in the stash).
+    const untracked = (await git(cwd, ['rev-parse', '-q', '--verify', `${hash}^3`], [0, 1])).trim()
+    if (untracked) {
+      const there = (await git(cwd, ['ls-tree', '-r', '-z', '--name-only', untracked]))
+        .split('\0')
+        .filter((f) => f && existsSync(join(cwd, f)))
+      if (there.length) {
+        const which = there.length === 1 ? there[0] : `${there.length} of your new files (${there.slice(0, 3).join(', ')}${there.length > 3 ? '…' : ''})`
+        return { status: 'kept', stash, reason: `${description} has its own ${which}, and git won't put yours over ${there.length === 1 ? 'it' : 'them'}.` }
+      }
+    }
+    // Staged as they were if that still applies, else all as unstaged changes. A pop that conflicts
+    // leaves the conflicts marked and keeps the stash; one that can't start changes nothing.
+    let reason = ''
+    for (const index of [true, false]) {
+      try {
+        await pop(index)
+        return { status: 'applied' }
+      } catch (err) {
+        reason = (err as Error).message
+        const conflicts = (await git(cwd, ['diff', '--name-only', '--diff-filter=U', '-z'])).split('\0').filter(Boolean)
+        if (conflicts.length) return { status: 'conflicts', files: conflicts, stash }
+      }
+    }
+    return { status: 'kept', stash, reason }
+  })
 }
 
 /** A new branch at `base` (a local or remote branch), not tracking it: it gets its own upstream on first push. */

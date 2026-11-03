@@ -349,6 +349,15 @@ export interface DiffResult {
   truncated: boolean
 }
 
+/**
+ * How carrying local changes over a checkout went. conflicts: put back with conflicts to resolve
+ * (the stash is kept); kept: not put back at all, they're still in the stash.
+ */
+export type CarryResult =
+  | { status: 'applied' }
+  | { status: 'conflicts'; files: string[]; stash: string }
+  | { status: 'kept'; stash: string; reason: string }
+
 export type CheckoutTarget =
   | { kind: 'branch'; name: string }
   | { kind: 'remote'; name: string } // e.g. "origin/feature/x"; creates or switches to a tracking branch
@@ -667,6 +676,8 @@ export interface SpoonApi {
   headMessage(path: string): Promise<string>
   commit(path: string, message: string, amend: boolean): Promise<string>
   checkout(path: string, target: CheckoutTarget): Promise<void>
+  /** Checks out with these files' local changes stashed and put back afterwards. */
+  checkoutCarrying(path: string, target: CheckoutTarget, files: string[], description: string): Promise<CarryResult>
   /** A new branch at `base`, not tracking it (and not checked out). */
   createBranch(path: string, name: string, base: string): Promise<void>
   /** The MainLib version, when this repository is MainLib (has Version/Resources/mainlib-version.txt), or as branch `at` has it; else null. */

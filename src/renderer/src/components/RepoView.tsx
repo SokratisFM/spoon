@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type {
+  CarryResult,
   CheckoutTarget,
   DiscardEntry,
   Commit,
@@ -30,7 +31,7 @@ import {
 } from '../repoCache'
 import { jiraConfig, jiraUrl, ticketKeys } from '../jira'
 import { cleanError, usePersistentState } from '../hooks'
-import { confirm } from '../dialogs'
+import { choose, confirm } from '../dialogs'
 import { setKnownAuthors } from '../authors'
 import { Split } from './Split'
 import { Sidebar } from './Sidebar'
@@ -403,6 +404,47 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       if (!files) return
       const tree = await window.spoon.workingTree(path).catch(() => ({ staged: [], unstaged: [] }))
       setBlocked({ target, description, files, tree })
+    })
+  }
+
+  // The changes in the way are stashed, the checkout runs and they're put back. When they don't go
+  // back cleanly, says where they are: nothing is lost either way.
+  const checkoutCarrying = (target: CheckoutTarget, description: string, files: string[]): void => {
+    let result: CarryResult | null = null
+    run(
+      `Checking out ${description}…`,
+      async () => {
+        result = await window.spoon.checkoutCarrying(path, target, files, description)
+      },
+      'Checkout failed'
+    ).then(async () => {
+      const r = result as CarryResult | null
+      if (!r || r.status === 'applied') return
+      const n = r.status === 'conflicts' ? r.files.length : 0
+      const choice = await choose(
+        r.status === 'conflicts'
+          ? {
+              title: `Checked out ${description}, with conflicts`,
+              detail:
+                `Your changes conflict with ${description} in ${n === 1 ? r.files[0] : `${n} files`}. ` +
+                `The conflicts are marked in ${n === 1 ? 'the file' : 'those files'}: resolve them in Local Changes. ` +
+                `Your changes are also kept in the stash “${r.stash}”; drop it once you're done.`,
+              buttons: [
+                { id: 'ok', label: 'Later' },
+                { id: 'changes', label: 'Show Local Changes', kind: 'primary' }
+              ],
+              cancelId: 'ok'
+            }
+          : {
+              title: `Checked out ${description}, but your changes weren't put back`,
+              detail:
+                `${cleanError(new Error(r.reason))}\n\n` +
+                `They're safe in the stash “${r.stash}”. Apply it from Stashes in the sidebar once that's sorted out.`,
+              buttons: [{ id: 'ok', label: 'OK', kind: 'primary' }],
+              cancelId: 'ok'
+            }
+      )
+      if (choice === 'changes') setView('changes')
     })
   }
 
@@ -986,6 +1028,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           onClose={() => setBlocked(null)}
           discard={(entries: DiscardEntry[]) => run('Discarding…', () => window.spoon.discard(path, entries), 'Discard failed')}
           onCheckout={() => checkoutNow(blocked.target, blocked.description)}
+          onCarry={(files) => checkoutCarrying(blocked.target, blocked.description, files)}
         />
       )}
       {deleting && repo && (
