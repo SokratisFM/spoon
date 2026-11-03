@@ -366,6 +366,13 @@ export interface RefCompare {
   files: CompareFile[]
 }
 
+/** Lines picked in one hunk of a diff: indexes into the lines after its header line. */
+export interface LinePick {
+  hunk: number
+  header: string
+  lines: number[]
+}
+
 export interface DiffResult {
   text: string
   binary: boolean
@@ -720,6 +727,7 @@ export interface SpoonApi {
   stageAll(path: string): Promise<void>
   unstageAll(path: string): Promise<void>
   applyHunk(path: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void>
+  applyLines(path: string, target: DiffTarget, picks: LinePick[]): Promise<void>
   headMessage(path: string): Promise<string>
   commit(path: string, message: string, amend: boolean): Promise<string>
   checkout(path: string, target: CheckoutTarget): Promise<void>

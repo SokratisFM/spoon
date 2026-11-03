@@ -226,7 +226,16 @@ export function ChangesView({
               target.kind === 'unstaged' ? 'Staging hunk…' : 'Unstaging hunk…',
               () => window.spoon.applyHunk(path, target, index, header),
               'Could not apply hunk'
-            )
+            ),
+          lines: {
+            verb: target.kind === 'unstaged' ? 'Stage' : 'Unstage',
+            run: (picks) =>
+              ops.run(
+                target.kind === 'unstaged' ? 'Staging lines…' : 'Unstaging lines…',
+                () => window.spoon.applyLines(path, target, picks),
+                'Could not apply lines'
+              )
+          }
         }
       : undefined
 

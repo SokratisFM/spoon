@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { DiffResult, DiffTarget } from '../../../shared/types'
+import type { DiffResult, DiffTarget, LinePick } from '../../../shared/types'
 import { useAsync, useCachedAsync, usePersistentState } from '../hooks'
 import { contextMenu } from '../menus'
 import { changedWords, colorRuns, detectLanguage, extensionOf, ideSchemes, LANGUAGES, paletteVars, unityIds, unityPlaces, type Token } from '../syntax'
@@ -25,7 +25,12 @@ export interface Line {
 export interface HunkAction {
   label: string
   run: (hunkIndex: number, hunkHeader: string) => void
+  /** Single lines too: picked in the gutter, or one at a time from the button on a changed line. */
+  lines?: { verb: string; run: (picks: LinePick[]) => void }
 }
+
+/** What a mouse did to a changed line: pressed its gutter, moved onto it (dragging), or used its button. */
+type LineEvent = 'down' | 'enter' | 'button'
 
 export interface Parsed {
   lines: Line[]
@@ -108,14 +113,34 @@ export function pairLines(lines: Line[]): SplitRow[] {
 }
 
 /** One side of a split row: line number, sign and code, or an empty filler. */
-export function SplitHalf({ line, side, code }: { line: Line | undefined; side: 'left' | 'right'; code?: ReactNode }) {
+export function SplitHalf(p: {
+  line: Line | undefined
+  side: 'left' | 'right'
+  code?: ReactNode
+  /** Picking lines (a changed line only): its index, whether it's picked, and where events go. */
+  index?: number
+  picked?: boolean
+  onLine?: (i: number, how: LineEvent, e: React.MouseEvent) => void
+  button?: string
+}) {
+  const { line, side, code } = p
   if (!line) return <span className="half empty" />
   const no = side === 'left' ? line.oldNo : line.newNo
+  const pickable = !!p.onLine && p.index !== undefined
   return (
-    <span className={`half ${line.kind}`}>
+    <span
+      className={`half ${line.kind} ${p.picked ? 'picked' : ''}`}
+      onMouseDown={pickable ? (e) => (e.target as HTMLElement).closest('.ln, .sign') && p.onLine!(p.index!, 'down', e) : undefined}
+      onMouseEnter={pickable ? (e) => p.onLine!(p.index!, 'enter', e) : undefined}
+    >
       <span className="ln">{no ?? ''}</span>
       <span className="sign">{line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}</span>
       <span className="code">{code ?? line.text}</span>
+      {pickable && p.button && (
+        <button className="line-btn" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => p.onLine!(p.index!, 'button', e)}>
+          {p.button}
+        </button>
+      )}
     </span>
   )
 }
@@ -241,6 +266,7 @@ export interface LineLook {
 /** One row of the unified view. Memoized: scrolling and coloring only redraw rows that changed. */
 const UnifiedRow = memo(function UnifiedRow(p: {
   line: Line
+  index: number
   top: number
   lineH: number
   tokens?: Token[]
@@ -249,10 +275,19 @@ const UnifiedRow = memo(function UnifiedRow(p: {
   place?: string
   actionLabel?: string
   onAction?: (hunk: number, header: string) => void
+  picked?: boolean
+  lineButton?: string
+  onLine?: (i: number, how: LineEvent, e: React.MouseEvent) => void
 }) {
   const l = p.line
+  const pickable = !!p.onLine && (l.kind === 'add' || l.kind === 'del')
   return (
-    <div className={`diff-line ${l.kind}`} style={{ transform: `translateY(${p.top}px)`, height: p.lineH, lineHeight: `${p.lineH}px` }}>
+    <div
+      className={`diff-line ${l.kind} ${p.picked ? 'picked' : ''}`}
+      style={{ transform: `translateY(${p.top}px)`, height: p.lineH, lineHeight: `${p.lineH}px` }}
+      onMouseDown={pickable ? (e) => (e.target as HTMLElement).closest('.ln, .sign') && p.onLine!(p.index, 'down', e) : undefined}
+      onMouseEnter={pickable ? (e) => p.onLine!(p.index, 'enter', e) : undefined}
+    >
       <span className="ln">{l.oldNo ?? ''}</span>
       <span className="ln">{l.newNo ?? ''}</span>
       <span className="sign">{sign(l)}</span>
@@ -268,6 +303,11 @@ const UnifiedRow = memo(function UnifiedRow(p: {
       {l.kind === 'hunk' && p.onAction && (
         <button className="hunk-btn" onClick={() => p.onAction!(l.hunk!, l.text)}>
           {p.actionLabel}
+        </button>
+      )}
+      {pickable && p.lineButton && (
+        <button className="hunk-btn line-btn" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => p.onLine!(p.index, 'button', e)}>
+          {p.lineButton}
         </button>
       )}
     </div>
@@ -304,11 +344,29 @@ const SplitPairRow = memo(function SplitPairRow(p: {
   rt?: Token[]
   rw?: Range[]
   rf?: Range[]
+  li?: number
+  ri?: number
+  lPicked?: boolean
+  rPicked?: boolean
+  lButton?: string
+  rButton?: string
+  onLine?: (i: number, how: LineEvent, e: React.MouseEvent) => void
 }) {
+  const changed = (l?: Line): boolean => l?.kind === 'add' || l?.kind === 'del'
   return (
     <div className="diff-line split-row">
-      <SplitHalf line={p.left} side="left" code={p.left ? <CodeText text={p.left.text} tokens={p.lt} words={p.lw} faded={p.lf} /> : undefined} />
-      <SplitHalf line={p.right} side="right" code={p.right ? <CodeText text={p.right.text} tokens={p.rt} words={p.rw} faded={p.rf} /> : undefined} />
+      <SplitHalf
+        line={p.left}
+        side="left"
+        code={p.left ? <CodeText text={p.left.text} tokens={p.lt} words={p.lw} faded={p.lf} /> : undefined}
+        {...(changed(p.left) && p.onLine ? { index: p.li, picked: p.lPicked, button: p.lButton, onLine: p.onLine } : {})}
+      />
+      <SplitHalf
+        line={p.right}
+        side="right"
+        code={p.right ? <CodeText text={p.right.text} tokens={p.rt} words={p.rw} faded={p.rf} /> : undefined}
+        {...(changed(p.right) && p.onLine ? { index: p.ri, picked: p.rPicked, button: p.rButton, onLine: p.onLine } : {})}
+      />
     </div>
   )
 })
@@ -495,10 +553,99 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   const placeOf = (l: Line): string | undefined =>
     places && places.parsed === parsed && l.hunk !== undefined ? places.byHunk.get(l.hunk) || undefined : undefined
 
-  // The hunk button's handler stays the same function, so memoized rows don't redraw for it.
-  const actionRef = useRef(hunkAction)
-  actionRef.current = hunkAction
-  const onAction = useCallback((hunk: number, header: string) => actionRef.current?.run(hunk, header), [])
+  // Picked lines (by index into the parsed lines): pressed in the gutter, ⇧ for a range, ⌘ to add
+  // or remove one, or dragged over. They start over whenever the diff does.
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  useEffect(() => setPicked(new Set()), [parsed])
+  const canPick = !!hunkAction?.lines && !data?.truncated
+  // Each changed line's hunk and its place among the lines after the hunk's header.
+  const spots = useMemo(() => {
+    const out: ({ hunk: number; k: number; header: string } | null)[] = []
+    let header = -1
+    parsed?.lines.forEach((l, i) => {
+      if (l.kind === 'hunk') header = i
+      out.push(header >= 0 && (l.kind === 'add' || l.kind === 'del') ? { hunk: parsed.lines[header].hunk!, k: i - header - 1, header: parsed.lines[header].text } : null)
+    })
+    return out
+  }, [parsed])
+  const picksOf = (indexes: Iterable<number>, onlyHunk?: number): LinePick[] => {
+    const byHunk = new Map<number, LinePick>()
+    for (const i of indexes) {
+      const s = spots[i]
+      if (!s || (onlyHunk !== undefined && s.hunk !== onlyHunk)) continue
+      const p = byHunk.get(s.hunk) ?? { hunk: s.hunk, header: s.header, lines: [] }
+      p.lines.push(s.k)
+      byHunk.set(s.hunk, p)
+    }
+    return [...byHunk.values()]
+  }
+  const pickedInHunk = useMemo(() => {
+    const n = new Map<number, number>()
+    for (const i of picked) if (spots[i]) n.set(spots[i]!.hunk, (n.get(spots[i]!.hunk) ?? 0) + 1)
+    return n
+  }, [picked, spots])
+  const verb = hunkAction?.lines?.verb ?? ''
+  const linesLabel = (n: number): string => `${verb} ${n === 1 ? 'line' : `${n} lines`}`
+  const anchor = useRef<number | null>(null)
+  const dragging = useRef(false)
+  useEffect(() => {
+    const up = (): void => void (dragging.current = false)
+    window.addEventListener('mouseup', up)
+    return () => window.removeEventListener('mouseup', up)
+  }, [])
+  useEffect(() => {
+    if (!picked.size) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !document.querySelector('.modal, .ctx-layer')) setPicked(new Set())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [picked.size])
+  const range = (a: number, b: number): number[] => {
+    const out: number[] = []
+    for (let i = Math.min(a, b); i <= Math.max(a, b); i++) if (spots[i]) out.push(i)
+    return out
+  }
+  // Rows get one handler that reads the latest state, so they don't redraw when it changes.
+  const lineRef = useRef<(i: number, how: LineEvent, e: React.MouseEvent) => void>(() => {})
+  lineRef.current = (i, how, e) => {
+    const run = hunkAction?.lines?.run
+    if (!run) return
+    if (how === 'button') {
+      run(picked.has(i) ? picksOf(picked) : picksOf([i]))
+      return
+    }
+    if (how === 'enter') {
+      if (dragging.current && anchor.current !== null) setPicked(new Set(range(anchor.current, i)))
+      return
+    }
+    e.preventDefault() // no text selection while picking
+    if (e.shiftKey && anchor.current !== null) return setPicked(new Set([...picked, ...range(anchor.current, i)]))
+    anchor.current = i
+    if (e.metaKey || e.ctrlKey) {
+      const next = new Set(picked)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return setPicked(next)
+    }
+    dragging.current = true
+    setPicked(new Set([i]))
+  }
+  const onLine = useCallback((i: number, how: LineEvent, e: React.MouseEvent) => lineRef.current(i, how, e), [])
+  const lineButton = (i: number): string | undefined =>
+    canPick && spots[i] ? (picked.has(i) ? linesLabel(picked.size) : linesLabel(1)) : undefined
+
+  // The hunk button's handler stays the same function, so memoized rows don't redraw for it. With
+  // lines picked in its hunk, it acts on just those.
+  const actionRef = useRef<(hunk: number, header: string) => void>(() => {})
+  actionRef.current = (hunk, header) => {
+    const picks = canPick ? picksOf(picked, hunk) : []
+    if (picks.length) hunkAction?.lines?.run(picks)
+    else hunkAction?.run(hunk, header)
+  }
+  const onAction = useCallback((hunk: number, header: string) => actionRef.current(hunk, header), [])
+  const hunkLabel = (l: Line): string | undefined =>
+    l.kind === 'hunk' && canPick && pickedInHunk.get(l.hunk!) ? linesLabel(pickedInHunk.get(l.hunk!)!) : hunkAction?.label
 
   // An IDE scheme not chosen yet is offered once, on a colored diff: use it, try it here, or not now.
   const [offer, setOffer] = useState<SyntaxPalette | null>(null)
@@ -577,7 +724,7 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   else if (parsed && split && rows)
     body = (
       <div className="diff-scroll" ref={parentRef}>
-        <div className={`diff-lines side-by-side syntax-${settings.diffSyntax}`}>
+        <div className={`diff-lines side-by-side syntax-${settings.diffSyntax} ${canPick ? 'pickable' : ''}`}>
           {rows.map((row, i) => {
             if ('full' in row) {
               const l = parsed.lines[row.full]
@@ -586,7 +733,7 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
                   key={i}
                   line={l}
                   place={placeOf(l)}
-                  actionLabel={hunkAction?.label}
+                  actionLabel={hunkLabel(l)}
                   onAction={hunkAction && !data.truncated ? onAction : undefined}
                 />
               )
@@ -603,6 +750,13 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
                 rt={R?.tokens}
                 rw={R?.words}
                 rf={R?.faded}
+                li={row.left}
+                ri={row.right}
+                lPicked={row.left !== undefined && picked.has(row.left)}
+                rPicked={row.right !== undefined && picked.has(row.right)}
+                lButton={row.left !== undefined ? lineButton(row.left) : undefined}
+                rButton={row.right !== undefined ? lineButton(row.right) : undefined}
+                onLine={canPick ? onLine : undefined}
               />
             )
           })}
@@ -616,7 +770,7 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
         {rows && !split && (
           <div className="list-footnote">This diff is too large for side by side; showing it unified.</div>
         )}
-        <div className={`diff-lines syntax-${settings.diffSyntax}`} style={{ height: virtualizer.getTotalSize(), minWidth: `calc(${parsed.maxLen + 2}ch + 12em)` }}>
+        <div className={`diff-lines syntax-${settings.diffSyntax} ${canPick ? 'pickable' : ''}`} style={{ height: virtualizer.getTotalSize(), minWidth: `calc(${parsed.maxLen + 2}ch + 12em)` }}>
           {virtualizer.getVirtualItems().map((v) => {
             const l = parsed.lines[v.index]
             const lk = l.kind === 'hunk' || l.kind === 'note' ? null : look(v.index)
@@ -624,14 +778,18 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
               <UnifiedRow
                 key={v.index}
                 line={l}
+                index={v.index}
                 top={v.start}
                 lineH={lineH}
                 tokens={lk?.tokens}
                 words={lk?.words}
                 faded={lk?.faded}
                 place={l.kind === 'hunk' ? placeOf(l) : undefined}
-                actionLabel={hunkAction?.label}
+                actionLabel={hunkLabel(l)}
                 onAction={hunkAction && !data.truncated ? onAction : undefined}
+                picked={picked.has(v.index)}
+                lineButton={lineButton(v.index)}
+                onLine={canPick ? onLine : undefined}
               />
             )
           })}

@@ -25,6 +25,7 @@ const api: SpoonApi = {
   stageAll: (path) => ipcRenderer.invoke('repo:stageAll', path),
   unstageAll: (path) => ipcRenderer.invoke('repo:unstageAll', path),
   applyHunk: (path, target, index, header) => ipcRenderer.invoke('repo:applyHunk', path, target, index, header),
+  applyLines: (path, target, picks) => ipcRenderer.invoke('repo:applyLines', path, target, picks),
   headMessage: (path) => ipcRenderer.invoke('repo:headMessage', path),
   commit: (path, message, amend) => ipcRenderer.invoke('repo:doCommit', path, message, amend),
   checkout: (path, target) => ipcRenderer.invoke('repo:checkout', path, target),

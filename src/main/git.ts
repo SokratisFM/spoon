@@ -14,6 +14,7 @@ import type {
   DiffTarget,
   FileChange,
   FileStatus,
+  LinePick,
   Ref,
   RefCompare,
   RepoState,
@@ -884,6 +885,71 @@ async function applyHunkNow(cwd: string, target: DiffTarget, hunkIndex: number, 
   const args = ['apply', '--cached', '--whitespace=nowarn']
   if (target.kind === 'staged') args.push('--reverse')
   await run(cwd, [...args, '-'], { input: patch })
+}
+
+/**
+ * Stages (unstaged target) or unstages (staged target) single lines: for each hunk, the picked lines
+ * (indexes into the lines after its header) go in and the rest are left as they are, like git add -p's
+ * line editing. Unpicked lines on the side being changed become context; on the other side they go.
+ */
+export async function applyLines(cwd: string, target: DiffTarget, picks: LinePick[]): Promise<void> {
+  if (target.kind !== 'staged' && target.kind !== 'unstaged') throw new Error('Only local changes can be staged by line')
+  return exclusive(cwd, async () => {
+    const lines = (await rawDiff(cwd, target)).out.split('\n')
+    const starts = lines.flatMap((l, i) => (l.startsWith('@@ ') ? [i] : []))
+    const reverse = target.kind === 'staged'
+    // Applied forwards the old side must match the index, so it stays whole: unpicked removals become
+    // context and unpicked additions go. Reversed (unstaging), the same holds for the new side.
+    const [keepSign, dropSign] = reverse ? ['+', '-'] : ['-', '+']
+    const out: string[] = lines.slice(0, starts[0])
+    let shift = 0
+    for (const pick of [...picks].sort((a, b) => a.hunk - b.hunk)) {
+      const start = starts[pick.hunk]
+      if (start === undefined || lines[start] !== pick.header)
+        throw new Error('The file changed since the diff was shown. Refresh and try again.')
+      const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(lines[start])
+      if (!m) throw new Error(`Unexpected hunk header: ${lines[start]}`)
+      const end = starts[pick.hunk + 1] ?? (lines[lines.length - 1] === '' ? lines.length - 1 : lines.length)
+      const chosen = new Set(pick.lines)
+      const body: string[] = []
+      let kept = true // whether the last line went in (a "\ No newline" note goes with it)
+      let changes = 0
+      lines.slice(start + 1, end).forEach((l, k) => {
+        if (l.startsWith('\\')) {
+          if (kept) body.push(l)
+          return
+        }
+        if (l[0] === '+' || l[0] === '-') {
+          if (chosen.has(k)) {
+            body.push(l)
+            changes++
+            kept = true
+          } else if (l[0] === keepSign) {
+            body.push(` ${l.slice(1)}`)
+            kept = true
+          } else {
+            kept = l[0] !== dropSign
+          }
+          return
+        }
+        body.push(l)
+        kept = true
+      })
+      if (!changes) continue
+      const oldCount = body.filter((l) => l[0] === ' ' || l[0] === '-').length
+      const newCount = body.filter((l) => l[0] === ' ' || l[0] === '+').length
+      // The side that stays whole keeps its start; the other follows the hunks before it.
+      const [oldStart, newStart] = reverse
+        ? [Number(m[2]) - shift, Number(m[2])]
+        : [Number(m[1]), Number(m[1]) + shift]
+      shift += newCount - oldCount
+      out.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${m[3]}`, ...body)
+    }
+    if (out.length === starts[0]) return
+    const args = ['apply', '--cached', '--whitespace=nowarn']
+    if (reverse) args.push('--reverse')
+    await run(cwd, [...args, '-'], { input: out.join('\n') + '\n' })
+  })
 }
 
 // ---------- writing: commits ----------

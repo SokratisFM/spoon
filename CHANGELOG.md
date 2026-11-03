@@ -4,11 +4,12 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
-## 0.47.2 — 2026-11-03
+## 0.47.3 — 2026-11-03
 
 - **New:** **Compare Branches** shows everything that differs between two branches in one big window, like a pull request's Files changed on GitHub. The files are listed on the left, and every file's diff is stacked on the right in one scroll. The list follows along as you scroll, and clicking a file jumps to it. Tick **Viewed** to fold a file away as you go. Show only what a branch changed since it split off (like a pull request), or every difference between the two. Open it from Compare (⌥⌘D) → **Branches**, or right-click a branch → **Compare with…**.
 - **New:** The branch fields in Compare Branches are searchable: type part of a name to narrow the list, use ↑/↓ and Enter to pick, or type any branch, tag or commit hash and use it as it is.
 - **New:** When pulling or fetching fails because this computer has no SSH access to GitHub (as with MainLib), the error offers **Set Up SSH Key…**. Spoon makes a key if there isn't one and trusts github.com using the keys GitHub publishes. It adds the key to your GitHub account itself when Spoon's GitHub sign-in allows it; otherwise it copies the key and opens GitHub's page to paste it in. Then it checks that GitHub recognizes the key and shows which account it signs in as. It's also in Settings → Accounts.
+- **New:** Stage or unstage single lines, like Fork. Point at a changed line in Local Changes and click **Stage line** (or **Unstage line** for a staged file). To take several, click or drag down the line numbers (⇧-click for a range, ⌘-click to add or remove one); the hunk's button then stages just those. Works in unified and split diffs. Esc clears the picked lines.
 - **Improved:** Signing in to GitHub from Spoon now also asks for permission to add SSH keys, so SSH setup can do it for you.
 
 ## 0.46.0 — 2026-11-03

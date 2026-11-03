@@ -17,7 +17,7 @@ import * as thumbnails from './thumbnails'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { ClaudeLaunch, JiraNewIssue, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, CompareMode, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { ClaudeLaunch, JiraNewIssue, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, CompareMode, DiffTarget, LinePick, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -356,6 +356,7 @@ function registerIpc(): void {
   )
   ipcMain.handle('repo:stageAll', (_e, path: string) => git.stageAll(path))
   ipcMain.handle('repo:unstageAll', (_e, path: string) => git.unstageAll(path))
+  ipcMain.handle('repo:applyLines', (_e, path: string, target: DiffTarget, picks: LinePick[]) => git.applyLines(path, target, picks))
   ipcMain.handle('repo:applyHunk', (_e, path: string, target: DiffTarget, index: number, header: string) =>
     git.applyHunk(path, target, index, header)
   )

@@ -8419,3 +8419,58 @@ kbd.setting-key {
 .ssh-hint .btn {
   padding: 0.15rem 0.6rem;
 }
+
+/* ---------- picking lines to stage ---------- */
+
+/* Changed lines' gutters pick them (drag for several); a button on the line stages it. */
+.pickable .diff-line.add .ln,
+.pickable .diff-line.add .sign,
+.pickable .diff-line.del .ln,
+.pickable .diff-line.del .sign,
+.pickable .half.add .ln,
+.pickable .half.add .sign,
+.pickable .half.del .ln,
+.pickable .half.del .sign {
+  cursor: pointer;
+}
+.diff-line.picked,
+.half.picked {
+  box-shadow: inset 0.22rem 0 0 var(--accent);
+}
+.diff-line.add.picked,
+.half.add.picked {
+  background: var(--add-bg-strong);
+}
+.diff-line.del.picked,
+.half.del.picked {
+  background: var(--del-bg-strong);
+}
+.line-btn {
+  display: none;
+}
+.pickable .diff-line:hover > .line-btn,
+.pickable .half:hover > .line-btn {
+  display: block;
+}
+.half {
+  position: relative;
+}
+.half > .line-btn {
+  position: absolute;
+  right: 0.4em;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 0.6em;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text);
+}
+.half > .line-btn:hover {
+  border-color: var(--accent-fg);
+  color: var(--accent-fg);
+}
