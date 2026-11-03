@@ -524,6 +524,16 @@ function AppearanceTab() {
           onChange={(submoduleTabs) => updateSettings({ submoduleTabs })}
         />
       </div>
+      <div className="check">
+        <input id="set-collapse-submodule-tabs"
+          type="checkbox"
+          checked={s.collapseSubmoduleTabs}
+          onChange={(e) => updateSettings({ collapseSubmoduleTabs: e.target.checked })}
+        />
+        <span>
+          <label htmlFor="set-collapse-submodule-tabs">Collapse submodule tabs into their parent’s tab (+2) while another repo is open</label> <ToggleEye title={'Collapse submodule tabs'} on={s.collapseSubmoduleTabs} spec={(from, to) => ({ kind: 'subcollapse', from, to })} />
+        </span>
+      </div>
       <SidebarSectionsField />
       <PullGroupsField />
       {/* Colors, together at the end: the theme, then code, tabs and branches. */}

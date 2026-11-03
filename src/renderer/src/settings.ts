@@ -99,6 +99,8 @@ export interface Settings {
   /** unified: one column with − and + lines; split: old file left, new file right. */
   diffLayout: DiffLayout
   submoduleTabs: SubmoduleTabs
+  /** A parent's open submodule tabs fold into a "+N" on its tab while another repo's tab is open. */
+  collapseSubmoduleTabs: boolean
   tagDisplay: TagDisplay
   headHighlight: HeadHighlight
   dialogPosition: DialogPosition
@@ -186,6 +188,7 @@ const DEFAULTS: Settings = {
   prGroups: { yours: false, others: false },
   diffLayout: 'unified',
   submoduleTabs: 'grouped',
+  collapseSubmoduleTabs: false,
   tagDisplay: 'diamond',
   headHighlight: 'band',
   dialogPosition: 'center',

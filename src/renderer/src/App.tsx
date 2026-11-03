@@ -381,7 +381,9 @@ export function App() {
     window.spoon.repoParents(repos).then((ps) => setParents(Object.fromEntries(repos.map((t, i) => [t, ps[i]]))))
   }, [tabs])
 
-  const tab = (path: string, variant: 'plain' | 'child' | 'labelled') => {
+  // group: a parent's submodule tabs when collapsing is on; folded, they show as "+N" where the
+  // close button goes (the button takes its place on hover).
+  const tab = (path: string, variant: 'plain' | 'child' | 'labelled', group?: { kids: string[]; folded: boolean }) => {
     const files = compareFiles(path)
     const textTab = !!compareTextId(path)
     const name = files ? `${fileName(files[0])} ↔ ${fileName(files[1])}` : textTab ? 'Text compare' : projectName(path)
@@ -395,7 +397,10 @@ export function App() {
         onClick={() => setActive(path)}
         onAuxClick={(e) => e.button === 1 && closeTab(path)}
         onContextMenu={(e) => tabMenu(e, path)}
-        title={textTab ? 'Text compare' : files ? `${files[0]}\n${files[1]}` : parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path}
+        title={
+          (textTab ? 'Text compare' : files ? `${files[0]}\n${files[1]}` : parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path) +
+          (group?.folded ? `\n\nAlso open: ${group.kids.map(projectName).join(', ')}` : '')
+        }
       >
         {(files || textTab) && <CompareIcon className="icon tab-sub-icon" />}
         {variant === 'child' && <ChildIcon className="icon tab-sub-icon" />}
@@ -408,16 +413,23 @@ export function App() {
         ) : (
           <span className="tab-name">{name}</span>
         )}
-        <button
-          className="tab-close"
-          onClick={(e) => {
-            e.stopPropagation()
-            closeTab(path)
-          }}
-          aria-label="Close tab"
-        >
-          <CloseIcon />
-        </button>
+        <span className="tab-end">
+          {group && (
+            <span className={`tab-count ${group.folded ? '' : 'gone'}`} aria-hidden={!group.folded}>
+              +{group.kids.length}
+            </span>
+          )}
+          <button
+            className="tab-close"
+            onClick={(e) => {
+              e.stopPropagation()
+              closeTab(path)
+            }}
+            aria-label="Close tab"
+          >
+            <CloseIcon />
+          </button>
+        </span>
       </div>
     )
   }
@@ -428,7 +440,16 @@ export function App() {
   const parentOpen = (p: string): boolean => !!parents[p] && tabs.includes(parents[p]!)
   const descendants = (p: string): string[] =>
     tabs.filter((c) => parents[c] === p).flatMap((c) => [c, ...descendants(c)])
-  const units: { key: string; paths: string[]; node: ReactNode }[] =
+  // Collapsing (an option): while another repo's tab is open, a parent's open submodule tabs fold
+  // into a "+N" on its tab; opening the parent or one of them unfolds the group.
+  const rootOf = (p: string): string => (parentOpen(p) ? rootOf(parents[p]!) : p)
+  const openRoot = current ? rootOf(current) : null
+  const folds = (root: string): boolean => settings.collapseSubmoduleTabs && root !== openRoot
+  const groupOf = (root: string, kids: string[]) =>
+    settings.collapseSubmoduleTabs && kids.length ? { kids, folded: folds(root) } : undefined
+  // folded: a labelled submodule tab that's folded away (it stays in the bar, at no width, so it
+  // can slide back out).
+  const units: { key: string; paths: string[]; node: ReactNode; folded?: boolean }[] =
     settings.submoduleTabs === 'grouped'
       ? tabs
           .filter((t) => !parentOpen(t))
@@ -439,24 +460,34 @@ export function App() {
               key: t,
               paths: [t, ...kids],
               node: (
-                <div className="tab-group">
-                  {tab(t, parents[t] ? 'labelled' : 'plain')}
+                <div className={`tab-group ${folds(t) ? 'folded' : ''}`}>
+                  {tab(t, parents[t] ? 'labelled' : 'plain', groupOf(t, kids))}
                   {kids.map((k) => tab(k, 'child'))}
                 </div>
               )
             }
           })
-      : tabs.map((t) => ({ key: t, paths: [t], node: tab(t, parents[t] ? 'labelled' : 'plain') }))
+      : tabs.map((t) => ({
+          key: t,
+          paths: [t],
+          node: tab(t, parents[t] ? 'labelled' : 'plain', parentOpen(t) ? undefined : groupOf(t, descendants(t))),
+          folded: parentOpen(t) && folds(rootOf(t))
+        }))
 
   const submoduleTabItems = () => [
     { separator: true },
     { label: 'Submodule tabs', enabled: false },
     { id: 'grouped', label: 'Grouped with Parent', kind: 'radio' as const, checked: settings.submoduleTabs === 'grouped' },
-    { id: 'labelled', label: 'Labelled “in Parent”', kind: 'radio' as const, checked: settings.submoduleTabs === 'labelled' }
+    { id: 'labelled', label: 'Labelled “in Parent”', kind: 'radio' as const, checked: settings.submoduleTabs === 'labelled' },
+    { id: 'collapse', label: 'Collapse When Another Repo Is Open', kind: 'checkbox' as const, checked: settings.collapseSubmoduleTabs }
   ]
   const applyTabChoice = (choice: string | null): boolean => {
     if (choice === 'grouped' || choice === 'labelled') {
       updateSettings({ submoduleTabs: choice })
+      return true
+    }
+    if (choice === 'collapse') {
+      updateSettings({ collapseSubmoduleTabs: !settings.collapseSubmoduleTabs })
       return true
     }
     return false
@@ -518,7 +549,8 @@ export function App() {
 
   // Ctrl+Tab / Ctrl+Shift+Tab cycle through tabs in the order the tab bar shows them (groups
   // included), wrapping around. Ctrl on every platform, like browsers.
-  const tabOrder = units.flatMap((u) => u.paths)
+  // Labelled tabs keep their own order, folded ones included.
+  const tabOrder = settings.submoduleTabs === 'grouped' ? units.flatMap((u) => u.paths) : tabs
   const cycleRef = useRef<(dir: 1 | -1) => void>(() => undefined)
   cycleRef.current = (dir) => {
     if (tabOrder.length < 2) return
@@ -551,6 +583,7 @@ export function App() {
       key={u.key}
       className={[
         'tab-unit',
+        u.folded ? 'folded' : '',
         drag?.unit === u.key ? 'dragging' : '',
         drag?.over === u.key && drag.unit !== u.key ? (drag.after ? 'drop-after' : 'drop-before') : ''
       ].join(' ')}

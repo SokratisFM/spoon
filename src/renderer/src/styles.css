@@ -354,6 +354,50 @@ body.resizing .split-handle {
   border-radius: calc(var(--radius) + 0.15rem);
   flex: none;
 }
+/* Collapsing: submodule tabs (and, in labelled mode, their units) slide shut to no width. */
+.tab-group,
+.tabs {
+  interpolate-size: allow-keywords;
+}
+.tab-group {
+  transition: gap 0.28s ease, padding 0.28s ease, border-color 0.28s ease;
+}
+.tab-group > .tab.child,
+.tab-unit {
+  width: auto;
+  transition: width 0.28s ease, padding 0.28s ease, margin 0.28s ease, opacity 0.2s ease, visibility 0s;
+}
+.tab-group > .tab.child {
+  overflow: hidden;
+}
+.tab-group.folded {
+  gap: 0;
+  padding: 0;
+  border-color: transparent;
+}
+.tab-group.folded > .tab.child,
+.tab-unit.folded {
+  width: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: width 0.28s ease, padding 0.28s ease, margin 0.28s ease, opacity 0.2s ease, visibility 0s 0.28s;
+}
+.tab-group.folded > .tab.child {
+  padding-inline: 0;
+}
+.tab-unit.folded {
+  overflow: hidden;
+  margin-left: -0.25rem; /* the bar's gap */
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-group,
+  .tab-group > .tab.child,
+  .tab-unit,
+  .tab-count {
+    transition: none;
+  }
+}
 .tab-sub-icon {
   color: var(--text-faint);
   font-size: 0.9em;
@@ -377,6 +421,41 @@ body.resizing .split-handle {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The close button's spot, shared with the "+N" of folded submodule tabs: the count shows until
+   the tab is hovered (or open), then the button takes its place. */
+.tab-end {
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.tab-end > * {
+  grid-area: 1 / 1;
+}
+.tab-count {
+  font-size: 0.72em;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.18rem 0.38rem;
+  max-width: 3rem;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  pointer-events: none;
+  transition: opacity 0.2s ease, max-width 0.28s ease, padding 0.28s ease;
+}
+.tab-count.gone {
+  opacity: 0;
+  max-width: 0;
+  padding-inline: 0;
+  border-width: 0;
+}
+.tab:hover .tab-count,
+.tab.active .tab-count {
+  opacity: 0;
 }
 .tab-close {
   border: 0;
@@ -4437,6 +4516,10 @@ select:hover {
   border-radius: var(--radius);
   background: var(--bg-hover);
   white-space: nowrap;
+}
+.pv-tab.on {
+  background: var(--bg-elev);
+  box-shadow: 0 0 0 1px var(--border);
 }
 .pv-branch {
   position: relative;

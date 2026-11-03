@@ -46,6 +46,7 @@ export type PreviewSpec =
   | { kind: 'syntax'; from: DiffSyntax; to: DiffSyntax; words: boolean; wordsFrom?: boolean }
   | { kind: 'head'; from: HeadHighlight; to: HeadHighlight }
   | { kind: 'subtabs'; from: SubmoduleTabs; to: SubmoduleTabs }
+  | { kind: 'subcollapse'; from: boolean; to: boolean }
   /** Lane indexes for the branch's label and graph line, before and after. */
   | { kind: 'branch'; prefix: string; from: { label: number; line: number }; to: { label: number; line: number } }
   | { kind: 'sidebar'; from: SectionState[]; to: SectionState[] }
@@ -342,8 +343,11 @@ function FitStage({ fitKey, fixed, children }: { fitKey: string; fixed?: boolean
 
 // ---------- the scenes ----------
 
-/** Scenes never scaled to fit: ones that show a size, and the diff layout, drawn in shares of the width. */
-const SIZE_SCENES = new Set(['size', 'code', 'density', 'layout'])
+/**
+ * Scenes never scaled to fit: ones that show a size, the diff layout (drawn in shares of the width),
+ * and collapsing tabs, where fitting would zoom in on the narrower side.
+ */
+const SIZE_SCENES = new Set(['size', 'code', 'density', 'layout', 'subcollapse'])
 
 const lane = (i: number): CSSProperties => ({ '--lane': `var(--lane-${i % 8})` }) as CSSProperties
 const laneColor = (i: number): string => `var(--lane-${i % 8})`
@@ -575,6 +579,32 @@ function Stage({ spec, phase }: { spec: PreviewSpec; phase: boolean }) {
               </span>
             </span>
             <span className="pv-tab">canasta</span>
+          </div>
+        </div>
+      )
+    }
+    case 'subcollapse': {
+      const on = phase ? spec.to : spec.from
+      return (
+        <div className="pv-center">
+          <div className="pv-tabs">
+            <span className="pv-tabgroup" style={{ borderColor: on ? 'transparent' : 'var(--border-strong)', gap: '0.15rem' }}>
+              <span className="pv-tab">
+                maze-rush
+                <span className="pv-reveal" style={{ maxWidth: on ? '2rem' : 0 }}>
+                  <span className="tab-count">+2</span>
+                </span>
+              </span>
+              {['MainLib', 'Plugins'].map((n) => (
+                <span key={n} className="pv-reveal" style={{ maxWidth: on ? 0 : '8rem' }}>
+                  <span className="pv-tab">
+                    <ChildIcon className="icon tab-sub-icon" />
+                    {n}
+                  </span>
+                </span>
+              ))}
+            </span>
+            <span className="pv-tab on">canasta</span>
           </div>
         </div>
       )
