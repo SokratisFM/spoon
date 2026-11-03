@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.45.0 — 2026-11-03
+
+- **New:** Double-click a branch's label in the commit list to check out that branch, even when several branches are on the same commit. Double-clicking elsewhere on the row works as before.
+- **Improved:** The commit list's right-click menu no longer lists a Checkout item per branch; double-click the label instead.
+
 ## 0.44.1 — 2026-11-03
 
 - **New:** Submodule tabs can collapse into their parent repo's tab while you're in another repo. They slide shut into a count on the parent's tab (+2), where its close button appears when you point at it; opening the parent brings them sliding back. Turn it on in Settings → Appearance, or right-click a tab.

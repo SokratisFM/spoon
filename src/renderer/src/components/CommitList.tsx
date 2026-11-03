@@ -272,6 +272,14 @@ export const CommitList = memo(function CommitList({
     },
     [badges, ops, repo.headHash, repo.headBranch]
   )
+  // Double-clicking a branch's label checks out that branch, when several share the commit (Fork).
+  const onBadgeDoubleClick = useCallback(
+    (b: Badge) => {
+      if (b.current || (b.kind !== 'head' && b.kind !== 'remote')) return
+      ops.checkout(b.kind === 'head' ? { kind: 'branch', name: b.label } : { kind: 'remote', name: b.label }, b.label)
+    },
+    [ops]
+  )
 
   const onContextMenu = useCallback(
     async (c: Commit) => {
@@ -279,11 +287,8 @@ export const CommitList = memo(function CommitList({
       const stash = repo.stashes.find((s) => s.hash === c.hash)
       if (stash) return stashMenu(stash, repo.path, ops)
       const branches = (badges.get(c.hash) ?? []).filter((b) => b.kind !== 'tag' && !b.current)
+      // Branches are checked out by double-clicking their labels (or the row), so they're not listed here.
       const choice = await contextMenu([
-        ...branches.map((b) => ({
-          id: `branch:${b.key}`,
-          label: `Checkout ${b.label}`
-        })),
         {
           id: 'detach',
           label: 'Checkout Commit (Detached)…',
@@ -373,10 +378,6 @@ export const CommitList = memo(function CommitList({
       if (choice === 'detach') ops.checkout({ kind: 'commit', hash: c.hash }, `commit ${c.hash.slice(0, 7)}`)
       else if (choice === 'hash') navigator.clipboard.writeText(c.hash)
       else if (choice === 'subject') navigator.clipboard.writeText(c.subject)
-      else {
-        const b = branches.find((x) => `branch:${x.key}` === choice)!
-        ops.checkout(b.kind === 'head' ? { kind: 'branch', name: b.label } : { kind: 'remote', name: b.label }, b.label)
-      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [badges, ops, onSelect, repo, onDeleteBranch, jira]
@@ -442,6 +443,7 @@ export const CommitList = memo(function CommitList({
                 onSelect={onSelect}
                 onContextMenu={onContextMenu}
                 onDoubleClick={onDoubleClick}
+                onBadgeDoubleClick={onBadgeDoubleClick}
                 onExpand={onExpand}
                 top={v.start}
                 rowH={rowH}
@@ -564,6 +566,7 @@ interface RowProps {
   onSelect: (hash: string) => void
   onContextMenu: (c: Commit) => void
   onDoubleClick: (c: Commit) => void
+  onBadgeDoubleClick: (b: Badge) => void
   onExpand: (key: string) => void
   top: number
   rowH: number
@@ -628,6 +631,14 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
             key={b.key}
             onMouseEnter={p.onLabelHover && b.kind !== 'tag' ? () => p.onLabelHover!(c.hash) : undefined}
             onMouseLeave={p.onLabelHover && b.kind !== 'tag' ? () => p.onLabelHover!(null) : undefined}
+            onDoubleClick={
+              b.kind === 'head' || b.kind === 'remote'
+                ? (e) => {
+                    e.stopPropagation()
+                    p.onBadgeDoubleClick(b)
+                  }
+                : undefined
+            }
             className={`ref-badge ${b.kind} ${b.current ? 'current' : ''} ${badgeLane(b) !== null ? 'laned' : ''}`}
             style={
               badgeLane(b) !== null
