@@ -552,6 +552,16 @@ export interface GitHubAccount {
   source: GitHubSource
 }
 
+/** A GitHub repository the signed-in account can clone. */
+export interface CloneableRepo {
+  fullName: string
+  private: boolean
+  description: string | null
+  pushedAt: string | null
+  sshUrl: string
+  httpsUrl: string
+}
+
 /** An SSH key on this computer: its private key's path and the public key (one line). */
 export interface SshKey {
   path: string
@@ -798,6 +808,11 @@ export interface SpoonApi {
 
   ghAccount(): Promise<GitHubAccount | null>
   sshStatus(): Promise<SshStatus>
+  ghCloneableRepos(): Promise<CloneableRepo[]>
+  /** Clones into dest (progress comes as dest's), then its submodules; a submodule failure is returned, not thrown. */
+  clone(url: string, dest: string, submodules: boolean): Promise<{ submoduleError: string | null }>
+  /** Downloads a repository's submodules; the error if one failed. */
+  cloneSubmodules(path: string): Promise<string | null>
   sshCreateKey(): Promise<SshKey>
   sshTrustGitHub(): Promise<void>
   /** Adds this computer's key to the signed-in GitHub account. */
@@ -924,3 +939,4 @@ export type MenuCommand =
   | 'open-file'
   | 'whats-new'
   | 'compare-files'
+  | 'clone'

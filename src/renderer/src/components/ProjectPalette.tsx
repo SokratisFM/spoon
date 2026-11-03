@@ -22,10 +22,11 @@ interface Props {
   onOpen: (path: string) => void
   /** Pick any folder with the system dialog. */
   onBrowse: () => void
+  onClone: () => void
   onClose: () => void
 }
 
-export function ProjectPalette({ openTabs, onOpen, onBrowse, onClose }: Props) {
+export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }: Props) {
   const settings = useSettings()
   const projects = useProjects()
   const [query, setQuery] = useState('')
@@ -186,6 +187,15 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClose }: Props) {
             }}
           >
             Browse for a folder… <kbd>{keys('⇧⌘O')}</kbd>
+          </button>
+          <button
+            className="palette-browse"
+            onClick={() => {
+              onClose()
+              onClone()
+            }}
+          >
+            Clone…
           </button>
         </div>
       </div>

@@ -669,6 +669,42 @@ export async function diffFile(cwd: string, target: DiffTarget): Promise<{ text:
 }
 const MAX_FILE_BYTES = 40 * 1024 * 1024
 
+/**
+ * Clones url into dest (a new folder, or an empty one), then its submodules on their own: a submodule
+ * that can't be downloaded (no SSH access to it, say) leaves the clone itself in place. A clone that
+ * fails or is cancelled leaves nothing behind.
+ */
+export async function clone(
+  url: string,
+  dest: string,
+  submodules: boolean,
+  onProgress?: (line: string) => void
+): Promise<{ submoduleError: string | null }> {
+  assertArg(url, 'repository URL')
+  if (typeof dest !== 'string' || !isAbsolute(dest)) throw new Error(`Not a folder path: ${dest}`)
+  const made = !existsSync(dest)
+  if (!made && (await readdir(dest)).length) throw new Error(`${dest} already exists and isn't empty. Choose another name or folder.`)
+  await mkdir(dirname(dest), { recursive: true })
+  try {
+    await exec(dirname(dest), ['clone', '--progress', '--', url, dest], { onProgress, cancellable: dest })
+  } catch (err) {
+    if (made) await rm(dest, { recursive: true, force: true })
+    throw err
+  }
+  return { submoduleError: submodules ? await cloneSubmodules(dest, onProgress) : null }
+}
+
+/** Downloads a repository's submodules (all of them, nested ones too); the error, if one failed. */
+export async function cloneSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string | null> {
+  if (!existsSync(join(cwd, '.gitmodules'))) return null
+  try {
+    await exec(cwd, ['submodule', 'update', '--init', '--recursive', '--progress'], { onProgress, cancellable: true })
+    return null
+  } catch (err) {
+    return (err as Error).message
+  }
+}
+
 /** Two branches (or any commits) compared: the commits between them and every file that differs. */
 export async function compareRefs(cwd: string, base: string, compare: string, mode: CompareMode): Promise<RefCompare> {
   const tip = async (ref: string): Promise<string> => {

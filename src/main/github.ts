@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import * as git from './git'
 import { safeStorage } from 'electron'
-import type { NewRelease,
+import type { CloneableRepo, NewRelease,
   CreatedPull,
   DeviceCode,
   NewPull,
@@ -231,6 +231,26 @@ async function api<T>(path: string, init: { method?: string; body?: unknown } = 
     throw new Error(msg)
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+/** The repositories the account can clone (its own, shared with it, and its organizations'), latest first. */
+export async function cloneableRepos(): Promise<CloneableRepo[]> {
+  const repos = await apiAll<{
+    full_name: string
+    private: boolean
+    description: string | null
+    pushed_at: string | null
+    ssh_url: string
+    clone_url: string
+  }>('/user/repos?sort=pushed&affiliation=owner,collaborator,organization_member', 20)
+  return repos.map((r) => ({
+    fullName: r.full_name,
+    private: r.private,
+    description: r.description,
+    pushedAt: r.pushed_at,
+    sshUrl: r.ssh_url,
+    httpsUrl: r.clone_url
+  }))
 }
 
 /** Whether the sign-in may add SSH keys to the account. */

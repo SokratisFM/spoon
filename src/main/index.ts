@@ -84,6 +84,7 @@ function buildMenu(): void {
           { label: 'New Tab…', accelerator: 'CmdOrCtrl+T', click: () => send('find-project') },
           { label: 'Open Repository…', accelerator: 'CmdOrCtrl+O', click: () => send('find-project') },
           { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('open-repo') },
+          { label: 'Clone Repository…', click: () => send('clone') },
           { label: 'Compare…', accelerator: 'CmdOrCtrl+Alt+D', click: () => send('compare-files') },
           { type: 'separator' },
           // ⌘W / Ctrl+W closes the current repository tab; the renderer closes the window when
@@ -224,6 +225,7 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('gh:account', () => gh.getAccount())
+  ipcMain.handle('gh:cloneableRepos', () => gh.cloneableRepos())
   ipcMain.handle('ssh:status', async () => {
     const [key, knownHost] = await Promise.all([ssh.findKey(), ssh.knowsGitHub()])
     const auth = knownHost ? await ssh.check() : ({ state: 'unknown-host' } as const)
@@ -417,6 +419,8 @@ function registerIpc(): void {
   const progress = (e: Electron.IpcMainInvokeEvent, path: string) => (line: string) =>
     void (!e.sender.isDestroyed() && e.sender.send('progress', path, line))
   ipcMain.handle('repo:fetch', (e, path: string, prune: boolean) => git.fetch(path, prune, progress(e, path)))
+  ipcMain.handle('repo:clone', (e, url: string, dest: string, submodules: boolean) => git.clone(url, dest, submodules, progress(e, dest)))
+  handleRepo('repo:cloneSubmodules', (e, path: string) => git.cloneSubmodules(path, progress(e, path)))
   ipcMain.handle('repo:fetchQuietly', (_e, path: string) => git.fetchQuietly(path))
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
   ipcMain.handle('repo:push', (e, path: string, opts: PushOptions) => git.push(path, opts, progress(e, path)))

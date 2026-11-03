@@ -334,3 +334,8 @@ export const LinkIcon = (p: P) => (
     <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />
   </Icon>
 )
+export const CloneIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14" />
+  </Icon>
+)

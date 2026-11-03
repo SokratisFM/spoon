@@ -15,7 +15,12 @@ const DOCS = 'https://docs.github.com/en/authentication/connecting-to-github-wit
 
 type Row = 'done' | 'todo' | 'working' | 'failed'
 
-export function SshSetupDialog({ onClose }: { onClose: () => void }) {
+export function SshSetupDialog({ onClose: close }: { onClose: () => void }) {
+  // Whatever was waiting on SSH access (Clone's warning) looks again.
+  const onClose = (): void => {
+    window.dispatchEvent(new Event('spoon:sshChanged'))
+    close()
+  }
   const [status, setStatus] = useState<SshStatus | null>(null)
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

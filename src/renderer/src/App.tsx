@@ -27,6 +27,7 @@ import { CompareView } from './components/CompareView'
 import { CompareDialog } from './components/CompareDialog'
 import { BranchDiffDialog } from './components/BranchDiffDialog'
 import { SshSetupDialog } from './components/SshSetupDialog'
+import { CloneDialog } from './components/CloneDialog'
 
 export function App() {
   const settings = useSettings()
@@ -133,6 +134,7 @@ export function App() {
     window.addEventListener('spoon:branchDiff', on)
     return () => window.removeEventListener('spoon:branchDiff', on)
   }, [])
+  const [cloning, setCloning] = useState(false)
   // SSH setup for GitHub: from an error about SSH access, or Settings (requestSshSetup).
   const [sshSetup, setSshSetup] = useState(false)
   useEffect(() => {
@@ -556,11 +558,13 @@ export function App() {
     const choice = await contextMenu([
       { id: 'find', label: 'Open Project…' },
       { id: 'browse', label: 'Open Folder…' },
+      { id: 'clone', label: 'Clone Repository…' },
       ...submoduleTabItems()
     ])
     if (applyTabChoice(choice)) return
     if (choice === 'find') setPalette(true)
     else if (choice === 'browse') pickRepo()
+    else if (choice === 'clone') setCloning(true)
   }
 
   // Ctrl+Tab / Ctrl+Shift+Tab cycle through tabs in the order the tab bar shows them (groups
@@ -672,6 +676,7 @@ export function App() {
         }
         else if (cmd === 'whats-new') setWhatsNew({ since: null })
         else if (cmd === 'compare-files') setComparing(true)
+        else if (cmd === 'clone') setCloning(true)
         else if (cmd === 'filter-commits' && settingsOpen.current) window.dispatchEvent(new Event('spoon:settings-search'))
         else if (cmd === 'squish') updateSettings({ squishBranches: !getSettings().squishBranches })
         else if (cmd === 'settings') setSettingsWindow('appearance')
@@ -844,6 +849,7 @@ export function App() {
           onOpen={openRepo}
           onForget={forgetProject}
           onSearch={() => setPalette(true)}
+          onClone={() => setCloning(true)}
         />
       )}
 
@@ -852,6 +858,7 @@ export function App() {
           openTabs={tabs}
           onOpen={openRepo}
           onBrowse={pickRepo}
+          onClone={() => setCloning(true)}
           onClose={() => setPalette(false)}
         />
       )}
@@ -870,6 +877,9 @@ export function App() {
           onCompareText={openTextCompare}
           onClose={() => setComparing(false)}
         />
+      )}
+      {cloning && (
+        <CloneDialog home={home} recents={projects.map((p) => p.path)} onCloned={openRepo} onClose={() => setCloning(false)} />
       )}
       {sshSetup && <SshSetupDialog onClose={() => setSshSetup(false)} />}
       {branchDiff && (

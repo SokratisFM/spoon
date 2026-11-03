@@ -1,4 +1,4 @@
-import { CloseIcon, FolderIcon, SearchIcon } from './Icons'
+import { CloneIcon, CloseIcon, FolderIcon, SearchIcon } from './Icons'
 import { keys } from '../platform'
 
 interface Props {
@@ -7,9 +7,10 @@ interface Props {
   onOpen: (path: string) => void
   onForget: (path: string) => void
   onSearch: () => void
+  onClone: () => void
 }
 
-export function Welcome({ recents, onPick, onOpen, onForget, onSearch }: Props) {
+export function Welcome({ recents, onPick, onOpen, onForget, onSearch, onClone }: Props) {
   return (
     <div className="welcome">
       <div className="welcome-card">
@@ -21,6 +22,9 @@ export function Welcome({ recents, onPick, onOpen, onForget, onSearch }: Props) 
           </button>
           <button className="btn large" onClick={onSearch}>
             <SearchIcon /> Find Project <kbd className="soft">{keys('⌘T')}</kbd>
+          </button>
+          <button className="btn large" onClick={onClone}>
+            <CloneIcon /> Clone Repository…
           </button>
         </div>
 
