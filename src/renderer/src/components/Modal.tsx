@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { mod } from '../platform'
 import { updateSettings, useSettings } from '../settings'
 import { contextMenu } from '../menus'
+import { requestSshSetup, sshTrouble } from '../sshHelp'
 
 // Open modals, oldest first: only the topmost answers Escape and Enter.
 const stack: number[] = []
@@ -142,6 +143,18 @@ export function ErrorModal({ title, message, onClose }: { title: string; message
       wide
       footer={
         <>
+          {sshTrouble(message) && (
+            <button
+              className="btn"
+              style={{ marginRight: 'auto' }}
+              onClick={() => {
+                onClose()
+                requestSshSetup()
+              }}
+            >
+              Set Up SSH Key…
+            </button>
+          )}
           <button className="btn" onClick={() => navigator.clipboard.writeText(message)}>
             Copy
           </button>

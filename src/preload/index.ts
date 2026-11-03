@@ -78,6 +78,10 @@ const api: SpoonApi = {
     return () => ipcRenderer.removeListener('update:state', listener)
   },
   ghAccount: () => ipcRenderer.invoke('gh:account'),
+  sshStatus: () => ipcRenderer.invoke('ssh:status'),
+  sshCreateKey: () => ipcRenderer.invoke('ssh:createKey'),
+  sshTrustGitHub: () => ipcRenderer.invoke('ssh:trustGitHub'),
+  sshUploadKey: (title) => ipcRenderer.invoke('ssh:uploadKey', title),
   ghCliLogin: () => ipcRenderer.invoke('gh:cliLogin'),
   ghConnectCli: () => ipcRenderer.invoke('gh:connectCli'),
   ghConnectToken: (token) => ipcRenderer.invoke('gh:connectToken', token),

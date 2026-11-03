@@ -26,6 +26,7 @@ import { changelog, newerVersion } from './whatsNew'
 import { CompareView } from './components/CompareView'
 import { CompareDialog } from './components/CompareDialog'
 import { BranchDiffDialog } from './components/BranchDiffDialog'
+import { SshSetupDialog } from './components/SshSetupDialog'
 
 export function App() {
   const settings = useSettings()
@@ -131,6 +132,13 @@ export function App() {
     const on = (e: Event): void => setBranchDiff((e as CustomEvent<BranchDiffRequest>).detail)
     window.addEventListener('spoon:branchDiff', on)
     return () => window.removeEventListener('spoon:branchDiff', on)
+  }, [])
+  // SSH setup for GitHub: from an error about SSH access, or Settings (requestSshSetup).
+  const [sshSetup, setSshSetup] = useState(false)
+  useEffect(() => {
+    const on = (): void => setSshSetup(true)
+    window.addEventListener('spoon:sshSetup', on)
+    return () => window.removeEventListener('spoon:sshSetup', on)
   }, [])
   // Files dragged over the window: drop two to compare them, or one now and one after.
   const [dropping, setDropping] = useState(false)
@@ -863,6 +871,7 @@ export function App() {
           onClose={() => setComparing(false)}
         />
       )}
+      {sshSetup && <SshSetupDialog onClose={() => setSshSetup(false)} />}
       {branchDiff && (
         <BranchDiffDialog key={JSON.stringify(branchDiff)} {...branchDiff} onClose={() => setBranchDiff(null)} />
       )}

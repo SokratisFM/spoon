@@ -8348,3 +8348,74 @@ kbd.setting-key {
 .pl-empty {
   padding: 0.5rem 0.6rem;
 }
+
+/* ---------- SSH setup ---------- */
+
+.ssh-intro {
+  margin: 0 0 0.6rem;
+}
+.ssh-steps {
+  display: flex;
+  flex-direction: column;
+}
+.ssh-steps .ml-progress > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.ssh-detail {
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+.ssh-manual {
+  margin-top: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.ssh-manual ol {
+  margin: 0.5rem 0;
+  padding-left: 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.ssh-manual li .btn {
+  padding: 0.15rem 0.6rem;
+}
+.ssh-key {
+  display: block;
+  font-family: var(--font-code);
+  font-size: 0.8em;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.ssh-ok {
+  color: var(--add-text);
+}
+.ssh-commands {
+  margin-top: 0.8rem;
+  color: var(--text-muted);
+}
+.ssh-commands summary {
+  cursor: pointer;
+}
+.ssh-commands pre {
+  margin: 0.5rem 0 0;
+}
+.ssh-docs {
+  margin-right: auto;
+  align-self: center;
+}
+.ssh-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0;
+}
+.ssh-hint .btn {
+  padding: 0.15rem 0.6rem;
+}

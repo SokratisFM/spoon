@@ -9,6 +9,7 @@ import type { DeviceCode, AtlassianAccount, SyntaxPalette, SyntaxSlot } from '..
 import { ideSchemes, paletteVars, SAMPLE, SLOT_LABELS } from '../syntax'
 import { CodeText } from './DiffView'
 import { contextMenu } from '../menus'
+import { requestSshSetup } from '../sshHelp'
 import { forgetProject, forgetProjects, projectName, tildify, useProjects } from '../projects'
 import { knownAuthors } from '../authors'
 import { askPin, setSimpleConfig, SIMPLE_DEFAULTS, TYPE_GROUPS, useSimpleConfig } from '../simpleMode'
@@ -1270,6 +1271,15 @@ function AccountsTab() {
       {account && !account.scopes.includes('repo') && account.source !== 'token' && (
         <p className="error-text">This sign-in lacks the “repo” scope, so private repositories won’t load.</p>
       )}
+      <div className="connect-row ssh-row">
+        <div className="palette-text">
+          <span className="palette-name">SSH key</span>
+          <span className="palette-path">Needed for repositories downloaded over SSH, like MainLib.</span>
+        </div>
+        <button className="btn" onClick={requestSshSetup}>
+          Set Up SSH Key…
+        </button>
+      </div>
 
       {(!account || switching) && (
         <div className="connect-list">
@@ -1353,7 +1363,7 @@ function AccountsTab() {
                   href="#"
                   onClick={(e) => {
                     e.preventDefault()
-                    window.spoon.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org&description=Spoon')
+                    window.spoon.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org,write:public_key&description=Spoon')
                   }}
                 >
                   Create a token

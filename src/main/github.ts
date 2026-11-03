@@ -24,7 +24,8 @@ import type { NewRelease,
 const API = 'https://api.github.com'
 // A test copy (its own SPOON_USER_DATA) keeps its own Keychain item: it never reads or changes yours.
 const KEYCHAIN_SERVICE = process.env.SPOON_USER_DATA ? 'Spoon GitHub (test)' : 'Spoon GitHub'
-const SCOPES = 'repo read:org'
+// write:public_key lets Spoon put this computer's SSH key on the account (SSH setup).
+const SCOPES = 'repo read:org write:public_key'
 const env = { ...process.env, PATH: git.toolPath }
 // A request that hangs (captive portal, dead proxy) fails instead of spinning forever.
 const TIMEOUT_MS = 30_000
@@ -230,6 +231,26 @@ async function api<T>(path: string, init: { method?: string; body?: unknown } = 
     throw new Error(msg)
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+/** Whether the sign-in may add SSH keys to the account. */
+export function canAddSshKeys(): boolean {
+  const scopes = getAccount()?.scopes ?? []
+  return scopes.includes('write:public_key') || scopes.includes('admin:public_key')
+}
+
+/** Puts an SSH public key on the signed-in account; one GitHub already has is fine. */
+export async function addSshKey(title: string, key: string): Promise<void> {
+  const mine = await apiAll<{ key: string }>('/user/keys')
+  const bare = key.split(/\s+/).slice(0, 2).join(' ')
+  if (mine.some((k) => k.key.trim() === bare)) return
+  try {
+    await api('/user/keys', { method: 'POST', body: { title, key: bare } })
+  } catch (err) {
+    if (/already in use/i.test((err as Error).message))
+      throw new Error('This key is already on another GitHub account. Add a new key, or use that account.')
+    throw err
+  }
 }
 
 /** Follows `Link: rel="next"` up to maxPages, for lists like PR files. */

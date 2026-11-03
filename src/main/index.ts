@@ -7,6 +7,7 @@ import { pathsExist, scanRepos, toSlash } from './scan'
 import config from '../../spoon.config.json'
 import { initUpdater } from './updater'
 import * as gh from './github'
+import * as ssh from './ssh'
 import * as claude from './claude'
 import * as history from './history'
 import * as atlassian from './atlassian'
@@ -223,6 +224,19 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('gh:account', () => gh.getAccount())
+  ipcMain.handle('ssh:status', async () => {
+    const [key, knownHost] = await Promise.all([ssh.findKey(), ssh.knowsGitHub()])
+    const auth = knownHost ? await ssh.check() : ({ state: 'unknown-host' } as const)
+    const acc = gh.getAccount()
+    return { key, knownHost, auth, canUpload: gh.canAddSshKeys(), login: acc?.login ?? null }
+  })
+  ipcMain.handle('ssh:createKey', () => ssh.createKey())
+  ipcMain.handle('ssh:trustGitHub', () => ssh.trustGitHub())
+  ipcMain.handle('ssh:uploadKey', async (_e, title: string) => {
+    const key = await ssh.findKey()
+    if (!key) throw new Error('There is no SSH key on this computer yet.')
+    await gh.addSshKey(title, key.publicKey)
+  })
   ipcMain.handle('gh:cliLogin', () => gh.cliLogin())
   ipcMain.handle('gh:connectCli', () => gh.connectCli())
   ipcMain.handle('gh:connectToken', (_e, token: string) => gh.connectToken(token))

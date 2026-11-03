@@ -545,6 +545,29 @@ export interface GitHubAccount {
   source: GitHubSource
 }
 
+/** An SSH key on this computer: its private key's path and the public key (one line). */
+export interface SshKey {
+  path: string
+  publicKey: string
+}
+
+/** What GitHub said to this computer's key: whose it is, or why not. */
+export type SshAuth =
+  | { state: 'ok'; user: string }
+  | { state: 'denied' }
+  | { state: 'unknown-host' }
+  | { state: 'error'; message: string }
+
+export interface SshStatus {
+  key: SshKey | null
+  knownHost: boolean
+  auth: SshAuth
+  /** Spoon's GitHub sign-in may add keys to the account (it has the scope for it). */
+  canUpload: boolean
+  /** The account Spoon is signed in to, if any. */
+  login: string | null
+}
+
 export interface DeviceCode {
   userCode: string
   verificationUri: string
@@ -766,6 +789,11 @@ export interface SpoonApi {
   onUpdateState(handler: (s: UpdateState) => void): () => void
 
   ghAccount(): Promise<GitHubAccount | null>
+  sshStatus(): Promise<SshStatus>
+  sshCreateKey(): Promise<SshKey>
+  sshTrustGitHub(): Promise<void>
+  /** Adds this computer's key to the signed-in GitHub account. */
+  sshUploadKey(title: string): Promise<void>
   /** Login of the account the GitHub CLI is signed in with, or null. */
   ghCliLogin(): Promise<string | null>
   ghConnectCli(): Promise<GitHubAccount>

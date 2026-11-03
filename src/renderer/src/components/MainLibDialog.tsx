@@ -8,6 +8,7 @@ import { parseChangelog, type ChangelogEntry } from '../changelog'
 import { useSettings } from '../settings'
 import { enqueue } from '../repoCache'
 import { Modal } from './Modal'
+import { SshHint } from './SshSetupDialog'
 import { CheckIcon } from './Icons'
 
 type Step = 'version' | 'changes' | 'apply' | 'progress'
@@ -252,6 +253,7 @@ export function MainLibDialog({
         {step === 'version' && (
           <div className="ml-body">
             {loadError && <p className="error-text">{loadError}</p>}
+            <SshHint message={loadError} />
             {!state && !loadError && <p className="muted">Fetching {sub.name} to look for new versions…</p>}
             {state && newer.length === 0 && <p className="muted">{sub.name} is already on the newest version.</p>}
             {newer.map((v, i) => (
@@ -448,6 +450,7 @@ export function MainLibDialog({
                   {t.label}
                   {t.state === 'skipped' && <span className="muted"> · skipped</span>}
                   {t.error && <span className="error-text ml-error">{t.error}</span>}
+                  <SshHint message={t.error} />
                 </span>
               </div>
             ))}

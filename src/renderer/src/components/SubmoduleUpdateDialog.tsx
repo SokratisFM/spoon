@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react'
 import type { ShortCommit, Submodule, SubmoduleUpdatePreview } from '../../../shared/types'
 import { useAsync } from '../hooks'
 import { Modal } from './Modal'
+import { SshHint } from './SshSetupDialog'
 import { AlertIcon, ArrowDownIcon, ArrowUpIcon, BranchIcon, FetchIcon, ShieldIcon } from './Icons'
 
 interface Props {
@@ -77,6 +78,7 @@ export function SubmoduleUpdateDialog({ repoPath, sub, onClose, onConfirm, onRec
         }
       >
         {error ? <p className="error-text">{error}</p> : <p className="muted">Looking at {sub.name}…</p>}
+        <SshHint message={error} />
       </Modal>
     )
   }
