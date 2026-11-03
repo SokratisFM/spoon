@@ -10,6 +10,7 @@ import { CheckoutIcon, ChevronIcon, CloseIcon, CloudIcon, CloudOffIcon, CopyIcon
 import { dropStash, stashMenu } from './stashMenu'
 import type { Ops } from './RepoView'
 import { contextMenu } from '../menus'
+import { requestBranchDiff } from '../compare'
 import { confirm } from '../dialogs'
 import { isMac, keys } from '../platform'
 
@@ -304,6 +305,13 @@ export const CommitList = memo(function CommitList({
               ])
             ]
           : []),
+        // What a branch on this commit changed, compared with the checked-out branch.
+        ...(repo.headBranch && branches.length
+          ? [
+              { separator: true },
+              ...branches.slice(0, 3).map((b) => ({ id: `compare:${b.label}`, label: `Compare ${b.label} with ${repo.headBranch}` }))
+            ]
+          : []),
         // A branch that already has an open pull request gets "Open Pull Request" (below) instead.
         ...(ops.createPull
           ? branches
@@ -366,6 +374,8 @@ export const CommitList = memo(function CommitList({
       if (choice === 'tag') return ops.tag(c)
       if (choice.startsWith('pr:')) return ops.createPull?.(choice.slice(3))
       if (choice.startsWith('open-pr:')) return ops.openPull(Number(choice.slice(8)))
+      if (choice.startsWith('compare:') && repo.headBranch)
+        return requestBranchDiff({ path: repo.path, base: repo.headBranch, compare: choice.slice(8) })
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)
       if (choice.startsWith('copy:')) return void navigator.clipboard.writeText(choice.slice(5))

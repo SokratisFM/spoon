@@ -18,13 +18,14 @@ import { forgetProject, projectClosed, projectName, rememberProject, useProjects
 import { keys, revealLabel } from './platform'
 import { useAppInfo, useUpdateState } from './appinfo'
 import { closeMenu, contextMenu, MenuHost } from './menus'
-import { COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, forgetText, liveText, textKey, unforgetText } from './compare'
+import { type BranchDiffRequest, COMPARE_TEXT, compareFiles, compareTab, compareTextId, fileName, forgetText, liveText, textKey, unforgetText } from './compare'
 import * as storage from './storage'
 import { TextCompareView } from './components/TextCompareView'
 import { WhatsNewDialog } from './components/WhatsNewDialog'
 import { changelog, newerVersion } from './whatsNew'
 import { CompareView } from './components/CompareView'
 import { CompareDialog } from './components/CompareDialog'
+import { BranchDiffDialog } from './components/BranchDiffDialog'
 
 export function App() {
   const settings = useSettings()
@@ -124,6 +125,13 @@ export function App() {
     window.addEventListener('spoon:compare', on)
     return () => window.removeEventListener('spoon:compare', on)
   }, [openCompare])
+  // Compare Branches: from the Compare dialog or a branch's menu (requestBranchDiff).
+  const [branchDiff, setBranchDiff] = useState<BranchDiffRequest | null>(null)
+  useEffect(() => {
+    const on = (e: Event): void => setBranchDiff((e as CustomEvent<BranchDiffRequest>).detail)
+    window.addEventListener('spoon:branchDiff', on)
+    return () => window.removeEventListener('spoon:branchDiff', on)
+  }, [])
   // Files dragged over the window: drop two to compare them, or one now and one after.
   const [dropping, setDropping] = useState(false)
   const [firstDropped, setFirstDropped] = useState<string | null>(null)
@@ -768,7 +776,7 @@ export function App() {
               <kbd className="keyed-key">{keys('⌘N')}</kbd>
             </button>
           )}
-          <button className="icon-btn keyed-btn" onClick={() => setComparing(true)} title="Compare files or text">
+          <button className="icon-btn keyed-btn" onClick={() => setComparing(true)} title="Compare files, text or branches">
             <CompareIcon />
             <kbd className="keyed-key">{keys('⌥⌘D')}</kbd>
           </button>
@@ -847,7 +855,16 @@ export function App() {
       )}
       {gitHistory && <GitHistoryDialog current={current} onClose={() => setGitHistory(false)} />}
       {comparing && (
-        <CompareDialog home={home} onCompare={openCompare} onCompareText={openTextCompare} onClose={() => setComparing(false)} />
+        <CompareDialog
+          home={home}
+          repo={current && !currentText && !currentCompare && !currentMissing ? current : null}
+          onCompare={openCompare}
+          onCompareText={openTextCompare}
+          onClose={() => setComparing(false)}
+        />
+      )}
+      {branchDiff && (
+        <BranchDiffDialog key={JSON.stringify(branchDiff)} {...branchDiff} onClose={() => setBranchDiff(null)} />
       )}
       {dropping && !comparing && (
         <div className="drop-overlay">

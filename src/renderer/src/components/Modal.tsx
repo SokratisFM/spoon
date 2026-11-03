@@ -80,8 +80,8 @@ export function Modal({ title, titleExtra, children, onClose, onSubmit, footer, 
   useEffect(() => {
     if (ownKeys) return
     const onKey = (e: KeyboardEvent): void => {
-      // Only the topmost modal acts, and not while a menu is open over it.
-      if (stack[stack.length - 1] !== id.current || document.querySelector('.ctx-layer')) return
+      // Only the topmost modal acts, and not while a menu or a field's list is open over it.
+      if (stack[stack.length - 1] !== id.current || document.querySelector('.ctx-layer, .popup-list')) return
       if (e.key === 'Escape') {
         e.stopImmediatePropagation()
         onClose()

@@ -70,6 +70,11 @@ function treeRows(files: FileChange[], collapsed: Set<string>): Row[] {
   return rows
 }
 
+/** Files in the order the tree shows them (with every folder open). */
+export function treeOrder<F extends FileChange>(files: F[]): F[] {
+  return treeRows(files, new Set()).flatMap((r) => (r.kind === 'file' ? [r.file as F] : []))
+}
+
 interface Props {
   files: FileChange[]
   /** Selected paths. ⌘-click toggles, ⇧-click selects a range. */
@@ -89,12 +94,16 @@ interface Props {
   marks?: Map<string, string>
   /** Rows can be dragged (to another list): the selection when the row is in it, else the row's file. */
   draggable?: boolean
+  /** Files shown faded (looked at already). */
+  dim?: Set<string>
+  /** Scroll the focused file into view whenever it changes (it follows something else). */
+  follow?: boolean
 }
 
 /** What a dragged row carries: its list's name is in the type (readable while dragging, unlike the data). */
 export const FILES_DRAG = 'application/x-spoon-files-'
 
-export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree, marks, draggable }: Props) {
+export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree, marks, draggable, dim, follow }: Props) {
   const settings = useSettings()
   const rowH = Math.round(rowHeight(settings) * 0.92)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -131,6 +140,13 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
   useEffect(() => {
     virtualizer.measure()
   }, [rowH, virtualizer])
+
+  useEffect(() => {
+    if (!follow || !focused) return
+    const at = rows.findIndex((r) => r.kind === 'file' && r.file.path === focused)
+    if (at >= 0) virtualizer.scrollToIndex(at, { align: 'auto' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, focused])
 
   const selectedFiles = (): FileChange[] => allFiles.filter((f) => selected.has(f.path))
   const pendingSingle = useRef<number | null>(null)
@@ -288,7 +304,7 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
             <div
               key={`${f.status}:${f.path}`}
               data-path={f.path}
-              className={`file-row ${selected.has(f.path) ? 'selected' : ''} ${f.path === focused && focusDir === null ? 'focused' : ''}`}
+              className={`file-row ${selected.has(f.path) ? 'selected' : ''} ${f.path === focused && focusDir === null ? 'focused' : ''} ${dim?.has(f.path) ? 'dim' : ''}`}
               style={{ transform: `translateY(${v.start}px)`, height: rowH, ...(tree ? { paddingLeft: `calc(0.6rem + ${r.depth * 1.1}rem + 1.25rem)` } : {}) }}
               onMouseDown={(e) => click(index, e)}
               onMouseUp={() => {

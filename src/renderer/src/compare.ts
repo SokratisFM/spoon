@@ -22,6 +22,38 @@ export function requestCompare(a: string, b: string): void {
   window.dispatchEvent(new CustomEvent('spoon:compare', { detail: [a, b] }))
 }
 
+/** Opens Compare Branches for a repository from anywhere in the window (the App listens). */
+export interface BranchDiffRequest {
+  path: string
+  base: string
+  compare: string
+}
+export function requestBranchDiff(req: BranchDiffRequest): void {
+  window.dispatchEvent(new CustomEvent('spoon:branchDiff', { detail: req }))
+}
+
+const MAIN_LINES = ['main', 'master', 'develop', 'origin/main', 'origin/master', 'origin/develop']
+
+/** What a branch is usually compared against: the main line (main, master, develop…) other than it. */
+export function mainLine(branches: string[], not?: string | null): string | undefined {
+  const others = branches.filter((b) => b !== not)
+  return MAIN_LINES.find((b) => others.includes(b)) ?? others[0]
+}
+
+/**
+ * The branches Compare offers first: the checked-out branch against the main line, or, when the
+ * main line is what's checked out, the branch checked out before it against the main line.
+ */
+export function defaultPair(branches: string[], head: string | null, recent: string[]): { base: string; compare: string } | null {
+  if (head && MAIN_LINES.includes(head)) {
+    const compare = recent.find((b) => b !== head && branches.includes(b)) ?? branches.find((b) => b !== head && !MAIN_LINES.includes(b))
+    return compare ? { base: head, compare } : null
+  }
+  const compare = head ?? branches[0]
+  const base = mainLine(branches, compare)
+  return compare && base ? { base, compare } : null
+}
+
 // Text compare tabs: named by an id; what was typed or pasted on each side is kept under it.
 export const COMPARE_TEXT = 'compare-text:'
 export const textKey = (id: string): string => `spoon.compareText.${id}`

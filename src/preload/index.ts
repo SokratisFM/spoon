@@ -18,6 +18,7 @@ const api: SpoonApi = {
   commitDetails: (path, hash) => ipcRenderer.invoke('repo:commit', path, hash),
   workingTree: (path) => ipcRenderer.invoke('repo:status', path),
   diff: (path, target) => ipcRenderer.invoke('repo:diff', path, target),
+  compareRefs: (path, base, compare, mode) => ipcRenderer.invoke('repo:compareRefs', path, base, compare, mode),
   stage: (path, files) => ipcRenderer.invoke('repo:stage', path, files),
   unstage: (path, files) => ipcRenderer.invoke('repo:unstage', path, files),
   discard: (path, files) => ipcRenderer.invoke('repo:discard', path, files),

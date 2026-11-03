@@ -16,7 +16,7 @@ import * as thumbnails from './thumbnails'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { ClaudeLaunch, JiraNewIssue, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { ClaudeLaunch, JiraNewIssue, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, CompareMode, DiffTarget, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -258,6 +258,9 @@ function registerIpc(): void {
       git.assertRepoRoot(path)
       return fn(e, path, ...args)
     })
+  handleRepo('repo:compareRefs', (_e, path: string, base: string, compare: string, mode: CompareMode) =>
+    git.compareRefs(path, base, compare, mode)
+  )
   handleRepo('file:read', (_e, path: string, rel: string) => git.readWorkingFile(path, rel))
   handleRepo('file:write', (_e, path: string, rel: string, text: string, eol: 'lf' | 'crlf', expect?: number) =>
     git.writeWorkingFile(path, rel, text, eol, expect)

@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.47.1 — 2026-11-03
+
+- **New:** **Compare Branches** shows everything that differs between two branches in one big window, like a pull request's Files changed on GitHub. The files are listed on the left, and every file's diff is stacked on the right in one scroll. The list follows along as you scroll, and clicking a file jumps to it. Tick **Viewed** to fold a file away as you go. Show only what a branch changed since it split off (like a pull request), or every difference between the two. Open it from Compare (⌥⌘D) → **Branches**, or right-click a branch → **Compare with…**.
+- **New:** The branch fields in Compare Branches are searchable: type part of a name to narrow the list, use ↑/↓ and Enter to pick, or type any branch, tag or commit hash and use it as it is.
+
 ## 0.46.0 — 2026-11-03
 
 - **New:** When local changes block a checkout, **Stash & Re-apply** stashes them, checks out, and puts them back on top. If they clash with the branch, the conflicts are marked in the files and the stash is kept; if they can't be put back at all (the branch has its own copy of a new file), the checkout still happens and they stay safe in the stash. If the checkout itself fails, your changes go straight back where they were.

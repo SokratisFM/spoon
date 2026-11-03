@@ -6672,6 +6672,24 @@ kbd.setting-key {
 .compare-mode {
   margin-bottom: 0.8rem;
 }
+.compare-branches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.compare-branch-picks {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 0.6rem;
+}
+.compare-branch-picks .field {
+  margin-bottom: 0.4rem;
+  min-width: 0;
+}
+.compare-branch-arrow {
+  padding-bottom: 0.95rem;
+}
 .compare-text-box {
   display: flex;
   flex-direction: column;
@@ -8112,4 +8130,221 @@ kbd.setting-key {
 }
 .nb-release-toggles .nb-checkout + .nb-checkout {
   margin-left: 0;
+}
+
+/* ---------- compare branches ---------- */
+
+/* Nearly the whole window: files on the left, every file's diff stacked on the right. */
+.branch-diff-modal .modal.wide {
+  width: calc(100vw - 3rem);
+  max-width: none;
+  height: calc(100vh - 3rem);
+}
+.branch-diff-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.bd-summary {
+  margin-left: 0.8rem;
+  font-size: 0.82em;
+  font-weight: 500;
+}
+.bd-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.bd-pick {
+  width: 18rem;
+}
+.modal .bd-pick input:not([type]) {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+.bd-mode {
+  margin-left: 0.4rem;
+}
+.bd-mode button {
+  white-space: nowrap;
+  padding: 0.2rem 0.7rem;
+}
+.bd-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-list);
+  transition: opacity 0.15s;
+}
+.bd-body > .empty-state {
+  flex: 1;
+}
+.bd-body.loading {
+  opacity: 0.55;
+}
+.bd-files {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.bd-files-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.modal input.bd-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.6rem;
+}
+.bd-files .file-list {
+  flex: 1;
+  min-height: 0;
+}
+.file-row.dim .file-name,
+.file-row.dim .status {
+  opacity: 0.5;
+}
+.bd-scroll {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  padding: 0.6rem;
+  background: var(--bg);
+}
+.bd-file {
+  margin-bottom: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-list);
+  overflow: clip;
+}
+.bd-file-head {
+  position: sticky;
+  top: -0.6rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  background: var(--bg-panel);
+  cursor: pointer;
+}
+.bd-file:not(:has(> .bd-file-head:last-child)) > .bd-file-head {
+  border-bottom: 1px solid var(--border);
+}
+.bd-file-head .status {
+  flex: none;
+}
+.bd-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  user-select: text;
+}
+.bd-file.viewed .bd-file-path {
+  color: var(--text-muted);
+}
+.bd-note {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+}
+.bd-code {
+  overflow-x: auto;
+}
+.bd-lines:not(.side-by-side) {
+  min-width: max-content;
+}
+.bd-lines .diff-line {
+  position: relative;
+  min-height: var(--bd-line);
+  line-height: var(--bd-line);
+}
+
+/* ---------- branch picker ---------- */
+
+.branch-picker {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.modal .branch-picker input:not([type]) {
+  flex: 1;
+  min-width: 0;
+  padding-right: 2rem;
+  text-overflow: ellipsis;
+}
+.bp-chevron {
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+/* A field's list of choices, over everything (dialogs included). */
+.popup-list {
+  position: fixed;
+  z-index: 300;
+  overflow-y: auto;
+  padding: 0.3rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px var(--shadow);
+  animation: pop-in 0.12s ease-out;
+}
+.pl-group {
+  padding: 0.45rem 0.6rem 0.2rem;
+  color: var(--text-faint);
+  font-size: 0.78em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pl-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.pl-item .icon {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  color: var(--text-muted);
+}
+.pl-item.on {
+  background: var(--bg-selected-strong);
+}
+.pl-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pl-item .pl-check {
+  margin-left: auto;
+  color: var(--accent-fg);
+}
+.pl-empty {
+  padding: 0.5rem 0.6rem;
 }

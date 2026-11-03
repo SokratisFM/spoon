@@ -26,6 +26,7 @@ import {
   TagIcon
 } from './Icons'
 import { contextMenu } from '../menus'
+import { mainLine, requestBranchDiff } from '../compare'
 import { stashMenu, stashTitle } from './stashMenu'
 import { UnityExports } from './UnityExports'
 
@@ -113,8 +114,13 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     // Its open pull request: a remote branch's name is looked up without its remote.
     const remote = ref.kind === 'remote' ? repo.remotes.filter((x) => ref.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0] : undefined
     const pull = ref.kind === 'tag' ? null : ops.pullFor(remote ? ref.name.slice(remote.length + 1) : ref.name, ref.upstream)
+    // The checked-out branch is compared with the main line; any other with the checked-out branch.
+    const compareWith = isCurrent
+      ? mainLine(repo.refs.filter((r) => r.kind === 'head' || r.kind === 'remote').map((r) => r.name), ref.name)
+      : repo.headBranch
     const choice = await contextMenu([
       { id: 'checkout', label: checkoutLabel, enabled: !isCurrent },
+      ...(compareWith ? [{ id: 'compare', label: `Compare with ${compareWith}` }] : []),
       ...(canRebase
         ? [
             { separator: true },
@@ -136,6 +142,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     if (choice?.startsWith('jira:') && jira) window.spoon.openExternal(jiraUrl(jira, choice.slice(5)))
     else if (choice === 'delete') onDeleteBranch(ref)
     else if (choice === 'checkout') checkoutRef(ref)
+    else if (choice === 'compare' && compareWith) requestBranchDiff({ path: repo.path, base: compareWith, compare: ref.name })
     else if (choice === 'pr') ops.createPull?.(ref.name)
     else if (choice === 'open-pr' && pull) ops.openPull(pull.number)
     else if (choice === 'rebase' || choice === 'irebase') ops.rebase(ref.name, choice === 'irebase')

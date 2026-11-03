@@ -9,11 +9,13 @@ import type {
   FileContent,
   Commit,
   CommitDetails,
+  CompareMode,
   DiffResult,
   DiffTarget,
   FileChange,
   FileStatus,
   Ref,
+  RefCompare,
   RepoState,
   CarryResult,
   CheckoutTarget,
@@ -612,6 +614,11 @@ async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number): Prom
       await rm(dir, { recursive: true, force: true })
     }
   }
+  if (target.kind === 'range') {
+    assertHash(target.from)
+    assertHash(target.to)
+    return diffOf([target.from, target.to, '--', ...paths])
+  }
   if (target.kind === 'staged') return diffOf(['--cached', '--', ...paths])
   if (file.status === '?') return diffOf(['--no-index', '--', '/dev/null', file.path], [0, 1])
   return diffOf(['--', ...paths])
@@ -641,6 +648,10 @@ export async function diffFile(cwd: string, target: DiffTarget): Promise<{ text:
   if (target.kind === 'commit') {
     assertHash(target.hash)
     text = deleted ? await show(`${target.hash}^:${file.oldPath ?? file.path}`) : await show(`${target.hash}:${file.path}`)
+  } else if (target.kind === 'range') {
+    assertHash(target.from)
+    assertHash(target.to)
+    text = deleted ? await show(`${target.from}:${file.oldPath ?? file.path}`) : await show(`${target.to}:${file.path}`)
   } else if (target.kind === 'staged') text = await show(deleted ? `HEAD:${file.path}` : `:${file.path}`)
   else if (deleted) text = await show(`:${file.path}`)
   else {
@@ -656,6 +667,43 @@ export async function diffFile(cwd: string, target: DiffTarget): Promise<{ text:
   return text === null ? null : { text, side: deleted ? 'old' : 'new' }
 }
 const MAX_FILE_BYTES = 40 * 1024 * 1024
+
+/** Two branches (or any commits) compared: the commits between them and every file that differs. */
+export async function compareRefs(cwd: string, base: string, compare: string, mode: CompareMode): Promise<RefCompare> {
+  const tip = async (ref: string): Promise<string> => {
+    assertArg(ref, 'branch')
+    const hash = (await git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], [0, 1])).trim()
+    if (!hash) throw new Error(`Can't find ${ref}.`)
+    return hash
+  }
+  const [a, b] = await Promise.all([tip(base), tip(compare)])
+  let from = a
+  if (mode === 'changes') {
+    from = (await git(cwd, ['merge-base', a, b], [0, 1])).trim()
+    if (!from) throw new Error(`${compare} and ${base} have no history in common.`)
+  }
+  const common = ['--no-color', '--no-ext-diff', '--no-textconv', '-M', '-z', from, b]
+  const [counts, names, stats] = await Promise.all([
+    git(cwd, ['rev-list', '--left-right', '--count', `${a}...${b}`]),
+    git(cwd, ['diff', '--name-status', ...common]),
+    git(cwd, ['diff', '--numstat', ...common])
+  ])
+  const [behind, ahead] = counts.trim().split(/\s+/).map(Number)
+  // --numstat -z: "added<TAB>removed<TAB>path", or for a rename "added<TAB>removed<TAB>" then both paths.
+  const lines = new Map<string, [number | null, number | null]>()
+  const tokens = stats.split('\0')
+  for (let i = 0; i < tokens.length; ) {
+    const m = /^(-|\d+)\t(-|\d+)\t([\s\S]*)$/.exec(tokens[i++])
+    if (!m) continue
+    const path = m[3] || (i++, tokens[i++])
+    lines.set(path, [m[1] === '-' ? null : Number(m[1]), m[2] === '-' ? null : Number(m[2])])
+  }
+  const files = parseNameStatus(names).map((f) => {
+    const [added, removed] = lines.get(f.path) ?? [0, 0]
+    return { ...f, added, removed }
+  })
+  return { from, to: b, ahead: ahead || 0, behind: behind || 0, files }
+}
 
 export async function diff(cwd: string, target: DiffTarget): Promise<DiffResult> {
   const { out: text, truncated } = await rawDiff(cwd, target, MAX_DIFF_BYTES)
@@ -821,7 +869,7 @@ export async function unstageAll(cwd: string): Promise<void> {
  * from the current diff: file header + that hunk, applied to the index.
  */
 export async function applyHunk(cwd: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void> {
-  if (target.kind === 'commit' || target.kind === 'files' || target.kind === 'text') throw new Error('Only local changes can be staged by hunk')
+  if (target.kind !== 'staged' && target.kind !== 'unstaged') throw new Error('Only local changes can be staged by hunk')
   return exclusive(cwd, () => applyHunkNow(cwd, target, hunkIndex, hunkHeader))
 }
 

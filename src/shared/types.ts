@@ -342,6 +342,29 @@ export type DiffTarget =
   | { kind: 'text'; left: string; right: string; file: FileChange }
   | { kind: 'staged'; file: FileChange }
   | { kind: 'unstaged'; file: FileChange }
+  /** Between two commits (a branch comparison). */
+  | { kind: 'range'; from: string; to: string; file: FileChange }
+
+/** A file in a branch comparison, with its lines added and removed (null for a binary file). */
+export interface CompareFile extends FileChange {
+  added: number | null
+  removed: number | null
+}
+
+/**
+ * Two branches compared. changes: what `compare` changed since it split from `base` (like a pull
+ * request); all: every difference between them.
+ */
+export type CompareMode = 'changes' | 'all'
+export interface RefCompare {
+  /** The commits diffed: the merge base (changes) or base's tip (all), and compare's tip. */
+  from: string
+  to: string
+  /** Commits on compare that base doesn't have, and the other way round. */
+  ahead: number
+  behind: number
+  files: CompareFile[]
+}
 
 export interface DiffResult {
   text: string
@@ -666,6 +689,7 @@ export interface SpoonApi {
   commitDetails(path: string, hash: string): Promise<CommitDetails>
   workingTree(path: string): Promise<WorkingTree>
   diff(path: string, target: DiffTarget): Promise<DiffResult>
+  compareRefs(path: string, base: string, compare: string, mode: CompareMode): Promise<RefCompare>
 
   stage(path: string, files: string[]): Promise<void>
   unstage(path: string, files: string[]): Promise<void>

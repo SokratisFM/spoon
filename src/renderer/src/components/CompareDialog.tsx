@@ -1,27 +1,53 @@
 // Compare…: files (two slots, each taking a dropped file or a click to choose one) or text (two
-// boxes to paste into), opening a Compare or Text compare tab.
-import { useState } from 'react'
+// boxes to paste into), opening a Compare or Text compare tab; or two branches of the open
+// repository, opening Compare Branches.
+import { useEffect, useState } from 'react'
+import type { CompareMode } from '../../../shared/types'
 import { tildify } from '../projects'
-import { fileName } from '../compare'
-import { usePersistentState } from '../hooks'
+import { defaultPair, fileName, requestBranchDiff } from '../compare'
+import { useAsync, usePersistentState } from '../hooks'
 import { checkJson } from '../json'
 import { Modal } from './Modal'
+import { BranchPicker } from './BranchPicker'
 
 interface Props {
   home: string
+  /** The open repository, whose branches can be compared. */
+  repo: string | null
   onCompare: (a: string, b: string) => void
   onCompareText: (from: string, to: string) => void
   onClose: () => void
 }
 
-export function CompareDialog({ home, onCompare, onCompareText, onClose }: Props) {
-  const [mode, setMode] = usePersistentState<'files' | 'text'>('spoon.compare.mode', 'files')
+export function CompareDialog({ home, repo, onCompare, onCompareText, onClose }: Props) {
+  const [chosenMode, setMode] = usePersistentState<'files' | 'text' | 'branches'>('spoon.compare.mode', 'files')
+  const mode = chosenMode === 'branches' && !repo ? 'files' : chosenMode
+  const state = useAsync(() => (repo ? window.spoon.openRepo(repo) : Promise.resolve(null)), [repo])
+  const refs = state.data?.refs ?? []
+  const [branches, setBranches] = useState<{ base: string; compare: string } | null>(null)
+  const [diffMode, setDiffMode] = usePersistentState<CompareMode>('spoon.branchDiff.mode', 'changes')
+  useEffect(() => {
+    if (!state.data || !repo || branches) return
+    const names = refs.filter((r) => r.kind === 'head' || r.kind === 'remote').map((r) => r.name)
+    const head = state.data.headBranch
+    window.spoon
+      .recentCheckouts(repo)
+      .catch(() => [])
+      .then((recent) => setBranches((b) => b ?? defaultPair(names, head, recent)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.data])
   const [texts, setTexts] = useState({ from: '', to: '' })
   const [files, setFiles] = useState<[string | null, string | null]>([null, null])
   const [over, setOver] = useState<number | null>(null)
   const set = (i: number, p: string): void => setFiles((f) => (i === 0 ? [p, f[1]] : [f[0], p]))
   const ready = !!files[0] && !!files[1]
   const go = (): void => {
+    if (mode === 'branches') {
+      if (!repo || !branches) return
+      onClose()
+      requestBranchDiff({ path: repo, ...branches })
+      return
+    }
     if (mode === 'text') {
       onClose()
       onCompareText(texts.from, texts.to)
@@ -93,6 +119,18 @@ export function CompareDialog({ home, onCompare, onCompareText, onClose }: Props
     )
   }
 
+  const branchPicker = (side: 'base' | 'compare', label: string, hint: string) => (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <BranchPicker
+        refs={refs}
+        value={branches?.[side] ?? ''}
+        title={hint}
+        onChange={(v) => setBranches((b) => (b ? { ...b, [side]: v } : { base: v, compare: v, [side]: v }))}
+      />
+    </label>
+  )
+
   return (
     <Modal
       title="Compare"
@@ -106,10 +144,15 @@ export function CompareDialog({ home, onCompare, onCompareText, onClose }: Props
               ⇄ Swap
             </button>
           )}
+          {mode === 'branches' && branches && (
+            <button className="btn" style={{ marginRight: 'auto' }} onClick={() => setBranches({ base: branches.compare, compare: branches.base })}>
+              ⇄ Swap
+            </button>
+          )}
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" onClick={go} disabled={mode === 'files' && !ready}>
+          <button className="btn primary" onClick={go} disabled={(mode === 'files' && !ready) || (mode === 'branches' && (!branches || branches.base === branches.compare))}>
             {mode === 'text' && !texts.from && !texts.to ? 'Open text compare' : 'Compare'}
           </button>
         </>
@@ -119,7 +162,8 @@ export function CompareDialog({ home, onCompare, onCompareText, onClose }: Props
         {(
           [
             ['files', 'Files'],
-            ['text', 'Text']
+            ['text', 'Text'],
+            ...(repo ? [['branches', 'Branches'] as const] : [])
           ] as const
         ).map(([m, label]) => (
           <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}>
@@ -127,7 +171,33 @@ export function CompareDialog({ home, onCompare, onCompareText, onClose }: Props
           </button>
         ))}
       </div>
-      {mode === 'files' ? (
+      {mode === 'branches' ? (
+        <div className="compare-branches">
+          {state.error ? (
+            <div className="error-text">{state.error}</div>
+          ) : (
+            <>
+              <div className="compare-branch-picks">
+                {branchPicker('base', 'Base', 'What the changes are compared against')}
+                <span className="muted compare-branch-arrow">←</span>
+                {branchPicker('compare', 'Compare', 'The branch whose changes are shown')}
+              </div>
+              <label className="check">
+                <input type="radio" checked={diffMode === 'changes'} onChange={() => setDiffMode('changes')} />
+                <span>
+                  Only what {branches?.compare ?? 'it'} changed <span className="muted">— like a pull request</span>
+                </span>
+              </label>
+              <label className="check">
+                <input type="radio" checked={diffMode === 'all'} onChange={() => setDiffMode('all')} />
+                <span>
+                  Every difference between the two <span className="muted">— including what {branches?.base ?? 'the base'} changed since</span>
+                </span>
+              </label>
+            </>
+          )}
+        </div>
+      ) : mode === 'files' ? (
         <div className="compare-slots">
           {slot(0)}
           {slot(1)}

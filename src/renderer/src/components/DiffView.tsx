@@ -27,7 +27,7 @@ export interface HunkAction {
   run: (hunkIndex: number, hunkHeader: string) => void
 }
 
-interface Parsed {
+export interface Parsed {
   lines: Line[]
   added: number
   removed: number
@@ -232,7 +232,7 @@ function HunkText({ text, place }: { text: string; place?: string }) {
   )
 }
 
-interface LineLook {
+export interface LineLook {
   tokens?: Token[]
   words?: Range[]
   faded?: Range[]
@@ -313,49 +313,13 @@ const SplitPairRow = memo(function SplitPairRow(p: {
   )
 })
 
-// Parsed lines of cached diffs, so showing a commit's file again doesn't parse it again.
-const parsedDiffs = new WeakMap<DiffResult, ReturnType<typeof parseDiff>>()
-
-export function DiffView({ path, target, nonce, hunkAction }: Props) {
+/**
+ * How each line of a parsed diff looks: syntax colors (in the file's language, or the one picked for
+ * its extension), the words that changed and faded Unity ids. Colors arrive after the lines.
+ */
+export function useLineLooks(parsed: Parsed | null, filePath: string) {
   const settings = useSettings()
-  const lineH = codeLineHeight(settings)
-  const key = target ? JSON.stringify(target) : ''
-  // A commit's diff never changes, so it's cached; working-tree diffs reload on every refresh.
-  const isCommit = target?.kind === 'commit'
-  // Each result says which file it's for: while another file loads, the previous one's diff (and its
-  // hunk buttons, which would act on the new file) isn't shown. A refresh of the same file keeps it.
-  const liveFor = `${path}|${key}`
-  const loaded = useAsync(
-    () => (target && !isCommit ? window.spoon.diff(path, target).then((d) => ({ for: liveFor, d })) : Promise.resolve(null)),
-    [path, key, isCommit ? null : nonce]
-  )
-  const current = loaded.data?.for === liveFor
-  const live = {
-    data: current ? loaded.data!.d : null,
-    error: current || !loaded.loading ? loaded.error : null,
-    loading: loaded.loading && !current
-  }
-  const cached = useCachedAsync(commitDiffCache, isCommit ? `${path}|${key}` : null, () => window.spoon.diff(path, target!))
-  const { data, error, loading } = isCommit ? cached : live
-  // An unchanged diff keeps its parsed lines, so nothing below re-renders.
-  const lastParsed = useRef<{ text: string; parsed: ReturnType<typeof parseDiff> } | null>(null)
-  const parsed = useMemo(() => {
-    if (!data || data.binary) return null
-    const known = parsedDiffs.get(data)
-    if (known) return known
-    const next = lastParsed.current?.text === data.text ? lastParsed.current.parsed : parseDiff(data.text)
-    lastParsed.current = { text: data.text, parsed: next }
-    parsedDiffs.set(data, next)
-    return next
-  }, [data])
-  // Split view wraps long lines so both sides stay visible; wrapped rows have varying heights, so it
-  // isn't virtualized and very large diffs fall back to the unified view.
-  const rows = useMemo(() => (parsed && settings.diffLayout === 'split' ? pairLines(parsed.lines) : null), [parsed, settings.diffLayout])
-  const split = !!rows && rows.length <= MAX_SPLIT_ROWS
-  const parentRef = useRef<HTMLDivElement>(null)
-
   // Syntax colors: the language from the file's extension (or the one picked for that extension).
-  const filePath = target?.file.path ?? ''
   const ext = extensionOf(filePath)
   const [langChoice, setLangChoice] = usePersistentState<Record<string, string>>('spoon.diff.langs', {})
   const sample = useMemo(() => (parsed ? parsed.lines.slice(0, 8).map((l) => l.text).join('\n') : ''), [parsed])
@@ -454,6 +418,52 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
     return f.length ? f : undefined
   }
   const look = (i: number): LineLook => ({ tokens: tokens?.[i], words: wordsAt(i), faded: fadedAt(i) })
+  return { look, ext, lang, detected, chosen: chosen !== undefined, pickLanguage, syntaxOn }
+}
+
+// Parsed lines of cached diffs, so showing a commit's file again doesn't parse it again.
+const parsedDiffs = new WeakMap<DiffResult, ReturnType<typeof parseDiff>>()
+
+export function DiffView({ path, target, nonce, hunkAction }: Props) {
+  const settings = useSettings()
+  const lineH = codeLineHeight(settings)
+  const key = target ? JSON.stringify(target) : ''
+  // A commit's diff never changes, so it's cached; working-tree diffs reload on every refresh.
+  const isCommit = target?.kind === 'commit'
+  // Each result says which file it's for: while another file loads, the previous one's diff (and its
+  // hunk buttons, which would act on the new file) isn't shown. A refresh of the same file keeps it.
+  const liveFor = `${path}|${key}`
+  const loaded = useAsync(
+    () => (target && !isCommit ? window.spoon.diff(path, target).then((d) => ({ for: liveFor, d })) : Promise.resolve(null)),
+    [path, key, isCommit ? null : nonce]
+  )
+  const current = loaded.data?.for === liveFor
+  const live = {
+    data: current ? loaded.data!.d : null,
+    error: current || !loaded.loading ? loaded.error : null,
+    loading: loaded.loading && !current
+  }
+  const cached = useCachedAsync(commitDiffCache, isCommit ? `${path}|${key}` : null, () => window.spoon.diff(path, target!))
+  const { data, error, loading } = isCommit ? cached : live
+  // An unchanged diff keeps its parsed lines, so nothing below re-renders.
+  const lastParsed = useRef<{ text: string; parsed: ReturnType<typeof parseDiff> } | null>(null)
+  const parsed = useMemo(() => {
+    if (!data || data.binary) return null
+    const known = parsedDiffs.get(data)
+    if (known) return known
+    const next = lastParsed.current?.text === data.text ? lastParsed.current.parsed : parseDiff(data.text)
+    lastParsed.current = { text: data.text, parsed: next }
+    parsedDiffs.set(data, next)
+    return next
+  }, [data])
+  // Split view wraps long lines so both sides stay visible; wrapped rows have varying heights, so it
+  // isn't virtualized and very large diffs fall back to the unified view.
+  const rows = useMemo(() => (parsed && settings.diffLayout === 'split' ? pairLines(parsed.lines) : null), [parsed, settings.diffLayout])
+  const split = !!rows && rows.length <= MAX_SPLIT_ROWS
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  const filePath = target?.file.path ?? ''
+  const { look, ext, lang, detected, chosen, pickLanguage, syntaxOn } = useLineLooks(parsed, filePath)
 
   // Unity scenes and prefabs: which GameObject and component each hunk is in, read from the whole file.
   const [places, setPlaces] = useState<{ parsed: Parsed; byHunk: Map<number, string> } | null>(null)
@@ -548,7 +558,7 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
         </span>
       )}
       {parsed && !data?.binary && (
-        <LanguageChip ext={ext} lang={lang} detected={detected} chosen={chosen !== undefined} onPick={pickLanguage} />
+        <LanguageChip ext={ext} lang={lang} detected={detected} chosen={chosen} onPick={pickLanguage} />
       )}
       <DiffLayoutToggle />
     </div>
