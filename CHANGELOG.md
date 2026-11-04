@@ -4,14 +4,28 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
-## 0.47.5 — 2026-11-03
+## 0.48.2 — 2026-11-04
 
 - **New:** **Compare Branches** shows everything that differs between two branches in one big window, like a pull request's Files changed on GitHub. The files are listed on the left, and every file's diff is stacked on the right in one scroll. The list follows along as you scroll, and clicking a file jumps to it. Tick **Viewed** to fold a file away as you go. Show only what a branch changed since it split off (like a pull request), or every difference between the two. Open it from Compare (⌥⌘D) → **Branches**, or right-click a branch → **Compare with…**.
 - **New:** The branch fields in Compare Branches are searchable: type part of a name to narrow the list, use ↑/↓ and Enter to pick, or type any branch, tag or commit hash and use it as it is.
 - **New:** When pulling or fetching fails because this computer has no SSH access to GitHub (as with MainLib), the error offers **Set Up SSH Key…**. Spoon makes a key if there isn't one and trusts github.com using the keys GitHub publishes. It adds the key to your GitHub account itself when Spoon's GitHub sign-in allows it; otherwise it copies the key and opens GitHub's page to paste it in. Then it checks that GitHub recognizes the key and shows which account it signs in as. It's also in Settings → Accounts.
 - **New:** Stage or unstage single lines, like Fork. Point at a changed line in Local Changes and click **Stage line** (or **Unstage line** for a staged file). To take several, click or drag down the line numbers (⇧-click for a range, ⌘-click to add or remove one); the hunk's button then stages just those. Works in unified and split diffs. Esc clears the picked lines.
 - **New:** **Clone Repository…** on the Welcome screen, the + tab menu, the project switcher and the File menu. Pick one of your GitHub account's repositories (with search) or paste any git URL, choose where it goes (next to your last project, outside any game it belongs to), and Spoon clones it, downloads its submodules and opens it. If a submodule like MainLib can't be downloaded because this computer has no SSH access to GitHub, the clone still opens. Spoon then offers **Set Up SSH Key…** and **Try Again**.
-- **Improved:** Signing in to GitHub from Spoon now also asks for permission to add SSH keys, so SSH setup can do it for you.
+- **Improved:** In Simple Mode, a Unity asset moved or renamed outside Unity's tracking shows as one **Moved** card, so a move can't be half saved. Import settings changed on their own (a sliced sprite sheet's `.meta`) show and are saved with the asset's type, labelled "import settings".
+- **Improved:** Double-click a tag's label to check out its commit, and press Enter in the commit list to check out, like a double-click. Double-clicking a remote branch whose local branch is elsewhere asks before switching.
+- **Improved:** SSH setup works with keys kept in a password manager or the SSH agent, keys with a passphrase (it shows how to unlock them instead of making another), your SSH config (including GitHub over port 443) and git's own SSH command. It never overwrites an existing key. If the saved key for GitHub's server is outdated, it explains and replaces it only after you confirm. Spoon's GitHub sign-in asks for permission to add SSH keys only when SSH setup needs it.
+- **Improved:** When fetching or pulling can't reach a repository, the error says which one: the project itself (and the address it used) or the submodule that failed.
+- **Improved:** Compare Branches stays quick with thousands of files and very long or minified diffs, keeps Viewed files when the branches get new commits, and explains when a shallow clone can't find where branches split. Esc in its file filter clears the filter.
+- **Fixed:** Staging or unstaging single lines at the end of a file without a final newline could join two lines in what was staged.
+- **Fixed:** Staging a hunk or lines of a file that isn't UTF-8 (Windows-1252, say) changed its special characters.
+- **Fixed:** If a file changed on disk after its diff was shown, staging picked lines could stage different ones. Spoon now asks you to refresh.
+- **Fixed:** Line staging with `diff.suppressBlankEmpty` or `diff.context=0` in your git settings, for deleted and new files, and for renames: unstaging a line no longer undoes the rename, and a file's mode change is no longer staged along with a line.
+- **Fixed:** Simple Mode forgot which files you'd unticked after visiting History or another tab, so they were saved and shared anyway. Saving now commits exactly the ticked files, even if something else was staged meanwhile.
+- **Fixed:** A branch with the same name as a tag (like `1.2.0`) compared the tag in Compare Branches. Typing a commit id or a name in the branch fields and clicking away now uses what you typed.
+- **Fixed:** Stash & Re-apply treated a failing post-checkout hook as a failed checkout, and now says up front when one of your new files is also on the other branch.
+- **Fixed:** Clone no longer keeps a user name, password or token typed into the URL, cleans up a clone cut short by quitting, and says when you cancelled downloading the submodules.
+- **Fixed:** Closing a parent tab with submodule tabs folded into it also closes those, and "Close Tabs to the Right" no longer closes hidden ones. Folded tabs no longer slide shut when Spoon opens.
+- **Fixed:** Files dragged from another Spoon window are no longer staged in this one.
 
 ## 0.46.0 — 2026-11-03
 

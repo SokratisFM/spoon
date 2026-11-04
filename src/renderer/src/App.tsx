@@ -413,7 +413,7 @@ export function App() {
         className={`tab ${variant} ${path === current ? 'active' : ''} ${color ? 'colored' : ''}`}
         style={color ? ({ '--tab-color': color } as React.CSSProperties) : undefined}
         onClick={() => setActive(path)}
-        onAuxClick={(e) => e.button === 1 && closeTab(path)}
+        onAuxClick={(e) => e.button === 1 && closeTabs([path, ...hiddenUnder(path)])}
         onContextMenu={(e) => tabMenu(e, path)}
         title={
           (textTab ? 'Text compare' : files ? `${files[0]}\n${files[1]}` : parent ? `${name}, submodule of ${projectName(parent)}\n${path}` : path) +
@@ -441,7 +441,7 @@ export function App() {
             className="tab-close"
             onClick={(e) => {
               e.stopPropagation()
-              closeTab(path)
+              closeTabs([path, ...hiddenUnder(path)])
             }}
             aria-label="Close tab"
           >
@@ -492,6 +492,18 @@ export function App() {
           folded: parentOpen(t) && folds(rootOf(t))
         }))
 
+  // Tabs folded away into their parent's "+N": the parent's menu and close act on them with it.
+  const hiddenUnder = (root: string): string[] =>
+    settings.submoduleTabs === 'grouped'
+      ? folds(root) && !parentOpen(root)
+        ? descendants(root)
+        : []
+      : units.filter((u) => u.folded && rootOf(u.key) === root && u.key !== root).map((u) => u.key)
+  const hidden = new Set(tabs.filter((t) => parentOpen(t) && folds(rootOf(t))))
+  // The first draw shows the tabs as they are, without sliding them shut.
+  const [tabsDrawn, setTabsDrawn] = useState(false)
+  useEffect(() => void requestAnimationFrame(() => setTabsDrawn(true)), [])
+
   const submoduleTabItems = () => [
     { separator: true },
     { label: 'Submodule tabs', enabled: false },
@@ -514,7 +526,8 @@ export function App() {
     e.preventDefault()
     e.stopPropagation()
     const order = tabOrder
-    const after = order.slice(order.indexOf(path) + 1)
+    // To the right as the bar shows it: tabs folded into a parent aren't there.
+    const after = order.slice(order.indexOf(path) + 1).filter((p) => !hidden.has(p))
     // Repositories (and submodules) can be colored, by name; compare tabs can't.
     const colorable = !compareFiles(path) && !compareTextId(path)
     const name = projectName(path)
@@ -542,7 +555,7 @@ export function App() {
     ])
     if (applyTabChoice(choice)) return
     if (choice?.startsWith('color:')) return setTabColor(name, choice === 'color:none' ? null : choice.slice(6))
-    if (choice === 'close') closeTab(path)
+    if (choice === 'close') closeTabs([path, ...hiddenUnder(path)])
     else if (choice === 'others') {
       closeTabs(tabs.filter((p) => p !== path))
       setActive(path)
@@ -593,7 +606,13 @@ export function App() {
   // Drops where the marker shows: on a tab, or anywhere in the bar (past the last tab, it goes last).
   const dropDragged = (): void => {
     const from = units.find((x) => x.key === drag?.unit)
-    const to = units.find((x) => x.key === drag?.over)
+    let to = units.find((x) => x.key === drag?.over)
+    // Dropped after a parent whose tabs are folded into it: after those too (they're part of it).
+    if (to && drag?.after) {
+      let i = units.indexOf(to)
+      while (units[i + 1]?.folded && rootOf(units[i + 1].key) === rootOf(to.key)) i++
+      to = units[i]
+    }
     if (from && to && drag && from.key !== to.key) moveUnit(from.paths, to.paths, !!drag.after)
     setDrag(null)
   }
@@ -733,7 +752,7 @@ export function App() {
       <header className="titlebar">
         {/* While a tab is dragged the bar takes drops: its empty part is otherwise the window's drag area. */}
         <div
-          className={`tabs ${drag ? 'tab-dragging' : ''}`}
+          className={`tabs ${drag ? 'tab-dragging' : ''} ${tabsDrawn ? '' : 'no-anim'}`}
           onContextMenu={tabBarMenu}
           onDragOver={(e) => {
             if (!drag) return

@@ -84,6 +84,8 @@ export function Modal({ title, titleExtra, children, onClose, onSubmit, footer, 
       // Only the topmost modal acts, and not while a menu or a field's list is open over it.
       if (stack[stack.length - 1] !== id.current || document.querySelector('.ctx-layer, .popup-list')) return
       if (e.key === 'Escape') {
+        // A field that uses Escape itself (to empty it) gets it first.
+        if ((e.target as HTMLElement | null)?.closest?.('[data-own-escape]')) return
         e.stopImmediatePropagation()
         onClose()
         return

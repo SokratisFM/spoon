@@ -49,7 +49,8 @@ export function parseDiff(text: string): Parsed {
   let maxLen = 0
   let hunks = 0
 
-  for (const raw of text.split('\n')) {
+  const all = text.split('\n')
+  for (const [i, raw] of all.entries()) {
     if (raw.startsWith('@@')) {
       const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(raw)
       if (m) {
@@ -65,6 +66,8 @@ export function parseDiff(text: string): Parsed {
       inHunk = false
       continue
     }
+    // An empty line is a blank context line (diff.suppressBlankEmpty), except the one after the last line.
+    if (raw === '' && i === all.length - 1) continue
     const text = raw.slice(1).replace(/\t/g, '    ')
     maxLen = Math.max(maxLen, text.length)
     if (raw[0] === '+') {
@@ -73,7 +76,7 @@ export function parseDiff(text: string): Parsed {
     } else if (raw[0] === '-') {
       lines.push({ kind: 'del', text, oldNo: oldNo++ })
       removed++
-    } else if (raw[0] === ' ') {
+    } else if (raw[0] === ' ' || raw === '') {
       lines.push({ kind: 'ctx', text, oldNo: oldNo++, newNo: newNo++ })
     } else if (raw[0] === '\\') {
       lines.push({ kind: 'note', text: raw.slice(2) })
@@ -556,8 +559,14 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   // Picked lines (by index into the parsed lines): pressed in the gutter, ⇧ for a range, ⌘ to add
   // or remove one, or dragged over. They start over whenever the diff does.
   const [picked, setPicked] = useState<Set<number>>(new Set())
-  useEffect(() => setPicked(new Set()), [parsed])
-  const canPick = !!hunkAction?.lines && !data?.truncated
+  const anchor = useRef<number | null>(null)
+  useEffect(() => {
+    setPicked(new Set())
+    anchor.current = null
+  }, [parsed])
+  // A submodule's change is one commit id: there are no lines to take apart.
+  const submodule = !!parsed?.lines.some((l) => (l.kind === 'add' || l.kind === 'del') && /^Subproject commit /.test(l.text))
+  const canPick = !!hunkAction?.lines && !data?.truncated && !submodule
   // Each changed line's hunk and its place among the lines after the hunk's header.
   const spots = useMemo(() => {
     const out: ({ hunk: number; k: number; header: string } | null)[] = []
@@ -573,8 +582,10 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
     for (const i of indexes) {
       const s = spots[i]
       if (!s || (onlyHunk !== undefined && s.hunk !== onlyHunk)) continue
-      const p = byHunk.get(s.hunk) ?? { hunk: s.hunk, header: s.header, lines: [] }
+      const p = byHunk.get(s.hunk) ?? { hunk: s.hunk, header: s.header, lines: [], texts: [] }
+      const l = parsed!.lines[i]
       p.lines.push(s.k)
+      p.texts.push(`${l.kind === 'add' ? '+' : '-'}${l.text}`)
       byHunk.set(s.hunk, p)
     }
     return [...byHunk.values()]
@@ -586,7 +597,6 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   }, [picked, spots])
   const verb = hunkAction?.lines?.verb ?? ''
   const linesLabel = (n: number): string => `${verb} ${n === 1 ? 'line' : `${n} lines`}`
-  const anchor = useRef<number | null>(null)
   const dragging = useRef(false)
   useEffect(() => {
     const up = (): void => void (dragging.current = false)

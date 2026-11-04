@@ -7,7 +7,7 @@ import type { Commit, CommitDetails, DiscardEntry, FileChange, FileStatus, RepoS
 import type { OpBusy } from '../repoCache'
 import type { Ops } from './RepoView'
 import { fileKind, isPreviewable, setSimpleConfig, timeAgo, typeGroupOf, TYPE_GROUPS, type SimpleConfig } from '../simpleMode'
-import { usePersistentState } from '../hooks'
+import { useAsync, usePersistentState } from '../hooks'
 import { confirm } from '../dialogs'
 import { fullDate, hueFor, initials, splitPath } from '../format'
 import { openFileEditor } from './FileEditor'
@@ -84,6 +84,53 @@ const pathsOf = (f: SimpleFile): string[] => [f.path, ...(f.oldPath ? [f.oldPath
 const entriesOf = (f: SimpleFile): DiscardEntry[] => [...f.entries, ...(f.meta?.entries ?? [])]
 
 const CARDS = 150
+
+/**
+ * Unity moves git doesn't see (a removed asset and a new one whose .metas share a guid) as one card:
+ * saved and undone together, so half a move can't be saved.
+ */
+function joinMoves(files: SimpleFile[], pairs: [string, string][]): SimpleFile[] {
+  if (!pairs.length) return files
+  const byMeta = new Map(files.flatMap((f) => (f.meta ? [[f.meta.path, f] as const] : [])))
+  const merged = new Map<SimpleFile, SimpleFile>()
+  const gone = new Set<SimpleFile>()
+  for (const [from, to] of pairs) {
+    const a = byMeta.get(from)
+    const b = byMeta.get(to)
+    if (!a || !b || a.kind !== 'removed' || b.kind !== 'new' || gone.has(a) || merged.has(b)) continue
+    gone.add(a)
+    merged.set(b, {
+      path: b.path,
+      oldPath: a.path,
+      kind: 'renamed',
+      entries: [...a.entries, ...b.entries],
+      meta: { ...b.meta!, oldPath: a.meta!.path, entries: [...b.meta!.entries, ...a.meta!.entries] }
+    })
+  }
+  return files.filter((f) => !gone.has(f)).map((f) => merged.get(f) ?? f)
+}
+
+/** The type a file is filtered by: a .meta changed on its own counts as its asset (its import settings). */
+const filterType = (path: string): string | null =>
+  path.endsWith('.meta') ? (typeGroupOf(path.slice(0, -'.meta'.length)) ?? typeGroupOf(path)) : typeGroupOf(path)
+
+// Which files are ticked differently from the default, per project and arrangement: kept while Simple
+// Mode isn't showing (History, another tab, the full view) and pruned to the files still changed.
+const flips = new Map<string, Set<string>>()
+function useFlipped(key: string): [Set<string>, (next: (s: Set<string>) => Set<string>) => void] {
+  const [flipped, setState] = useState<Set<string>>(() => flips.get(key) ?? new Set())
+  useEffect(() => setState(flips.get(key) ?? new Set()), [key])
+  const set = useCallback(
+    (next: (s: Set<string>) => Set<string>) =>
+      setState((prev) => {
+        const value = next(prev)
+        flips.set(key, value)
+        return value
+      }),
+    [key]
+  )
+  return [flipped, set]
+}
 
 const KIND_LABEL: Record<Kind, string> = { new: 'New', changed: 'Changed', removed: 'Removed', renamed: 'Renamed', conflict: 'Needs help' }
 
@@ -408,17 +455,28 @@ export function SimpleView(p: Props) {
 function SimpleChanges(p: Props & { blocked: boolean }) {
   const { path, repo, tree, config, ops, busy, refreshN } = p
   const sections = config.sections
-  const { files: all, folderMetas } = useMemo(() => foldMetas(simpleFiles(tree)), [tree])
+  const folded = useMemo(() => foldMetas(simpleFiles(tree)), [tree])
+  // Removed and new .metas, looked at for moves (by guid).
+  const moveKey = useMemo(() => {
+    const metaOf = (kind: Kind): string[] => folded.files.flatMap((f) => (f.kind === kind && f.meta ? [f.meta.path] : []))
+    return JSON.stringify([metaOf('removed'), metaOf('new')])
+  }, [folded])
+  const moves = useAsync(() => {
+    const [removed, added] = JSON.parse(moveKey) as [string[], string[]]
+    return removed.length && added.length ? window.spoon.unityMoves(path, removed, added) : Promise.resolve([] as [string, string][])
+  }, [path, moveKey])
+  const all = useMemo(() => joinMoves(folded.files, moves.data ?? []), [folded, moves.data])
+  const folderMetas = folded.folderMetas
   const shownTest = inFolder(config.folder)
   const inScope = all.filter((f) => shownTest(f.path) || (!!f.oldPath && shownTest(f.oldPath)))
   const hiddenTypes = new Set(config.hiddenTypes)
-  const files = inScope.filter((f) => !hiddenTypes.has(typeGroupOf(f.path) ?? ''))
+  const files = inScope.filter((f) => !hiddenTypes.has(filterType(f.path) ?? ''))
   const hidden = all.length - inScope.length
   const hiddenByType = inScope.length - files.length
   // The filter row: how many of the changed files are of each listed type.
   const typeCounts = new Map<string, number>()
   for (const f of inScope) {
-    const g = typeGroupOf(f.path)
+    const g = filterType(f.path)
     if (g) typeCounts.set(g, (typeCounts.get(g) ?? 0) + 1)
   }
   const toggleType = (id: string): void =>
@@ -428,10 +486,13 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
   // Which files go in the next save: with one list every file does unless unticked; with two sections
   // none does until moved there (like git's unstaged files). `flipped` holds the files not as by default.
   const startsIn = sections === 'none'
-  const [flipped, setFlipped] = useState<Set<string>>(new Set())
+  const [flipped, setFlipped] = useFlipped(`${path}|${startsIn ? 'one' : 'two'}`)
   const inSave = (f: SimpleFile): boolean => startsIn !== flipped.has(f.path) && f.kind !== 'conflict'
-  // Another arrangement starts afresh from its own default.
-  useEffect(() => setFlipped(new Set()), [startsIn])
+  // Files no longer changed (saved, undone) are forgotten: changed again later, they start as by default.
+  useEffect(() => {
+    const changed = new Set(all.map((f) => f.path))
+    setFlipped((s) => ([...s].every((p) => changed.has(p)) ? s : new Set([...s].filter((p) => changed.has(p)))))
+  }, [all, setFlipped])
   // With the files split in two: the section a file is being dragged over.
   const [dragOver, setDragOver] = useState<'in' | 'out' | null>(null)
   // The pointer is on the save buttons while they can't be used: what's missing lights up.
@@ -445,20 +506,13 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
     const keep = new Set(chosen.flatMap(pathsOf))
     // A new folder's .meta goes with the files saved in it.
     for (const m of folderMetas) if (chosen.some((f) => f.path.startsWith(m.path.slice(0, -'.meta'.length) + '/'))) keep.add(m.path)
-    // Only what's ticked goes in: anything else already staged (in the full view) is taken out first.
-    const out = tree.staged.flatMap((f) => (keep.has(f.path) ? [] : f.oldPath ? [f.path, f.oldPath] : [f.path]))
-    const ok = await ops.run(
-      'Saving…',
-      async () => {
-        if (out.length) await window.spoon.unstage(path, out)
-        await window.spoon.stage(path, [...keep])
-        await window.spoon.commit(path, message.trim(), false)
-      },
-      'Couldn’t save'
-    )
+    // Only what's ticked goes in, as it is on disk now, whatever else is staged (in the full view).
+    const ok = await ops.run('Saving…', () => window.spoon.commitOnly(path, [...keep], message.trim()), 'Couldn’t save')
     if (!ok) return
     setMessage('')
-    setFlipped(new Set())
+    // Ticks and drags made while saving stay; the saved files are forgotten.
+    const saved = new Set(chosen.map((f) => f.path))
+    setFlipped((s) => new Set([...s].filter((p) => !saved.has(p))))
     if (share) ops.push()
   }
   const saveRef = useRef(save)
@@ -512,7 +566,7 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
     })
   const allTicked = files.every((f) => f.kind === 'conflict' || inSave(f))
   /** Every file in the save, or none. */
-  const selectAll = (on: boolean): void => setFlipped(on === startsIn ? new Set() : new Set(files.map((f) => f.path)))
+  const selectAll = (on: boolean): void => setFlipped(() => (on === startsIn ? new Set() : new Set(files.map((f) => f.path))))
 
   const typesRow = (
     <div className="simple-types" role="group" aria-label="File types">
@@ -606,10 +660,21 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
           <Preview repo={path} file={f.path} hash={f.kind === 'removed' ? repo.headHash : null} refreshN={refreshN} size={config.view === 'list' ? 64 : 320} />
         </button>
         <div className="simple-card-text">
-          <span className="simple-card-name">{name}</span>
+          <span className="simple-card-name">
+            {/* A .meta changed on its own is its asset's import settings. */}
+            {name.endsWith('.meta') && name.length > 5 ? (
+              <>
+                {name.slice(0, -'.meta'.length)} <span className="muted">· import settings</span>
+              </>
+            ) : (
+              name
+            )}
+          </span>
           <span className="simple-card-dir">{dir.replace(/\/$/, '') || '(top folder)'}</span>
         </div>
-        <span className={`simple-kind ${f.kind}`}>{KIND_LABEL[f.kind]}</span>
+        <span className={`simple-kind ${f.kind}`}>
+          {f.kind === 'renamed' && f.oldPath && splitPath(f.oldPath).dir !== dir ? 'Moved' : KIND_LABEL[f.kind]}
+        </span>
         <span className="simple-card-actions">
           {f.kind !== 'removed' && (
             <button className="link-btn" onClick={() => window.spoon.revealInFinder(`${path}/${f.path}`)}>
@@ -667,6 +732,8 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
   )
 
   const primaryShares = config.shareOnSave
+  // Each section is cut at the limit on its own: "Show more" goes by the longer one.
+  const longest = sections === 'none' ? files.length : Math.max(files.filter((f) => !isIn(f)).length, files.filter(isIn).length)
   return (
     <div className="simple-body">
       {typeCounts.size > 0 && typesRow}
@@ -694,9 +761,9 @@ function SimpleChanges(p: Props & { blocked: boolean }) {
       ) : (
         cards(files.slice(0, limit))
       )}
-      {files.length > limit && (
+      {longest > limit && (
         <button className="btn simple-more" onClick={() => setLimit((l) => l + CARDS)}>
-          Show {Math.min(CARDS, files.length - limit)} more of {files.length - limit}
+          Show {Math.min(CARDS, longest - limit)} more{sections === 'none' ? ` of ${longest - limit}` : ''}
         </button>
       )}
       {(hidden > 0 || hiddenByType > 0) && (

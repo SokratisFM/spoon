@@ -8577,3 +8577,15 @@ kbd.setting-key {
   max-height: 8rem;
   overflow: auto;
 }
+.clone-more {
+  padding: 0.4rem 0.55rem;
+  font-size: 0.9em;
+}
+
+/* The first draw shows folded submodule tabs as they are, without sliding them shut. */
+.tabs.no-anim .tab-group,
+.tabs.no-anim .tab-group *,
+.tabs.no-anim .tab-unit,
+.tabs.no-anim .tab-unit * {
+  transition: none !important;
+}

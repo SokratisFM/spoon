@@ -218,7 +218,11 @@ function registerIpc(): void {
   ipcMain.handle('repo:log', (_e, path: string, limit: number) => git.log(path, limit))
   ipcMain.handle('repo:commit', (_e, path: string, hash: string) => git.commitDetails(path, hash))
   ipcMain.handle('repo:status', (_e, path: string) => git.workingTree(path))
-  ipcMain.handle('repo:diff', (_e, path: string, target: DiffTarget) => git.diff(path, target))
+  ipcMain.handle('repo:diff', (_e, path: string, target: DiffTarget) => {
+    // Diffs of a repository's files name it by its folder; two files or two texts compared need none.
+    if (target?.kind !== 'files' && target?.kind !== 'text') git.assertRepoRoot(path)
+    return git.diff(path, target)
+  })
   ipcMain.handle('shell:reveal', (_e, path: string) => shell.showItemInFolder(path))
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     if (/^https:\/\//.test(url)) return shell.openExternal(url)
@@ -227,22 +231,25 @@ function registerIpc(): void {
   ipcMain.handle('gh:account', () => gh.getAccount())
   ipcMain.handle('gh:cloneableRepos', () => gh.cloneableRepos())
   ipcMain.handle('ssh:status', async () => {
-    const [key, knownHost] = await Promise.all([ssh.findKey(), ssh.knowsGitHub()])
+    const [key, knownHost] = await Promise.all([ssh.keyStatus(), ssh.knowsGitHub()])
     const auth = knownHost ? await ssh.check() : ({ state: 'unknown-host' } as const)
+    // A known host that still fails its check: GitHub's key changed, or it isn't GitHub answering.
+    const hostStale = knownHost && auth.state === 'unknown-host' ? await ssh.hostKeyStale().catch(() => false) : false
     const acc = gh.getAccount()
-    return { key, knownHost, auth, canUpload: gh.canAddSshKeys(), login: acc?.login ?? null }
+    return { key, knownHost, auth, hostStale, canUpload: gh.canAddSshKeys(), login: acc?.login ?? null, source: acc?.source ?? null }
   })
   ipcMain.handle('ssh:createKey', () => ssh.createKey())
   ipcMain.handle('ssh:trustGitHub', () => ssh.trustGitHub())
+  ipcMain.handle('ssh:replaceHostKey', () => ssh.replaceGitHubHostKey())
   ipcMain.handle('ssh:uploadKey', async (_e, title: string) => {
     const key = await ssh.findKey()
-    if (!key) throw new Error('There is no SSH key on this computer yet.')
+    if (!key?.publicKey) throw new Error('There is no SSH key on this computer yet.')
     await gh.addSshKey(title, key.publicKey)
   })
   ipcMain.handle('gh:cliLogin', () => gh.cliLogin())
   ipcMain.handle('gh:connectCli', () => gh.connectCli())
   ipcMain.handle('gh:connectToken', (_e, token: string) => gh.connectToken(token))
-  ipcMain.handle('gh:deviceStart', (_e, clientId: string) => gh.deviceStart(clientId))
+  ipcMain.handle('gh:deviceStart', (_e, clientId: string, withKeys?: boolean) => gh.deviceStart(clientId, !!withKeys))
   ipcMain.handle('gh:deviceWait', (_e, clientId: string, code: DeviceCode) => gh.deviceWait(clientId, code))
   ipcMain.handle('gh:deviceCancel', () => gh.deviceCancel())
   ipcMain.handle('gh:disconnect', () => gh.disconnect())
@@ -358,11 +365,13 @@ function registerIpc(): void {
   )
   ipcMain.handle('repo:stageAll', (_e, path: string) => git.stageAll(path))
   ipcMain.handle('repo:unstageAll', (_e, path: string) => git.unstageAll(path))
-  ipcMain.handle('repo:applyLines', (_e, path: string, target: DiffTarget, picks: LinePick[]) => git.applyLines(path, target, picks))
-  ipcMain.handle('repo:applyHunk', (_e, path: string, target: DiffTarget, index: number, header: string) =>
+  handleRepo('repo:applyLines', (_e, path: string, target: DiffTarget, picks: LinePick[]) => git.applyLines(path, target, picks))
+  handleRepo('repo:applyHunk', (_e, path: string, target: DiffTarget, index: number, header: string) =>
     git.applyHunk(path, target, index, header)
   )
   ipcMain.handle('repo:headMessage', (_e, path: string) => git.headMessage(path))
+  handleRepo('repo:unityMoves', (_e, path: string, removed: string[], added: string[]) => git.unityMoves(path, removed, added))
+  handleRepo('repo:commitOnly', (_e, path: string, paths: string[], message: string) => git.commitOnly(path, paths, message))
   ipcMain.handle('repo:doCommit', (_e, path: string, message: string, amend: boolean) =>
     git.commit(path, message, amend)
   )
@@ -372,7 +381,7 @@ function registerIpc(): void {
   )
   ipcMain.handle('repo:createBranch', (_e, path: string, name: string, base: string) => git.createBranch(path, name, base))
   handleRepo('mainlib:version', (_e, path: string, at?: string) => git.mainlibVersion(path, at))
-  ipcMain.handle('repo:recentCheckouts', (_e, path: string) => git.recentCheckouts(path))
+  handleRepo('repo:recentCheckouts', (_e, path: string) => git.recentCheckouts(path))
   handleRepo('mainlib:release', (_e, path: string, name: string, base: string, version: string) =>
     git.createMainlibRelease(path, name, base, version)
   )
@@ -436,6 +445,8 @@ function registerIpc(): void {
   let quitPending = false
   const heldForQuit = new Set<number>() // web contents whose prompt is holding up a quit
   app.on('before-quit', () => (quitPending = true))
+  // A clone cut off by quitting leaves no half-made folder (it would then be "not empty").
+  app.on('will-quit', () => git.abandonClones())
   app.on('browser-window-created', (_e, win) => {
     const id = win.webContents.id
     win.webContents.on('will-prevent-unload', () => {

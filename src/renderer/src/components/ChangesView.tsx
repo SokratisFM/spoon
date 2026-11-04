@@ -4,7 +4,7 @@ import { usePersistentState } from '../hooks'
 import { confirm } from '../dialogs'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
-import { FILES_DRAG, FileList } from './FileList'
+import { FILES_DRAG, FILES_ORIGIN, FileList } from './FileList'
 import { requestCompare } from '../compare'
 import { useExportMarks } from '../exportMarks'
 import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
@@ -302,6 +302,7 @@ export function ChangesView({
       tree={settings.fileTree}
       marks={exportMarks}
       draggable={settings.dragFiles}
+      origin={path}
     />
   )
 
@@ -324,6 +325,8 @@ export function ChangesView({
         setDropOn(null)
         if (!e.dataTransfer.types.includes(type)) return
         e.preventDefault()
+        // Only this repository's files (not another Spoon window's with the same names).
+        if (e.dataTransfer.getData(FILES_ORIGIN) !== path) return
         let paths: string[] = []
         try {
           paths = JSON.parse(e.dataTransfer.getData(type)) as string[]

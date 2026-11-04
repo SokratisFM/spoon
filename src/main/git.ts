@@ -76,7 +76,9 @@ class GitError extends Error {
 
 interface RunOptions {
   okCodes?: number[]
-  input?: string
+  input?: string | Buffer
+  /** How stdout is decoded (utf8 unless said; latin1 keeps every byte as one character). */
+  encoding?: BufferEncoding
   /** Receives git's progress lines ("Receiving objects:  42% ...") as they arrive. */
   onProgress?: (line: string) => void
   env?: Record<string, string>
@@ -97,7 +99,7 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
     // run further git processes, and cancel() has to end those too.
     // Diffs must look the same whatever the user's git config says: they're parsed, and some are fed
     // back to `git apply` (hunk staging, partial discard).
-    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false', ...args], {
+    const child = spawn('git', ['-c', 'core.quotepath=off', '-c', 'color.ui=false', '-c', 'diff.noprefix=false', '-c', 'diff.mnemonicPrefix=false', '-c', 'diff.suppressBlankEmpty=false', ...args], {
       cwd,
       env: opts.env ? { ...env, ...opts.env } : env,
       detached: !!opts.cancellable && process.platform !== 'win32'
@@ -151,7 +153,7 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
       if (cancelled) return reject(new GitError(CANCELLED, code, err))
       if (truncated || (code !== null && okCodes.includes(code))) {
         const buf = Buffer.concat(out)
-        return done({ out: (truncated ? buf.subarray(0, opts.maxBytes) : buf).toString('utf8'), truncated })
+        return done({ out: (truncated ? buf.subarray(0, opts.maxBytes) : buf).toString(opts.encoding ?? 'utf8'), truncated })
       }
       // Keep only the final state of each \r-updated progress line.
       const msg = err
@@ -588,12 +590,14 @@ export async function workingTree(cwd: string): Promise<WorkingTree> {
 }
 
 /** With maxBytes, git is stopped once that much is read, so a huge diff never sits in memory whole. */
-async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number): Promise<{ out: string; truncated: boolean }> {
+async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number, encoding?: BufferEncoding): Promise<{ out: string; truncated: boolean }> {
   const { file } = target
   const paths = file.oldPath ? [file.oldPath, file.path] : [file.path]
-  const common = ['--no-color', '--no-ext-diff', '--no-textconv', '-M']
+  // Local diffs can be staged in parts, which needs context lines whatever diff.context says.
+  const local = target.kind === 'staged' || target.kind === 'unstaged'
+  const common = ['--no-color', '--no-ext-diff', '--no-textconv', '-M', ...(local ? ['-U3'] : [])]
   const diffOf = (args: string[], okCodes = [0]): Promise<{ out: string; truncated: boolean }> =>
-    exec(cwd, ['diff', ...common, ...args], { okCodes, maxBytes })
+    exec(cwd, ['diff', ...common, ...args], { okCodes, maxBytes, encoding })
 
   if (target.kind === 'commit') {
     assertHash(target.hash)
@@ -682,23 +686,46 @@ export async function clone(
 ): Promise<{ submoduleError: string | null }> {
   assertArg(url, 'repository URL')
   if (typeof dest !== 'string' || !isAbsolute(dest)) throw new Error(`Not a folder path: ${dest}`)
-  const made = !existsSync(dest)
-  if (!made && (await readdir(dest)).length) throw new Error(`${dest} already exists and isn't empty. Choose another name or folder.`)
+  // A password or token in the URL would be saved in the clone's settings (and its command history).
+  if (/^https?:\/\/[^/@]+@/i.test(url))
+    throw new Error('Leave the user name, password or token out of the URL: git would save it in the repository’s settings. Use SSH, or sign in to git separately.')
   await mkdir(dirname(dest), { recursive: true })
+  // The folder is claimed first (only this call made it, so only this call removes it).
+  let made = false
   try {
-    await exec(dirname(dest), ['clone', '--progress', '--', url, dest], { onProgress, cancellable: dest })
+    await mkdir(dest)
+    made = true
+  } catch {
+    if ((await readdir(dest)).length) throw new Error(`${dest} already exists and isn't empty. Choose another name or folder.`)
+  }
+  inProgress.add(dest)
+  try {
+    await exec(dirname(dest), [...SAFE_PROTOCOLS, 'clone', '--progress', '--', url, dest], { onProgress, cancellable: dest })
   } catch (err) {
     if (made) await rm(dest, { recursive: true, force: true })
     throw err
+  } finally {
+    inProgress.delete(dest)
   }
   return { submoduleError: submodules ? await cloneSubmodules(dest, onProgress) : null }
 }
+
+/** Clones under way: what's left of them goes when Spoon quits mid-clone. */
+const inProgress = new Set<string>()
+export function abandonClones(): void {
+  for (const dest of inProgress) {
+    cancel(dest)
+    rmSync(dest, { recursive: true, force: true })
+  }
+}
+/** Network transports a cloned repository (or its .gitmodules) may not use, whatever the user's config allows. */
+const SAFE_PROTOCOLS = ['-c', 'protocol.ext.allow=never', '-c', 'protocol.file.allow=user']
 
 /** Downloads a repository's submodules (all of them, nested ones too); the error, if one failed. */
 export async function cloneSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string | null> {
   if (!existsSync(join(cwd, '.gitmodules'))) return null
   try {
-    await exec(cwd, ['submodule', 'update', '--init', '--recursive', '--progress'], { onProgress, cancellable: true })
+    await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress'], { onProgress, cancellable: true })
     return null
   } catch (err) {
     return (err as Error).message
@@ -717,7 +744,12 @@ export async function compareRefs(cwd: string, base: string, compare: string, mo
   let from = a
   if (mode === 'changes') {
     from = (await git(cwd, ['merge-base', a, b], [0, 1])).trim()
-    if (!from) throw new Error(`${compare} and ${base} have no history in common.`)
+    if (!from) {
+      const short = (r: string): string => r.replace(/^refs\/(heads|remotes|tags)\//, '')
+      if ((await git(cwd, ['rev-parse', '--is-shallow-repository'])).trim() === 'true')
+        throw new Error(`This clone only has recent history, so where ${short(compare)} split from ${short(base)} can't be found. Use “Every difference”, or fetch the full history.`)
+      throw new Error(`${short(compare)} and ${short(base)} have no history in common.`)
+    }
   }
   const common = ['--no-color', '--no-ext-diff', '--no-textconv', '-M', '-z', from, b]
   const [counts, names, stats] = await Promise.all([
@@ -851,8 +883,8 @@ export async function discard(
     if (fromIndex.length) await withPaths(cwd, ['restore', '--worktree'], fromIndex)
     if (whole.length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged', '--worktree'], whole)
     for (const p of partial) {
-      const staged = await run(cwd, ['diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv', '--', p])
-      const reversed = await run(cwd, ['apply', '-R', '--whitespace=nowarn', '-'], { input: staged }).then(
+      const staged = await run(cwd, ['diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv', '--', p], { encoding: 'latin1' })
+      const reversed = await run(cwd, ['apply', '-R', '--whitespace=nowarn', '-'], { input: Buffer.from(staged, 'latin1') }).then(
         () => true,
         () => false
       )
@@ -901,56 +933,121 @@ export async function unstageAll(cwd: string): Promise<void> {
   })
 }
 
+// Hunk and line staging work on the diff's bytes as they are (decoded as latin1, one char per byte),
+// so files in other encodings than UTF-8 are staged byte for byte.
+const BYTES = 'latin1'
+const fromBytes = (line: string): string => Buffer.from(line, BYTES).toString('utf8')
+/** A line of the latin1-decoded diff as the renderer shows it (UTF-8, no sign, tabs as four spaces). */
+const shownText = (line: string): string => fromBytes(line).slice(1).replace(/\t/g, '    ')
+
+/**
+ * The live diff of a local file, for staging part of it: its file header (made a plain change of the
+ * file, so unstaging part of a rename doesn't undo the rename, and a mode change isn't staged along)
+ * and its lines, with where each hunk starts.
+ */
+async function localPatch(cwd: string, target: DiffTarget): Promise<{ head: string[]; lines: string[]; starts: number[] }> {
+  if (target.kind !== 'staged' && target.kind !== 'unstaged') throw new Error('Only local changes can be staged in parts.')
+  const { file } = target
+  // Paths come from the renderer: only changed files inside the work tree (not new, untracked ones).
+  const root = resolve(cwd)
+  for (const p of [file.path, file.oldPath].filter((x): x is string => x !== undefined)) {
+    if (typeof p !== 'string' || isAbsolute(p) || !insideRel(relative(root, resolve(root, p))))
+      throw new Error(`Not a file in this repository: ${p}`)
+  }
+  if (file.status === '?' || file.status === 'U') throw new Error('Only tracked files can be staged in parts.')
+  const lines = (await rawDiff(cwd, target, undefined, BYTES)).out.split('\n')
+  if (lines[lines.length - 1] === '') lines.pop()
+  const starts = lines.flatMap((l, i) => (l.startsWith('@@ ') ? [i] : []))
+  if (!starts.length) throw new Error('The file changed since the diff was shown. Refresh and try again.')
+  if (lines.slice(starts[0]).some((l) => l.startsWith('diff --git'))) throw new Error('The diff covers more than one file.')
+  if (lines.some((l) => /^[ +-]Subproject commit /.test(l))) throw new Error('A submodule’s commit can’t be staged in parts.')
+  let head = lines.slice(0, starts[0])
+  // A rename or copy becomes a change of the new path; mode changes stay out.
+  const plus = head.find((l) => l.startsWith('+++ '))
+  if (plus && head.some((l) => /^(rename|copy) from /.test(l))) {
+    const b = plus.slice(4)
+    const a = b.replace(/^("?)b\//, '$1a/')
+    head = [`diff --git ${a} ${b}`, `--- ${a}`, plus]
+  } else head = head.filter((l) => !/^(old|new) mode /.test(l))
+  return { head, lines, starts }
+}
+
+async function applyPatch(cwd: string, target: DiffTarget, patch: string[]): Promise<void> {
+  const args = ['apply', '--cached', '--whitespace=nowarn']
+  if (target.kind === 'staged') args.push('--reverse')
+  await run(cwd, [...args, '-'], { input: Buffer.from(patch.join('\n') + '\n', BYTES) })
+}
+
 /**
  * Stages (unstaged target) or unstages (staged target) a single hunk by rebuilding a patch
  * from the current diff: file header + that hunk, applied to the index.
  */
 export async function applyHunk(cwd: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void> {
-  if (target.kind !== 'staged' && target.kind !== 'unstaged') throw new Error('Only local changes can be staged by hunk')
-  return exclusive(cwd, () => applyHunkNow(cwd, target, hunkIndex, hunkHeader))
-}
-
-async function applyHunkNow(cwd: string, target: DiffTarget, hunkIndex: number, hunkHeader: string): Promise<void> {
-  const lines = (await rawDiff(cwd, target)).out.split('\n')
-  const starts = lines.flatMap((l, i) => (l.startsWith('@@ ') ? [i] : []))
-  const start = starts[hunkIndex]
-  if (start === undefined || lines[start] !== hunkHeader)
-    throw new Error('The file changed since the diff was shown. Refresh and try again.')
-  const end = starts[hunkIndex + 1] ?? (lines[lines.length - 1] === '' ? lines.length - 1 : lines.length)
-  const patch = [...lines.slice(0, starts[0]), ...lines.slice(start, end)].join('\n') + '\n'
-  const args = ['apply', '--cached', '--whitespace=nowarn']
-  if (target.kind === 'staged') args.push('--reverse')
-  await run(cwd, [...args, '-'], { input: patch })
+  return exclusive(cwd, async () => {
+    const { head, lines, starts } = await localPatch(cwd, target)
+    const start = starts[hunkIndex]
+    if (start === undefined || fromBytes(lines[start]) !== hunkHeader) throw new Error('The file changed since the diff was shown. Refresh and try again.')
+    await applyPatch(cwd, target, [...head, ...lines.slice(start, starts[hunkIndex + 1] ?? lines.length)])
+  })
 }
 
 /**
  * Stages (unstaged target) or unstages (staged target) single lines: for each hunk, the picked lines
- * (indexes into the lines after its header) go in and the rest are left as they are, like git add -p's
- * line editing. Unpicked lines on the side being changed become context; on the other side they go.
+ * (indexes into the lines after its header, with their text as shown, checked against the diff now)
+ * go in and the rest are left as they are, like git add -p's line editing. Unpicked lines on the side
+ * being changed become context; on the other side they go.
  */
 export async function applyLines(cwd: string, target: DiffTarget, picks: LinePick[]): Promise<void> {
-  if (target.kind !== 'staged' && target.kind !== 'unstaged') throw new Error('Only local changes can be staged by line')
   return exclusive(cwd, async () => {
-    const lines = (await rawDiff(cwd, target)).out.split('\n')
-    const starts = lines.flatMap((l, i) => (l.startsWith('@@ ') ? [i] : []))
+    const { head, lines, starts } = await localPatch(cwd, target)
     const reverse = target.kind === 'staged'
+    // Part of a deletion leaves a shorter file (unstaging part of a new file, the same): a plain change.
+    let header = head
+    if (!reverse && target.file.status === 'D') header = head.filter((l) => !/^deleted file mode /.test(l)).map((l) => (l === '+++ /dev/null' ? l.replace('/dev/null', `b/${target.file.path}`) : l))
+    if (reverse && target.file.status === 'A') header = head.filter((l) => !/^new file mode /.test(l)).map((l) => (l === '--- /dev/null' ? l.replace('/dev/null', `a/${target.file.path}`) : l))
     // Applied forwards the old side must match the index, so it stays whole: unpicked removals become
     // context and unpicked additions go. Reversed (unstaging), the same holds for the new side.
-    const [keepSign, dropSign] = reverse ? ['+', '-'] : ['-', '+']
-    const out: string[] = lines.slice(0, starts[0])
+    const keepSign = reverse ? '+' : '-'
+    // One pick per hunk (a repeated hunk is merged into it).
+    const byHunk = new Map<number, LinePick>()
+    for (const p of picks) {
+      if (!Number.isInteger(p.hunk) || !Array.isArray(p.lines) || !Array.isArray(p.texts) || p.texts.length !== p.lines.length)
+        throw new Error('Invalid line pick.')
+      const had = byHunk.get(p.hunk)
+      if (had && had.header !== p.header) throw new Error('Invalid line pick.')
+      byHunk.set(p.hunk, had ? { ...had, lines: [...had.lines, ...p.lines], texts: [...had.texts, ...p.texts] } : p)
+    }
+    const out: string[] = [...header]
     let shift = 0
-    for (const pick of [...picks].sort((a, b) => a.hunk - b.hunk)) {
+    for (const pick of [...byHunk.values()].sort((a, b) => a.hunk - b.hunk)) {
       const start = starts[pick.hunk]
-      if (start === undefined || lines[start] !== pick.header)
-        throw new Error('The file changed since the diff was shown. Refresh and try again.')
+      const stale = (): Error => new Error('The file changed since the diff was shown. Refresh and try again.')
+      if (start === undefined || fromBytes(lines[start]) !== pick.header) throw stale()
       const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(lines[start])
       if (!m) throw new Error(`Unexpected hunk header: ${lines[start]}`)
-      const end = starts[pick.hunk + 1] ?? (lines[lines.length - 1] === '' ? lines.length - 1 : lines.length)
-      const chosen = new Set(pick.lines)
+      const hunk = lines.slice(start + 1, starts[pick.hunk + 1] ?? lines.length)
+      // Every picked line must still be the one that was shown (an editor may have saved since).
+      const chosen = new Set<number>()
+      pick.lines.forEach((k, i) => {
+        const l = hunk[k]
+        if (l === undefined || (l[0] !== '+' && l[0] !== '-') || `${l[0]}${shownText(l)}` !== pick.texts[i]) throw stale()
+        chosen.add(k)
+      })
+      // The last line, changed only by gaining (or losing) its newline: taking the new one takes the old
+      // one with it, or the file would have it twice.
+      // Only the other side's last line can be its twin (an earlier line with the same text is another line).
+      const otherSign = reverse ? '-' : '+'
+      let lastOther = -1
+      hunk.forEach((o, j) => void ((o[0] === ' ' || o[0] === otherSign) && (lastOther = j)))
+      hunk.forEach((l, k) => {
+        if (chosen.has(k) || l[0] !== keepSign || !hunk[k + 1]?.startsWith('\\')) return
+        const twin = hunk[lastOther]
+        if (twin?.[0] === otherSign && chosen.has(lastOther) && twin.slice(1) === l.slice(1)) chosen.add(k)
+      })
       const body: string[] = []
       let kept = true // whether the last line went in (a "\ No newline" note goes with it)
       let changes = 0
-      lines.slice(start + 1, end).forEach((l, k) => {
+      hunk.forEach((l, k) => {
         if (l.startsWith('\\')) {
           if (kept) body.push(l)
           return
@@ -963,28 +1060,44 @@ export async function applyLines(cwd: string, target: DiffTarget, picks: LinePic
           } else if (l[0] === keepSign) {
             body.push(` ${l.slice(1)}`)
             kept = true
-          } else {
-            kept = l[0] !== dropSign
-          }
+          } else kept = false
           return
         }
         body.push(l)
         kept = true
       })
       if (!changes) continue
+      // A line that became context but has no newline (the file's last line) can't have lines after
+      // it: on the side that grows, it gets its newline back (-y, +y) and the note stays with the end.
+      const note = body.findIndex((l, i) => l.startsWith('\\') && body[i - 1]?.[0] === ' ')
+      if (note > 0 && body.slice(note + 1).some((l) => l[0] === (reverse ? '-' : '+'))) {
+        const [y, marker] = [body[note - 1].slice(1), body[note]]
+        if (reverse) {
+          body.splice(note - 1, 2, `-${y}`)
+          body.push(`+${y}`, marker)
+        } else body.splice(note - 1, 2, `-${y}`, marker, `+${y}`)
+      }
+      // The same for a changed line marked as its side's last when more of that side now follows it (a
+      // last line restored or added before kept lines): it gets its newline back, the note goes.
+      for (let i = body.length - 1; i > 0; i--) {
+        const sign = body[i - 1][0]
+        if (!body[i].startsWith('\\') || (sign !== '-' && sign !== '+')) continue
+        if (body.slice(i + 1).some((l) => l[0] === ' ' || l[0] === sign)) body.splice(i, 1)
+      }
       const oldCount = body.filter((l) => l[0] === ' ' || l[0] === '-').length
       const newCount = body.filter((l) => l[0] === ' ' || l[0] === '+').length
-      // The side that stays whole keeps its start; the other follows the hunks before it.
-      const [oldStart, newStart] = reverse
-        ? [Number(m[2]) - shift, Number(m[2])]
-        : [Number(m[1]), Number(m[1]) + shift]
+      // The side that stays whole keeps its start; the other follows the hunks before it. An empty side
+      // starts on the line before.
+      let [oldStart, newStart] = reverse ? [Number(m[2]) - shift, Number(m[2])] : [Number(m[1]), Number(m[1]) + shift]
+      if (!oldCount) oldStart = Math.max(0, oldStart - (reverse ? 1 : 0))
+      if (!newCount) newStart = Math.max(0, newStart - (reverse ? 0 : 1))
+      if (oldCount && !oldStart) oldStart = 1
+      if (newCount && !newStart) newStart = 1
       shift += newCount - oldCount
       out.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${m[3]}`, ...body)
     }
-    if (out.length === starts[0]) return
-    const args = ['apply', '--cached', '--whitespace=nowarn']
-    if (reverse) args.push('--reverse')
-    await run(cwd, [...args, '-'], { input: out.join('\n') + '\n' })
+    if (out.length === header.length) return
+    await applyPatch(cwd, target, out)
   })
 }
 
@@ -993,6 +1106,56 @@ export async function applyLines(cwd: string, target: DiffTarget, picks: LinePic
 export async function headMessage(cwd: string): Promise<string> {
   if (!(await hasHead(cwd))) return ''
   return (await git(cwd, ['log', '-1', '--format=%B'])).trimEnd()
+}
+
+/**
+ * Unity assets moved outside git's sight (a deleted .meta and a new one with the same guid), as
+ * [from, to] .meta pairs: the old .meta is read from HEAD, the new one from disk.
+ */
+export async function unityMoves(cwd: string, removed: string[], added: string[]): Promise<[string, string][]> {
+  const root = resolve(cwd)
+  const ok = (p: unknown): p is string =>
+    typeof p === 'string' && p.endsWith('.meta') && !isAbsolute(p) && !p.includes('\n') && insideRel(relative(root, resolve(root, p)))
+  const gone = removed.filter(ok).slice(0, 5000)
+  const fresh = added.filter(ok).slice(0, 5000)
+  if (!gone.length || !fresh.length) return []
+  const guid = (text: string): string | undefined => /^guid:[ \t]*([0-9a-fA-F]+)[ \t]*\r?$/m.exec(text)?.[1]
+  // One cat-file for all the old ones: "<id> blob <size>\n<content>\n" each, or "<name> missing\n".
+  const out = await run(cwd, ['cat-file', '--batch'], { input: gone.map((p) => `HEAD:${p}`).join('\n') + '\n', encoding: 'latin1' })
+  const byGuid = new Map<string, string>()
+  let at = 0
+  for (const p of gone) {
+    const nl = out.indexOf('\n', at)
+    if (nl < 0) break
+    const head = out.slice(at, nl).split(' ')
+    at = nl + 1
+    if (head[1] !== 'blob') continue
+    const size = Number(head[2])
+    const g = guid(out.slice(at, at + Math.min(size, 4096)))
+    at += size + 1
+    if (g) byGuid.set(g, p)
+  }
+  const pairs: [string, string][] = []
+  for (const p of fresh) {
+    const text = await readFile(join(root, p), 'latin1').catch(() => '')
+    const from = byGuid.get(guid(text.slice(0, 4096)) ?? '')
+    if (from) pairs.push([from, p])
+  }
+  return pairs
+}
+
+/**
+ * Commits exactly these paths as they are on disk (new, changed or deleted), whatever else is staged,
+ * in one go under the lock: nothing staged meanwhile by another tool slips in (Simple Mode's save).
+ */
+export async function commitOnly(cwd: string, paths: string[], message: string): Promise<string> {
+  if (!message.trim()) throw new Error('Commit message is empty.')
+  if (!paths.length) throw new Error('Nothing to save.')
+  return exclusive(cwd, async () => {
+    await withPaths(cwd, ['add', '-A'], paths)
+    await run(cwd, ['commit', '--only', '-m', message, '--pathspec-from-file=-', '--pathspec-file-nul'], { input: paths.join('\0') })
+    return (await git(cwd, ['rev-parse', 'HEAD'])).trim()
+  })
 }
 
 export async function commit(cwd: string, message: string, amend: boolean): Promise<string> {
@@ -1039,12 +1202,34 @@ async function checkoutNow(cwd: string, target: CheckoutTarget): Promise<void> {
 export function checkoutCarrying(cwd: string, target: CheckoutTarget, files: string[], description: string): Promise<CarryResult> {
   return exclusive(cwd, async () => {
     const tip = async (): Promise<string> => (await git(cwd, ['rev-parse', '-q', '--verify', 'refs/stash'], [0, 1])).trim()
+    const where = async (): Promise<string> =>
+      `${(await git(cwd, ['symbolic-ref', '-q', 'HEAD'], [0, 1])).trim()} ${(await git(cwd, ['rev-parse', '-q', '--verify', 'HEAD'], [0, 1])).trim()}`
+    // New files of yours that the branch has too can't come back over its own: say so before anything
+    // moves (the rest would be stuck in the stash with them).
+    const dest = target.kind === 'branch' ? `refs/heads/${target.name}` : target.kind === 'remote' ? `refs/remotes/${target.name}` : target.hash
+    const mine = (await run(cwd, ['ls-files', '--others', '--exclude-standard', '-z', '--', ...files], { env: { GIT_LITERAL_PATHSPECS: '1' } }))
+      .split('\0')
+      .filter(Boolean)
+    const clash = mine.length
+      ? (await git(cwd, ['ls-tree', '-r', '--name-only', '-z', dest, '--', ...mine], [0, 128])).split('\0').filter(Boolean)
+      : []
+    if (clash.length) {
+      const which = clash.length === 1 ? clash[0] : `${clash.slice(0, 3).join(', ')}${clash.length > 3 ? '…' : ''}`
+      throw new Error(`${description} has its own ${which}, so yours can't be carried over. Move or rename your ${clash.length === 1 ? 'file' : 'files'} first, or discard ${clash.length === 1 ? 'it' : 'them'}.`)
+    }
     const before = await tip()
+    const head = await where()
     const stash = `Spoon: changes carried to ${description}`
     // Paths as they are: a file named with * or [ isn't a pattern.
     await run(cwd, ['stash', 'push', '--include-untracked', '-m', stash, '--', ...files], { env: { GIT_LITERAL_PATHSPECS: '1' } })
     const hash = await tip()
-    if (!hash || hash === before) {
+    // Only a stash made just now, here: on this commit, with this message (not one another tool made meanwhile).
+    const ours =
+      !!hash &&
+      hash !== before &&
+      (await git(cwd, ['rev-parse', '-q', '--verify', `${hash}^1`], [0, 1])).trim() === head.split(' ')[1] &&
+      (await git(cwd, ['log', '-1', '--format=%s', hash])).includes(stash)
+    if (!ours) {
       await checkoutNow(cwd, target) // nothing was stashed (the changes were already gone)
       return { status: 'applied' }
     }
@@ -1053,11 +1238,14 @@ export function checkoutCarrying(cwd: string, target: CheckoutTarget, files: str
     try {
       await checkoutNow(cwd, target)
     } catch (err) {
-      // Nothing moved, so the changes go straight back, staged as they were.
-      await pop(true).catch(() => {
-        throw new Error(`${(err as Error).message}\n\nYour changes are kept in the stash “${stash}”.`)
-      })
-      throw err
+      // A hook that fails after the switch (post-checkout) doesn't undo it: carry on as switched.
+      if ((await where()) === head) {
+        // Nothing moved, so the changes go straight back, staged as they were.
+        await pop(true).catch(() => {
+          throw new Error(`${(err as Error).message}\n\nYour changes are kept in the stash “${stash}”.`)
+        })
+        throw err
+      }
     }
     // Untracked files the branch has too: git would put back the rest and then stop on those, half
     // done, so nothing is put back (all of it is still in the stash).
@@ -1204,8 +1392,53 @@ export async function syncInfo(cwd: string): Promise<SyncInfo> {
 
 export async function fetch(cwd: string, prune: boolean, onProgress: (l: string) => void): Promise<void> {
   await exclusive(cwd, () =>
-    run(cwd, ['fetch', '--all', '--progress', ...(prune ? ['--prune'] : [])], { onProgress, cancellable: true })
+    run(cwd, ['fetch', '--all', '--progress', ...(prune ? ['--prune'] : [])], { onProgress, cancellable: true }).catch(async (err) => {
+      throw await whichFailed(cwd, err)
+    })
   )
+}
+
+/** git couldn't reach (or wasn't let into) a repository: no access, unknown host, no network. */
+const UNREACHABLE =
+  /Could not read from remote repository|Permission denied|Authentication failed|Repository not found|Could not resolve host|unable to access|Connection (refused|timed out|closed)|Host key verification failed/i
+
+/**
+ * Says which repository a fetch (or pull) couldn't reach: a submodule git was fetching when it
+ * failed, or this repository's remote, with the address git used. git's own message names neither.
+ */
+async function whichFailed(cwd: string, err: unknown, remote?: string): Promise<unknown> {
+  if (!(err instanceof GitError) || !UNREACHABLE.test(err.message)) return err
+  const lines = err.stderr.split(/[\r\n]+/)
+  const failed = lines.findIndex((l) => UNREACHABLE.test(l))
+  // git prints "Fetching submodule <path>" before each one; the failure follows the one it's about.
+  const sub = lines
+    .slice(0, failed < 0 ? lines.length : failed)
+    .flatMap((l) => /^Fetching submodule (.+)$/.exec(l.trim())?.[1] ?? [])
+    .pop()
+  const urlOf = async (dir: string, name: string): Promise<string> =>
+    (await run(dir, ['remote', 'get-url', '--', name], { okCodes: [0, 2, 128] }).catch(() => '')).trim()
+  let where: string
+  if (sub) {
+    const url = await urlOf(join(cwd, sub), 'origin')
+    where = `the submodule ${sub}${url ? ` (${url})` : ''}`
+  } else {
+    // With several remotes git says "Fetching <remote>" before each.
+    const name =
+      remote ??
+      lines
+        .slice(0, failed < 0 ? lines.length : failed)
+        .flatMap((l) => /^Fetching (\S+)$/.exec(l.trim())?.[1] ?? [])
+        .pop() ??
+      (await git(cwd, ['remote']).catch(() => '')).split('\n').filter(Boolean)[0]
+    const url = name ? await urlOf(cwd, name) : ''
+    where = `${basename(cwd)}${name ? ` from ${name}` : ''}${url ? ` (${url})` : ''}`
+  }
+  // What came down before it failed isn't part of the problem.
+  const said = err.message
+    .split('\n')
+    .filter((l) => !/^(remote: |From |Fetching submodule |\s+[0-9a-f]{7,}\.\.[0-9a-f]{7,}\s| [*+-] \[)/.test(l))
+    .join('\n')
+  return new GitError(`Couldn’t reach ${where}:\n\n${said}`, err.code, err.stderr)
 }
 
 /**
@@ -1235,7 +1468,9 @@ async function pullNow(cwd: string, opts: PullOptions, onProgress: (l: string) =
   const args = ['pull', '--progress', opts.rebase ? '--rebase' : '--no-rebase']
   if (!opts.rebase) args.push('--no-edit')
   if (opts.autostash) args.push('--autostash')
-  await run(cwd, [...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true })
+  await run(cwd, [...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true }).catch(async (err) => {
+    throw await whichFailed(cwd, err, info.upstreamRemote!)
+  })
 }
 
 export function push(cwd: string, opts: PushOptions, onProgress: (l: string) => void): Promise<void> {

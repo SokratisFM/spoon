@@ -232,6 +232,8 @@ export function ideSchemes(fresh = false): Promise<SyntaxPalette[]> {
 
 /** Where two versions of a line differ, as [start, end) ranges in each: words, not characters. */
 export function changedWords(a: string, b: string): [Array<[number, number]>, Array<[number, number]>] {
+  // Very long lines (minified files) aren't worth it, and splitting them is already slow.
+  if (a.length + b.length > 20_000) return [[], []]
   const split = (s: string): string[] => s.match(/\w+|\s+|[^\w\s]/g) ?? []
   const x = split(a)
   const y = split(b)

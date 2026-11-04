@@ -1363,7 +1363,7 @@ function AccountsTab() {
                   href="#"
                   onClick={(e) => {
                     e.preventDefault()
-                    window.spoon.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org,write:public_key&description=Spoon')
+                    window.spoon.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:org&description=Spoon')
                   }}
                 >
                   Create a token

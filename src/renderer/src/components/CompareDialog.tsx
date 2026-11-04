@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import type { CompareMode } from '../../../shared/types'
 import { tildify } from '../projects'
-import { defaultPair, fileName, requestBranchDiff } from '../compare'
+import { defaultPair, fileName, requestBranchDiff, shortRef } from '../compare'
 import { useAsync, usePersistentState } from '../hooks'
 import { checkJson } from '../json'
 import { Modal } from './Modal'
@@ -28,7 +28,7 @@ export function CompareDialog({ home, repo, onCompare, onCompareText, onClose }:
   const [diffMode, setDiffMode] = usePersistentState<CompareMode>('spoon.branchDiff.mode', 'changes')
   useEffect(() => {
     if (!state.data || !repo || branches) return
-    const names = refs.filter((r) => r.kind === 'head' || r.kind === 'remote').map((r) => r.name)
+    const names = refs.filter((r) => r.kind === 'head' || r.kind === 'remote').map((r) => r.fullName)
     const head = state.data.headBranch
     window.spoon
       .recentCheckouts(repo)
@@ -43,7 +43,7 @@ export function CompareDialog({ home, repo, onCompare, onCompareText, onClose }:
   const ready = !!files[0] && !!files[1]
   const go = (): void => {
     if (mode === 'branches') {
-      if (!repo || !branches) return
+      if (!repo || !branches || branches.base === branches.compare) return
       onClose()
       requestBranchDiff({ path: repo, ...branches })
       return
@@ -185,13 +185,13 @@ export function CompareDialog({ home, repo, onCompare, onCompareText, onClose }:
               <label className="check">
                 <input type="radio" checked={diffMode === 'changes'} onChange={() => setDiffMode('changes')} />
                 <span>
-                  Only what {branches?.compare ?? 'it'} changed <span className="muted">— like a pull request</span>
+                  Only what {branches ? shortRef(branches.compare) : 'it'} changed <span className="muted">— like a pull request</span>
                 </span>
               </label>
               <label className="check">
                 <input type="radio" checked={diffMode === 'all'} onChange={() => setDiffMode('all')} />
                 <span>
-                  Every difference between the two <span className="muted">— including what {branches?.base ?? 'the base'} changed since</span>
+                  Every difference between the two <span className="muted">— including what {branches ? shortRef(branches.base) : 'the base'} changed since</span>
                 </span>
               </label>
             </>

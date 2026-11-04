@@ -1,11 +1,12 @@
 // Two branches compared, the way GitHub shows a pull request's files: every changed file's diff in
 // one scroll, and the files listed on the left (following the scroll; a click jumps to one).
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CompareFile, CompareMode, DiffResult } from '../../../shared/types'
 import { cleanError, useAsync, usePersistentState } from '../hooks'
 import { codeLineHeight, updateSettings, useSettings } from '../settings'
 import { paletteVars } from '../syntax'
 import { snapshots } from '../repoCache'
+import { shortRef } from '../compare'
 import { Modal } from './Modal'
 import { BranchPicker } from './BranchPicker'
 import { Split } from './Split'
@@ -16,6 +17,46 @@ import { ChevronIcon, ListViewIcon, TreeViewIcon } from './Icons'
 /** Files with more changed lines than this wait for a click, like GitHub's "Load diff". */
 const BIG = 1500
 const MAX_SPLIT_ROWS = 4000
+/** Lines drawn of one diff until "Show all"; and a line this long (a minified file) waits for a click. */
+const SHOWN_LINES = 3000
+const LONG_LINE = 20_000
+
+// Diffs load a few at a time: Expand All on thousands of files mustn't start thousands of gits.
+let running = 0
+const waiting: (() => void)[] = []
+function queued<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = (): void => {
+      running++
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          running--
+          waiting.shift()?.()
+        })
+    }
+    if (running < 6) start()
+    else waiting.push(start)
+  })
+}
+
+// One IntersectionObserver for all the sections of a scroll box (each says when it's near the view).
+const watchers = new WeakMap<Element, { io: IntersectionObserver; near: Map<Element, (on: boolean) => void> }>()
+function watch(root: Element, el: Element, near: (on: boolean) => void): () => void {
+  let w = watchers.get(root)
+  if (!w) {
+    const map = new Map<Element, (on: boolean) => void>()
+    w = { near: map, io: new IntersectionObserver((es) => es.forEach((e) => map.get(e.target)?.(e.isIntersecting)), { root, rootMargin: '1500px 0px' }) }
+    watchers.set(root, w)
+  }
+  const { io, near: map } = w
+  map.set(el, near)
+  io.observe(el)
+  return () => {
+    io.unobserve(el)
+    map.delete(el)
+  }
+}
 
 interface Props {
   path: string
@@ -32,8 +73,10 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
   // The branches as Spoon last read them right away, then as they are now (one may have been made outside Spoon).
   const fresh = useAsync(() => window.spoon.openRepo(path).then((r) => r.refs), [path])
   const refs = fresh.data ?? snapshots.get(path)?.repo?.refs ?? []
-  const result = useAsync(() => window.spoon.compareRefs(path, base, compare, mode), [path, base, compare, mode])
-  const data = result.data
+  const asked = `${base}\0${compare}\0${mode}`
+  const result = useAsync(() => window.spoon.compareRefs(path, base, compare, mode).then((r) => ({ for: asked, r })), [path, asked])
+  // While another comparison loads, the last one's files aren't shown under the new names.
+  const data = result.data?.for === asked ? result.data.r : null
   const [filter, setFilter] = useState('')
   const files = useMemo(() => {
     if (!data) return []
@@ -46,14 +89,15 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
     [data]
   )
 
-  // Looked-at files fold away (and can be folded by hand); both start over for another comparison.
+  // Looked-at files fold away (and can be folded by hand); both start over for other branches, not
+  // when the same ones get new commits.
   const [viewed, setViewed] = useState<Set<string>>(new Set())
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const pair = data ? `${data.from}..${data.to}` : ''
   useEffect(() => {
     setViewed(new Set())
     setFolded(new Set())
-  }, [pair])
+  }, [asked])
   const toggle = (set: Set<string>, p: string): Set<string> => {
     const next = new Set(set)
     if (next.has(p)) next.delete(p)
@@ -115,6 +159,14 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
   }
 
   const allFolded = files.length > 0 && files.every((f) => folded.has(f.path))
+  // Collapse/Expand All act on the files shown (the filter's), and Viewed files stay folded.
+  const foldAll = (fold: boolean): void =>
+    setFolded((s) => {
+      const next = new Set(s)
+      for (const f of files) if (fold) next.add(f.path)
+      else if (!viewed.has(f.path)) next.delete(f.path)
+      return next
+    })
   const picker = (value: string, set: (v: string) => void, label: string) => (
     <BranchPicker className="bd-pick" refs={refs} value={value} onChange={set} title={label} />
   )
@@ -133,7 +185,9 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
   else if (!data.files.length)
     body = (
       <div className="empty-state muted">
-        {mode === 'changes' ? `${compare} has no changes that ${base} doesn't have.` : `${base} and ${compare} are the same.`}
+        {mode === 'changes'
+          ? `${shortRef(compare)} has no changes that ${shortRef(base)} doesn't have.`
+          : `${shortRef(base)} and ${shortRef(compare)} are the same.`}
       </div>
     )
   else
@@ -141,7 +195,18 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
       <Split id="branch-diff" direction="row" mode="rem" initial={18} min={10} max={40}>
         <div className="bd-files">
           <div className="bd-files-head">
-            <input className="bd-filter" placeholder="Filter files" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+            <input
+              className="bd-filter"
+              placeholder="Filter files"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              // Esc empties the filter (and only closes the window when it's empty already).
+              data-own-escape={filter ? '' : undefined}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Escape' && filter) setFilter('')
+              }}
+            />
             <span className="view-toggle" role="group" aria-label="Show files as">
               <button className={settings.fileTree ? '' : 'on'} title="As a list" onClick={() => updateSettings({ fileTree: false })}>
                 <ListViewIcon />
@@ -227,21 +292,21 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
             <button
               className={mode === 'changes' ? 'on' : ''}
               onClick={() => setMode('changes')}
-              title={`Only what ${compare} changed since it split from ${base}, like a pull request`}
+              title={`Only what ${shortRef(compare)} changed since it split from ${shortRef(base)}, like a pull request`}
             >
               What it changed
             </button>
             <button
               className={mode === 'all' ? 'on' : ''}
               onClick={() => setMode('all')}
-              title={`Everything that's different between ${base} and ${compare}, including what ${base} changed since they split`}
+              title={`Everything that's different between ${shortRef(base)} and ${shortRef(compare)}, including what ${shortRef(base)} changed since they split`}
             >
               Every difference
             </button>
           </span>
           <span className="spacer" />
           {data && data.files.length > 0 && (
-            <button className="btn" onClick={() => setFolded(allFolded ? new Set() : new Set(files.map((f) => f.path)))}>
+            <button className="btn" onClick={() => foldAll(!allFolded)}>
               {allFolded ? 'Expand All' : 'Collapse All'}
             </button>
           )}
@@ -272,14 +337,13 @@ const FileSection = memo(function FileSection(p: SectionProps) {
   const settings = useSettings()
   const lineH = codeLineHeight(settings)
   const el = useRef<HTMLElement>(null)
+  // Near the view: loaded and drawn. Scrolled far away again, its lines leave the page (it keeps its height).
   const [near, setNear] = useState(false)
-  useEffect(() => {
-    if (!el.current) return
-    const seen = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && setNear(true), { root: p.root.current, rootMargin: '1500px 0px' })
-    seen.observe(el.current)
-    return () => seen.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  useEffect(() => (el.current && p.root.current ? watch(p.root.current, el.current, setNear) : undefined), [p.root])
+  const body = useRef<HTMLDivElement>(null)
+  const height = useRef(0)
+  const [cap, setCap] = useState(SHOWN_LINES)
+  const [longOk, setLongOk] = useState(false)
   const changed = (file.added ?? 0) + (file.removed ?? 0)
   const [forced, setForced] = useState(false)
   const binary = file.added === null
@@ -288,9 +352,10 @@ const FileSection = memo(function FileSection(p: SectionProps) {
   useEffect(() => {
     if (!want || diff) return
     let live = true
-    window.spoon
-      .diff(p.path, { kind: 'range', from: p.from, to: p.to, file })
-      .then((d) => live && setDiff({ d }), (e: Error) => live && setDiff({ error: cleanError(e) }))
+    queued(() => (live ? window.spoon.diff(p.path, { kind: 'range', from: p.from, to: p.to, file }) : Promise.resolve(null))).then(
+      (d) => live && d && setDiff({ d }),
+      (e: Error) => live && setDiff({ error: cleanError(e) })
+    )
     return () => {
       live = false
     }
@@ -301,8 +366,23 @@ const FileSection = memo(function FileSection(p: SectionProps) {
   const rows = useMemo(() => (parsed && settings.diffLayout === 'split' ? pairLines(parsed.lines) : null), [parsed, settings.diffLayout])
   const split = !!rows && rows.length <= MAX_SPLIT_ROWS
 
+  // How tall the drawn diff is, for when it leaves the page.
+  useLayoutEffect(() => {
+    if (near && body.current) height.current = body.current.offsetHeight
+  })
+
   let content
   if (p.folded) content = null
+  else if (!near && parsed && height.current) content = <div className="bd-wait" style={{ height: height.current }} />
+  else if (parsed && parsed.maxLen > LONG_LINE && !longOk)
+    content = (
+      <div className="bd-note muted">
+        Very long lines ({parsed.maxLen.toLocaleString()} characters; a minified file?).{' '}
+        <button className="btn" onClick={() => setLongOk(true)}>
+          Show Them
+        </button>
+      </div>
+    )
   else if (binary) content = <div className="bd-note muted">Binary file — no text diff.</div>
   else if (changed > BIG && !forced)
     content = (
@@ -322,7 +402,7 @@ const FileSection = memo(function FileSection(p: SectionProps) {
       <div className="bd-code">
         <div className={`diff-lines bd-lines syntax-${settings.diffSyntax} ${split ? 'side-by-side' : ''}`} style={{ '--bd-line': `${lineH}px` } as React.CSSProperties}>
           {split
-            ? rows!.map((row, i) => {
+            ? rows!.slice(0, cap).map((row, i) => {
                 if ('full' in row) {
                   const l = parsed.lines[row.full]
                   return (
@@ -340,7 +420,7 @@ const FileSection = memo(function FileSection(p: SectionProps) {
                   </div>
                 )
               })
-            : parsed.lines.map((l, i) => (
+            : parsed.lines.slice(0, cap).map((l, i) => (
                 <div key={i} className={`diff-line ${l.kind}`}>
                   <span className="ln">{l.oldNo ?? ''}</span>
                   <span className="ln">{l.newNo ?? ''}</span>
@@ -349,6 +429,14 @@ const FileSection = memo(function FileSection(p: SectionProps) {
                 </div>
               ))}
         </div>
+        {(split ? rows!.length : parsed.lines.length) > cap && (
+          <div className="bd-note muted">
+            {((split ? rows!.length : parsed.lines.length) - cap).toLocaleString()} more lines.{' '}
+            <button className="btn" onClick={() => setCap(Infinity)}>
+              Show All
+            </button>
+          </div>
+        )}
         {'d' in diff! && diff.d.truncated && <div className="list-footnote">Diff truncated — file is too large to show in full.</div>}
       </div>
     )
@@ -380,7 +468,7 @@ const FileSection = memo(function FileSection(p: SectionProps) {
           <input type="checkbox" checked={p.viewed} onChange={() => p.onViewed(file.path)} /> Viewed
         </label>
       </header>
-      {content}
+      <div ref={body}>{content}</div>
     </section>
   )
 })

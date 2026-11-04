@@ -29,9 +29,12 @@ const githubSlug = (url: string): string | null => /github\.com[:/]+([^/\s]+\/[^
 const nameOf = (url: string): string => /([^/:\s]+?)(?:\.git)?\/*$/.exec(url.trim())?.[1] ?? ''
 /** A long folder path as its last two folders. */
 const short = (path: string): string => {
-  const parts = path.split('/')
-  return parts.length > 4 ? `…/${parts.slice(-2).join('/')}` : path
+  const sep = path.includes('\\') && !path.includes('/') ? '\\' : '/'
+  const parts = path.split(/[\\/]/)
+  return parts.length > 4 ? `…${sep}${parts.slice(-2).join(sep)}` : path
 }
+const sepOf = (path: string): string => (path.includes('\\') && !path.includes('/') ? '\\' : '/')
+const parentOf = (path: string): string => path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')))
 const ago = (iso: string | null): string => {
   if (!iso) return ''
   const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000)
@@ -58,7 +61,7 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
       if (!up) break
       top = up
     }
-    return top.slice(0, top.lastIndexOf('/')) || home
+    return parentOf(top) || home
   }, [])
   const [parent, setParent] = usePersistentState<string>('spoon.clone.parent', '')
   const folder = parent || outside.data || home
@@ -71,11 +74,10 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
     window.addEventListener('spoon:sshChanged', on)
     return () => window.removeEventListener('spoon:sshChanged', on)
   }, [])
-  const ssh = useAsync(() => window.spoon.sshStatus(), [sshTick])
 
   const shown = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-    return (repos.data ?? []).filter((r) => words.every((w) => r.fullName.toLowerCase().includes(w)))
+    return (repos.data?.repos ?? []).filter((r) => words.every((w) => r.fullName.toLowerCase().includes(w)))
   }, [repos.data, query])
   const source = fromGitHub ? (picked ? (protocol === 'ssh' ? picked.sshUrl : picked.httpsUrl) : '') : url.trim()
   // The folder name follows the repository until it's typed over.
@@ -83,10 +85,13 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
   useEffect(() => {
     if (!nameTyped) setName(nameOf(source))
   }, [source, nameTyped])
-  const dest = name.trim() ? `${folder}/${name.trim()}` : ''
+  const dest = name.trim() ? `${folder}${sepOf(folder)}${name.trim()}` : ''
   const exists = useAsync(() => (dest ? window.spoon.pathsExist([dest]).then(([e]) => e) : Promise.resolve(false)), [dest])
   const overSsh = /^(git@|ssh:\/\/)/.test(source)
-  const noSsh = overSsh && !!ssh.data && ssh.data.auth.state !== 'ok'
+  // Only asked when it matters: a GitHub repository over SSH.
+  const sshMatters = overSsh && !!githubSlug(source)
+  const ssh = useAsync(() => (sshMatters ? window.spoon.sshStatus() : Promise.resolve(null)), [sshTick, sshMatters])
+  const noSsh = sshMatters && !!ssh.data && ssh.data.auth.state !== 'ok'
   const ready = !!source && !!dest && /^[^/\\]+$/.test(name.trim())
 
   // Progress lines for this clone (they come named by its folder).
@@ -150,14 +155,16 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
         }
       >
         <p>
-          <span className="clone-ok">✓</span> {phase.dest.split('/').pop()} was cloned and opened.
+          <span className="clone-ok">✓</span> {phase.dest.split(/[\\/]/).pop()} was cloned and opened.
         </p>
         <p>
-          {sshProblem
-            ? 'Its submodules (like MainLib) need SSH access to GitHub, which this computer doesn’t have yet. Set up an SSH key, then try again.'
-            : 'Its submodules couldn’t be downloaded:'}
+          {phase.error === 'Cancelled.'
+            ? 'Downloading its submodules (like MainLib) was cancelled.'
+            : sshProblem
+              ? 'Its submodules (like MainLib) need SSH access to GitHub, which this computer doesn’t have yet. Set up an SSH key, then try again.'
+              : 'Its submodules couldn’t be downloaded:'}
         </p>
-        {!sshProblem && <pre className="git-output">{phase.error}</pre>}
+        {!sshProblem && phase.error !== 'Cancelled.' && <pre className="git-output">{phase.error}</pre>}
         <p className="hint">You can also download them later: open the repository and update its submodules.</p>
       </Modal>
     )
@@ -222,6 +229,9 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
             {repos.error && <p className="error-text">{repos.error}</p>}
             {repos.loading && !repos.data && <p className="muted">Loading repositories…</p>}
             {repos.data && !shown.length && <p className="muted">No repositories match.</p>}
+            {repos.data?.more && (
+              <p className="muted clone-more">Showing the {repos.data.repos.length.toLocaleString()} most recently updated. For another one, paste its URL.</p>
+            )}
             {shown.slice(0, 200).map((r) => (
               <button
                 key={r.fullName}
@@ -286,7 +296,8 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
             const chosen = await window.spoon.pickFolder('Clone into…')
             if (chosen) setParent(chosen)
           }}>
-            {short(tildify(folder, home))}/
+            {short(tildify(folder, home))}
+            {sepOf(folder)}
           </button>
           <input
             value={name}

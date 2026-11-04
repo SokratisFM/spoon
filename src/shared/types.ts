@@ -366,11 +366,15 @@ export interface RefCompare {
   files: CompareFile[]
 }
 
-/** Lines picked in one hunk of a diff: indexes into the lines after its header line. */
+/**
+ * Lines picked in one hunk of a diff: indexes into the lines after its header line, and each one's
+ * sign and text as shown (main checks them against the diff as it is now).
+ */
 export interface LinePick {
   hunk: number
   header: string
   lines: number[]
+  texts: string[]
 }
 
 export interface DiffResult {
@@ -565,7 +569,11 @@ export interface CloneableRepo {
 /** An SSH key on this computer: its private key's path and the public key (one line). */
 export interface SshKey {
   path: string
+  /** "" while it can't be read (a private key with a passphrase and no .pub). */
   publicKey: string
+  /** It has a passphrase and isn't unlocked in the SSH agent: ssh can't use it without asking. */
+  locked: boolean
+  inAgent: boolean
 }
 
 /** What GitHub said to this computer's key: whose it is, or why not. */
@@ -579,10 +587,13 @@ export interface SshStatus {
   key: SshKey | null
   knownHost: boolean
   auth: SshAuth
+  /** known_hosts has a key for GitHub that GitHub doesn't publish (an old one, or someone else's). */
+  hostStale: boolean
   /** Spoon's GitHub sign-in may add keys to the account (it has the scope for it). */
   canUpload: boolean
-  /** The account Spoon is signed in to, if any. */
+  /** The account Spoon is signed in to, if any, and how. */
   login: string | null
+  source: GitHubSource | null
 }
 
 export interface DeviceCode {
@@ -740,6 +751,10 @@ export interface SpoonApi {
   applyLines(path: string, target: DiffTarget, picks: LinePick[]): Promise<void>
   headMessage(path: string): Promise<string>
   commit(path: string, message: string, amend: boolean): Promise<string>
+  /** Unity assets moved outside git's sight: [from, to] pairs of their .meta files (same guid). */
+  unityMoves(path: string, removed: string[], added: string[]): Promise<[string, string][]>
+  /** Commits exactly these paths as they are on disk, whatever else is staged. */
+  commitOnly(path: string, paths: string[], message: string): Promise<string>
   checkout(path: string, target: CheckoutTarget): Promise<void>
   /** Checks out with these files' local changes stashed and put back afterwards. */
   checkoutCarrying(path: string, target: CheckoutTarget, files: string[], description: string): Promise<CarryResult>
@@ -808,20 +823,23 @@ export interface SpoonApi {
 
   ghAccount(): Promise<GitHubAccount | null>
   sshStatus(): Promise<SshStatus>
-  ghCloneableRepos(): Promise<CloneableRepo[]>
+  ghCloneableRepos(): Promise<{ repos: CloneableRepo[]; more: boolean }>
   /** Clones into dest (progress comes as dest's), then its submodules; a submodule failure is returned, not thrown. */
   clone(url: string, dest: string, submodules: boolean): Promise<{ submoduleError: string | null }>
   /** Downloads a repository's submodules; the error if one failed. */
   cloneSubmodules(path: string): Promise<string | null>
   sshCreateKey(): Promise<SshKey>
   sshTrustGitHub(): Promise<void>
+  /** Replaces a GitHub host key GitHub no longer publishes (after the user confirmed). */
+  sshReplaceHostKey(): Promise<void>
   /** Adds this computer's key to the signed-in GitHub account. */
   sshUploadKey(title: string): Promise<void>
   /** Login of the account the GitHub CLI is signed in with, or null. */
   ghCliLogin(): Promise<string | null>
   ghConnectCli(): Promise<GitHubAccount>
   ghConnectToken(token: string): Promise<GitHubAccount>
-  ghDeviceStart(clientId: string): Promise<DeviceCode>
+  /** withKeys: also asks to add SSH keys to the account (only SSH setup does). */
+  ghDeviceStart(clientId: string, withKeys?: boolean): Promise<DeviceCode>
   /** Resolves once the code is approved in the browser (or rejects when it expires/is denied). */
   ghDeviceWait(clientId: string, code: DeviceCode): Promise<GitHubAccount>
   ghDeviceCancel(): Promise<void>

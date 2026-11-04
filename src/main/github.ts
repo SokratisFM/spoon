@@ -24,8 +24,9 @@ import type { CloneableRepo, NewRelease,
 const API = 'https://api.github.com'
 // A test copy (its own SPOON_USER_DATA) keeps its own Keychain item: it never reads or changes yours.
 const KEYCHAIN_SERVICE = process.env.SPOON_USER_DATA ? 'Spoon GitHub (test)' : 'Spoon GitHub'
-// write:public_key lets Spoon put this computer's SSH key on the account (SSH setup).
-const SCOPES = 'repo read:org write:public_key'
+const SCOPES = 'repo read:org'
+/** Asked for only when SSH setup signs in to add this computer's key to the account. */
+const KEY_SCOPE = 'write:public_key'
 const env = { ...process.env, PATH: git.toolPath }
 // A request that hangs (captive portal, dead proxy) fails instead of spinning forever.
 const TIMEOUT_MS = 30_000
@@ -139,13 +140,13 @@ export async function disconnect(): Promise<void> {
 
 let deviceCancelled = false
 
-export async function deviceStart(clientId: string): Promise<DeviceCode> {
+export async function deviceStart(clientId: string, withKeys = false): Promise<DeviceCode> {
   if (!clientId.trim()) throw new Error('Add your OAuth app’s Client ID first.')
   deviceCancelled = false
   const res = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: clientId.trim(), scope: SCOPES }),
+    body: JSON.stringify({ client_id: clientId.trim(), scope: withKeys ? `${SCOPES} ${KEY_SCOPE}` : SCOPES }),
     signal: timeout()
   })
   const data = (await res.json()) as Record<string, string | number>
@@ -234,7 +235,8 @@ async function api<T>(path: string, init: { method?: string; body?: unknown } = 
 }
 
 /** The repositories the account can clone (its own, shared with it, and its organizations'), latest first. */
-export async function cloneableRepos(): Promise<CloneableRepo[]> {
+const MAX_REPO_PAGES = 20
+export async function cloneableRepos(): Promise<{ repos: CloneableRepo[]; more: boolean }> {
   const repos = await apiAll<{
     full_name: string
     private: boolean
@@ -242,15 +244,17 @@ export async function cloneableRepos(): Promise<CloneableRepo[]> {
     pushed_at: string | null
     ssh_url: string
     clone_url: string
-  }>('/user/repos?sort=pushed&affiliation=owner,collaborator,organization_member', 20)
-  return repos.map((r) => ({
+  }>('/user/repos?sort=pushed&affiliation=owner,collaborator,organization_member', MAX_REPO_PAGES)
+  // A full last page: there may be more than were read.
+  const more = repos.length >= MAX_REPO_PAGES * 100
+  return { more, repos: repos.map((r) => ({
     fullName: r.full_name,
     private: r.private,
     description: r.description,
     pushedAt: r.pushed_at,
     sshUrl: r.ssh_url,
     httpsUrl: r.clone_url
-  }))
+  })) }
 }
 
 /** Whether the sign-in may add SSH keys to the account. */

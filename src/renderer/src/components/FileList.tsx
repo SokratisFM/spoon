@@ -98,12 +98,16 @@ interface Props {
   dim?: Set<string>
   /** Scroll the focused file into view whenever it changes (it follows something else). */
   follow?: boolean
+  /** Whose files these are (the repository): a drop elsewhere checks it's for the same one. */
+  origin?: string
 }
 
 /** What a dragged row carries: its list's name is in the type (readable while dragging, unlike the data). */
 export const FILES_DRAG = 'application/x-spoon-files-'
+/** The repository dragged files are from (another window's are someone else's files). */
+export const FILES_ORIGIN = 'application/x-spoon-files-origin'
 
-export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree, marks, draggable, dim, follow }: Props) {
+export function FileList({ files: allFiles, selected, focused, onSelect, onActivate, onContextMenu, emptyText, area, tree, marks, draggable, dim, follow, origin }: Props) {
   const settings = useSettings()
   const rowH = Math.round(rowHeight(settings) * 0.92)
   const parentRef = useRef<HTMLDivElement>(null)
@@ -150,6 +154,13 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
 
   const selectedFiles = (): FileChange[] => allFiles.filter((f) => selected.has(f.path))
   const pendingSingle = useRef<number | null>(null)
+  // A press that didn't end on its own row (released elsewhere) is forgotten, so a later release there
+  // doesn't collapse the selection.
+  useEffect(() => {
+    const up = (): void => void (pendingSingle.current = null)
+    window.addEventListener('mouseup', up)
+    return () => window.removeEventListener('mouseup', up)
+  }, [])
   const dragProps = (list: FileChange[]) =>
     draggable
       ? {
@@ -158,6 +169,7 @@ export function FileList({ files: allFiles, selected, focused, onSelect, onActiv
             pendingSingle.current = null
             e.dataTransfer.effectAllowed = 'move'
             e.dataTransfer.setData(`${FILES_DRAG}${area ?? 'list'}`, JSON.stringify(list.map((f) => f.path)))
+            if (origin) e.dataTransfer.setData(FILES_ORIGIN, origin)
             e.dataTransfer.setData('text/plain', list.map((f) => f.path).join('\n'))
           }
         }

@@ -34,22 +34,36 @@ export function requestBranchDiff(req: BranchDiffRequest): void {
 
 const MAIN_LINES = ['main', 'master', 'develop', 'origin/main', 'origin/master', 'origin/develop']
 
-/** What a branch is usually compared against: the main line (main, master, develop…) other than it. */
+/** A ref as people name it: refs/heads/main → main, refs/remotes/origin/main → origin/main, refs/tags/v1 → v1. */
+export const shortRef = (ref: string): string => ref.replace(/^refs\/(heads|remotes|tags)\//, '')
+
+/**
+ * What a branch is usually compared against: the main line (main, master, develop…) other than it.
+ * Branches are full ref names (refs/heads/…), so a tag with a branch's name is never taken for it.
+ */
 export function mainLine(branches: string[], not?: string | null): string | undefined {
   const others = branches.filter((b) => b !== not)
-  return MAIN_LINES.find((b) => others.includes(b)) ?? others[0]
+  for (const m of MAIN_LINES) {
+    const hit = others.find((b) => shortRef(b) === m && b.startsWith(m.includes('/') ? 'refs/remotes/' : 'refs/heads/'))
+    if (hit) return hit
+  }
+  return others[0]
 }
 
 /**
  * The branches Compare offers first: the checked-out branch against the main line, or, when the
  * main line is what's checked out, the branch checked out before it against the main line.
+ * head and recent are branch names; the result is full ref names.
  */
 export function defaultPair(branches: string[], head: string | null, recent: string[]): { base: string; compare: string } | null {
+  const full = (name: string): string => `refs/heads/${name}`
   if (head && MAIN_LINES.includes(head)) {
-    const compare = recent.find((b) => b !== head && branches.includes(b)) ?? branches.find((b) => b !== head && !MAIN_LINES.includes(b))
-    return compare ? { base: head, compare } : null
+    const compare =
+      recent.map(full).find((b) => b !== full(head) && branches.includes(b)) ??
+      branches.find((b) => b !== full(head) && !MAIN_LINES.includes(shortRef(b)))
+    return compare ? { base: full(head), compare } : null
   }
-  const compare = head ?? branches[0]
+  const compare = head ? full(head) : branches[0]
   const base = mainLine(branches, compare)
   return compare && base ? { base, compare } : null
 }

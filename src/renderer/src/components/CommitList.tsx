@@ -11,7 +11,7 @@ import { dropStash, stashMenu } from './stashMenu'
 import type { Ops } from './RepoView'
 import { contextMenu } from '../menus'
 import { requestBranchDiff } from '../compare'
-import { confirm } from '../dialogs'
+import { choose, confirm } from '../dialogs'
 import { isMac, keys } from '../platform'
 
 const MAX_GRAPH_LANES = 14
@@ -217,6 +217,15 @@ export const CommitList = memo(function CommitList({
   }
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    // Enter checks out, like a double-click (the keyboard's way since the menu has no Checkout items).
+    if (e.key === 'Enter' && selected && !e.metaKey && !e.ctrlKey) {
+      const c = commits.find((x) => x.hash === selected)
+      if (c) {
+        e.preventDefault()
+        void onDoubleClick(c)
+      }
+      return
+    }
     if ((e.key === 'Backspace' || e.key === 'Delete') && selected) {
       e.preventDefault()
       // A stash's row deletes the stash; any other commit, its local branch.
@@ -274,12 +283,39 @@ export const CommitList = memo(function CommitList({
     [badges, ops, repo.headHash, repo.headBranch]
   )
   // Double-clicking a branch's label checks out that branch, when several share the commit (Fork).
+  // A tag's checks out its commit (detached). A remote branch's checks out the local branch of that name,
+  // which is asked about first when it's on another commit (switching to it wouldn't show this one).
   const onBadgeDoubleClick = useCallback(
-    (b: Badge) => {
-      if (b.current || (b.kind !== 'head' && b.kind !== 'remote')) return
-      ops.checkout(b.kind === 'head' ? { kind: 'branch', name: b.label } : { kind: 'remote', name: b.label }, b.label)
+    async (b: Badge) => {
+      if (b.current) return
+      if (b.kind === 'tag') {
+        const tag = repo.refs.find((r) => r.kind === 'tag' && r.name === b.label)
+        if (tag) ops.checkout({ kind: 'commit', hash: tag.target }, `tag ${b.label}`)
+        return
+      }
+      if (b.kind === 'head') return ops.checkout({ kind: 'branch', name: b.label }, b.label)
+      if (b.kind !== 'remote') return
+      const remoteRef = repo.refs.find((r) => r.kind === 'remote' && r.name === b.label)
+      const remote = repo.remotes.filter((r) => b.label.startsWith(`${r}/`)).sort((x, y) => y.length - x.length)[0]
+      const local = remote ? repo.refs.find((r) => r.kind === 'head' && r.name === b.label.slice(remote.length + 1)) : undefined
+      if (!local || !remoteRef || local.target === remoteRef.target) {
+        if (local?.name !== repo.headBranch) ops.checkout({ kind: 'remote', name: b.label }, b.label)
+        return
+      }
+      const answer = await choose({
+        title: `Your ${local.name} is on another commit than ${b.label}`,
+        detail: `Checking out ${b.label} switches to your local ${local.name}, which isn't this commit. Check out this commit on its own instead (detached)?`,
+        cancelId: 'cancel',
+        buttons: [
+          { id: 'cancel', label: 'Cancel' },
+          ...(local.name !== repo.headBranch ? [{ id: 'local', label: `Switch to ${local.name}` }] : []),
+          { id: 'detach', label: 'Check Out This Commit', kind: 'primary' as const }
+        ]
+      })
+      if (answer === 'local') ops.checkout({ kind: 'branch', name: local.name }, local.name)
+      else if (answer === 'detach') ops.checkout({ kind: 'commit', hash: remoteRef.target }, b.label)
     },
-    [ops]
+    [ops, repo]
   )
 
   const onContextMenu = useCallback(
@@ -309,7 +345,10 @@ export const CommitList = memo(function CommitList({
         ...(repo.headBranch && branches.length
           ? [
               { separator: true },
-              ...branches.slice(0, 3).map((b) => ({ id: `compare:${b.label}`, label: `Compare ${b.label} with ${repo.headBranch}` }))
+              ...branches.filter((b) => b.kind === 'head' || b.kind === 'remote').slice(0, 3).map((b) => ({
+                id: `compare:${b.kind === 'remote' ? 'refs/remotes/' : 'refs/heads/'}${b.label}`,
+                label: `Compare ${b.label} with ${repo.headBranch}`
+              }))
             ]
           : []),
         // A branch that already has an open pull request gets "Open Pull Request" (below) instead.
@@ -375,7 +414,7 @@ export const CommitList = memo(function CommitList({
       if (choice.startsWith('pr:')) return ops.createPull?.(choice.slice(3))
       if (choice.startsWith('open-pr:')) return ops.openPull(Number(choice.slice(8)))
       if (choice.startsWith('compare:') && repo.headBranch)
-        return requestBranchDiff({ path: repo.path, base: repo.headBranch, compare: choice.slice(8) })
+        return requestBranchDiff({ path: repo.path, base: `refs/heads/${repo.headBranch}`, compare: choice.slice(8) })
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)
       if (choice.startsWith('copy:')) return void navigator.clipboard.writeText(choice.slice(5))
@@ -642,7 +681,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
             onMouseEnter={p.onLabelHover && b.kind !== 'tag' ? () => p.onLabelHover!(c.hash) : undefined}
             onMouseLeave={p.onLabelHover && b.kind !== 'tag' ? () => p.onLabelHover!(null) : undefined}
             onDoubleClick={
-              b.kind === 'head' || b.kind === 'remote'
+              b.kind === 'head' || b.kind === 'remote' || b.kind === 'tag'
                 ? (e) => {
                     e.stopPropagation()
                     p.onBadgeDoubleClick(b)
