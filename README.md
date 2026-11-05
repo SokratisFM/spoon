@@ -2,6 +2,24 @@
 
 A Fork-style git client with a modern UI that scales: every element and font can be resized.
 
+## Install
+
+**macOS** (Apple Silicon): open Terminal and run
+
+```bash
+curl -fsSL https://github.com/SokratisFM/spoon/releases/latest/download/install.sh | sh
+```
+
+**Windows**: open PowerShell (no admin needed) and run
+
+```powershell
+irm https://github.com/SokratisFM/spoon/releases/latest/download/install.ps1 | iex
+```
+
+Spoon needs git: on a Mac, `xcode-select --install` if you don't have it; on Windows,
+[Git for Windows](https://git-scm.com/download/win). The installers check every download against the
+release's checksums, and Spoon updates itself from then on (Settings → About → Check now).
+
 ## Run
 
 ```bash
@@ -56,8 +74,8 @@ It prints the `gh release create` command to publish them; nothing is uploaded a
 
 Installing for the first time:
 
-- macOS: `curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | sh`
-- Windows (PowerShell): `irm https://github.com/<owner>/<repo>/releases/latest/download/install.ps1 | iex`
+- macOS: `curl -fsSL https://github.com/SokratisFM/spoon/releases/latest/download/install.sh | sh`
+- Windows (PowerShell): `irm https://github.com/SokratisFM/spoon/releases/latest/download/install.ps1 | iex`
 
 Both verify checksums and avoid the "unidentified developer" / SmartScreen prompts that browser
 downloads of unsigned apps get. A zip downloaded in a browser works too, after **Open Anyway** once in
