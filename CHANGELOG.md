@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.51.2 — 2026-11-05
+
+- **Improved:** Downloading missing submodules no longer holds up Fetch, Pull or anything else in the repository. It runs alongside them, with its own line in the toolbar saying which submodule is coming down and how far along it is (“Downloading MainLib (1 of 4) · 64% · 497 MiB”), and its own Cancel.
+
 ## 0.51.1 — 2026-11-05
 
 - **New:** The Tab search lists your GitHub repositories that aren’t on this computer yet. Pick one and press Enter to clone it right there, next to your other projects, on the branch with the latest commit and with its submodules. ⌘Enter opens the Clone dialog to choose something else. Repositories you already have show up once, as your project. **GitHub only** (⌘G) in the search lists just the GitHub repositories you don’t have yet.

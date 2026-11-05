@@ -89,6 +89,7 @@ const api: SpoonApi = {
   cloneSubmodules: (path) => ipcRenderer.invoke('repo:cloneSubmodules', path),
   newSubmodules: (path) => ipcRenderer.invoke('repo:newSubmodules', path),
   downloadNewSubmodules: (path) => ipcRenderer.invoke('repo:downloadNewSubmodules', path),
+  cancelSubmoduleDownload: (path) => ipcRenderer.invoke('repo:cancelSubmoduleDownload', path),
   sshCreateKey: () => ipcRenderer.invoke('ssh:createKey'),
   sshTrustGitHub: () => ipcRenderer.invoke('ssh:trustGitHub'),
   sshReplaceHostKey: () => ipcRenderer.invoke('ssh:replaceHostKey'),

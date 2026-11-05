@@ -437,7 +437,9 @@ function registerIpc(): void {
   ipcMain.handle('repo:githubSlugs', (_e, paths: string[]) => git.githubSlugs(Array.isArray(paths) ? paths.slice(0, 2000) : []))
   handleRepo('repo:cloneSubmodules', (e, path: string) => git.cloneSubmodules(path, progress(e, path)))
   handleRepo('repo:newSubmodules', (_e, path: string) => git.newSubmodules(path))
-  handleRepo('repo:downloadNewSubmodules', (e, path: string) => git.downloadNewSubmodules(path, progress(e, path)))
+  // Its progress comes under its own name, apart from a fetch or pull running at the same time.
+  handleRepo('repo:downloadNewSubmodules', (e, path: string) => git.downloadNewSubmodules(path, progress(e, `${path}\0submodules`)))
+  handleRepo('repo:cancelSubmoduleDownload', (_e, path: string) => git.cancelSubmoduleDownload(path))
   ipcMain.handle('repo:fetchQuietly', (_e, path: string) => git.fetchQuietly(path))
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
   ipcMain.handle('repo:push', (e, path: string, opts: PushOptions) => git.push(path, opts, progress(e, path)))

@@ -816,15 +816,34 @@ export async function newSubmodules(cwd: string): Promise<string[]> {
   return fresh
 }
 
-/** Downloads the submodules never downloaded here (and theirs); the paths it downloaded. */
+/**
+ * Downloads the submodules never downloaded here (and theirs); the paths it downloaded. It runs beside
+ * the repository's other git work rather than queued with it (MainLib alone can take minutes): it only
+ * fills empty submodule folders and their own git folders, which a fetch, pull or commit in the parent
+ * doesn't touch. One download per repository at a time; its Cancel is its own.
+ */
 export function downloadNewSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string[]> {
-  return exclusive(cwd, async () => {
+  const key = repoKey(cwd)
+  const running = submoduleDownloads.get(key)
+  if (running) return running
+  const task = (async () => {
     const paths = await newSubmodules(cwd)
     if (paths.length)
-      await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths], { onProgress, cancellable: true })
+      await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths], {
+        onProgress,
+        cancellable: downloadKey(cwd)
+      })
     return paths
-  })
+  })().finally(() => submoduleDownloads.delete(key))
+  submoduleDownloads.set(key, task)
+  return task
 }
+const submoduleDownloads = new Map<string, Promise<string[]>>()
+/** What a submodule download is cancelled by (not the repository's own Cancel, which stops its fetch or pull). */
+const downloadKey = (cwd: string): string => join(repoKey(cwd), '.git', 'spoon-submodule-download')
+export const cancelSubmoduleDownload = (cwd: string): void => cancel(downloadKey(cwd))
+/** Waits for a submodule download under way in the repository (Initialize after it, not alongside). */
+const downloadDone = (cwd: string): Promise<unknown> => (submoduleDownloads.get(repoKey(cwd)) ?? Promise.resolve()).catch(() => undefined)
 
 /** owner/name (lowercase) for each repository whose remote is on GitHub; null for the rest. */
 export async function githubSlugs(paths: string[]): Promise<(string | null)[]> {
@@ -1684,7 +1703,10 @@ export async function submoduleUpdatePreview(cwd: string, submodulePath: string)
  * to; only otherwise does it fall back to `git submodule update`, which checks the commit out directly.
  */
 export function updateSubmodule(cwd: string, submodulePath: string, backupBranch?: string): Promise<void> {
-  return exclusive(cwd, () => updateSubmoduleNow(cwd, submodulePath, backupBranch))
+  return exclusive(cwd, async () => {
+    await downloadDone(cwd)
+    return updateSubmoduleNow(cwd, submodulePath, backupBranch)
+  })
 }
 
 async function updateSubmoduleNow(cwd: string, submodulePath: string, backupBranch?: string): Promise<void> {

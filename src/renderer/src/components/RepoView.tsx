@@ -53,7 +53,7 @@ import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
 import { ErrorModal, overlayOpen } from './Modal'
 import { PullDialog, PushDialog } from './SyncDialogs'
-import { ParentChip, SubmoduleChip, submoduleActions, triedSubmodules } from './Submodules'
+import { ParentChip, SubmoduleChip, SubmoduleDownloadStatus, clearSubmoduleDownload, startSubmoduleDownload, submoduleActions, triedSubmodules, useSubmoduleDownload } from './Submodules'
 import { NetButton, type NetKind, type NetState } from './NetButton'
 import { DeleteBranchDialog } from './DeleteBranchDialog'
 import { CheckoutBlockedDialog, overwrittenFiles } from './CheckoutBlockedDialog'
@@ -542,12 +542,19 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       .newSubmodules(path)
       .then((paths) => {
         if (!paths.length) return
-        const names = paths.map((p) => p.split('/').pop()!)
-        const what = names.length === 1 ? names[0] : `${names.length} submodules`
-        ops.run(`Downloading ${what}…`, () => window.spoon.downloadNewSubmodules(path), `Couldn’t download ${what}`)
+        // Beside the repository's other git work (not queued with it), so Fetch and Pull don't wait.
+        startSubmoduleDownload(path, paths, () => void load())
       })
       .catch(() => undefined)
-  }, [path, pendingSubs, autoSubmodules, ops])
+  }, [path, pendingSubs, autoSubmodules, load])
+  // A download that failed says why (once), here or when the tab is next shown.
+  const download = useSubmoduleDownload(path)
+  useEffect(() => {
+    if (!download?.error) return
+    const names = download.paths.map((p) => p.split('/').pop()!)
+    setOpError({ title: `Couldn’t download ${names.length === 1 ? names[0] : `${names.length} submodules`}`, message: download.error })
+    clearSubmoduleDownload(path)
+  }, [download?.error, path, setOpError]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch/pull/push with their button animation: working (ring follows git's %), then done
   // (check, "+N" new commits, which also slide into the list) or failed (shake).
@@ -837,6 +844,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           {repo.operation && <span className="op-chip">{repo.operation}</span>}
           {repo.superproject && <ParentChip parent={repo.superproject} onOpen={onOpenRepo} />}
           <SubmoduleChip submodules={repo.submodules} actions={subActions} />
+          <SubmoduleDownloadStatus repo={path} />
         </div>
 
         <div className="toolbar-actions">

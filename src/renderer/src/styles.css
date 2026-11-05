@@ -8736,3 +8736,22 @@ kbd.setting-key {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .palette-scope kbd.soft { margin: 0; }
+
+/* A submodule download running beside the repository's other git work */
+.sub-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  max-width: 24rem;
+  /* It gives way before the branch and submodule chips do. */
+  flex: 0 100 auto;
+  font-size: 0.85em;
+}
+.sub-download-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

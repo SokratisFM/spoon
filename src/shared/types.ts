@@ -848,7 +848,9 @@ export interface SpoonApi {
   /** Submodules never downloaded on this computer (paths). */
   newSubmodules(path: string): Promise<string[]>
   /** Downloads them (and their own submodules); the paths it downloaded. */
+  /** Its progress lines come named "<path>\0submodules". */
   downloadNewSubmodules(path: string): Promise<string[]>
+  cancelSubmoduleDownload(path: string): Promise<void>
   sshCreateKey(): Promise<SshKey>
   sshTrustGitHub(): Promise<void>
   /** Replaces a GitHub host key GitHub no longer publishes (after the user confirmed). */
