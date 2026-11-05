@@ -173,9 +173,7 @@ console.log(`\nRelease ${version} is in ${out}`)
 for (const f of [...files, 'SHA256SUMS']) console.log(`  ${f.padEnd(34)} ${(statSync(join(out, f)).size / 1048576).toFixed(1)} MB`)
 // The GitHub release gets the Markdown, from a file next to (not in) the release folder.
 const notesFile = join(root, 'dist.noindex', 'release', `${version}-notes.md`)
-// The GitHub release page also says how to install (What's New shows only the notes).
-const install = `\n\n### Install\n\nmacOS (Apple Silicon), in Terminal:\n\n\`\`\`bash\ncurl -fsSL https://github.com/${repo}/releases/latest/download/install.sh | sh\n\`\`\`\n\nWindows, in PowerShell:\n\n\`\`\`powershell\nirm https://github.com/${repo}/releases/latest/download/install.ps1 | iex\n\`\`\`\n\nAlready installed? Spoon updates itself.`
-writeFileSync(notesFile, notes + install + '\n')
+writeFileSync(notesFile, notes + '\n')
 console.log(`\nTo publish (when ready):\n  gh release create v${version} --repo ${repo} --title "Spoon ${version}" --notes-file ${sh(notesFile)} ${sh(out)}/*`)
 console.log(`\nInstall commands:\n  macOS:   curl -fsSL https://github.com/${repo}/releases/latest/download/install.sh | sh`)
 console.log(`  Windows: irm https://github.com/${repo}/releases/latest/download/install.ps1 | iex`)
