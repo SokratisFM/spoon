@@ -8,6 +8,8 @@ import { paletteVars } from '../syntax'
 import { snapshots } from '../repoCache'
 import { shortRef } from '../compare'
 import { Modal } from './Modal'
+import { requestFileHistory } from './FileHistoryDialog'
+import { contextMenu } from '../menus'
 import { BranchPicker } from './BranchPicker'
 import { Split } from './Split'
 import { FileList, statusSymbol, treeOrder } from './FileList'
@@ -221,6 +223,18 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
             selected={new Set(current ? [current] : [])}
             focused={current}
             onSelect={(_, f) => jump(f.path)}
+            onContextMenu={async (fs) => {
+              const f = fs[0]
+              if (!f) return
+              const choice = await contextMenu([
+                { id: 'history', label: 'Show File History…', enabled: f.status !== 'D' },
+                { id: 'copy', label: 'Copy Path' }
+              ])
+              if (choice === 'history') {
+                onClose()
+                requestFileHistory({ repo: path, file: f.path })
+              } else if (choice === 'copy') navigator.clipboard.writeText(f.path)
+            }}
             emptyText="No files match."
             area="branch-diff"
             tree={settings.fileTree}

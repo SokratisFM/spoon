@@ -14,6 +14,7 @@ import { confirm } from '../dialogs'
 import { requestCompare } from '../compare'
 import { revealLabel } from '../platform'
 import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
+import { requestFileHistory, SELECTED_FILE_HISTORY } from './FileHistoryDialog'
 import type { Ops } from './RepoView'
 
 interface Props {
@@ -40,6 +41,7 @@ async function fileMenu(path: string, d: CommitDetails, f: FileChange, ops: Ops)
     { id: 'view', label: deleted ? 'View Last Version…' : 'View This Version…', enabled: !!at },
     { id: 'default', label: 'Open with Default App', enabled: exists },
     { separator: true },
+    { id: 'history', label: 'Show File History…', accelerator: 'CmdOrCtrl+Alt+L' },
     { id: 'compare-working', label: 'Compare with Working Copy', enabled: exists && !deleted },
     { id: 'compare', label: 'Compare with…', enabled: !deleted },
     { id: 'restore', label: deleted ? 'Restore This File…' : 'Restore This Version…', enabled: !!at },
@@ -51,6 +53,7 @@ async function fileMenu(path: string, d: CommitDetails, f: FileChange, ops: Ops)
   if (choice === 'edit') openFileEditor({ repo: path, file: f.path, at })
   else if (choice === 'view') openFileEditor({ repo: path, file: f.path, at, show: 'commit' })
   else if (choice === 'default') window.spoon.openWithDefaultApp(path, f.path)
+  else if (choice === 'history') requestFileHistory({ repo: path, file: f.path })
   else if (choice === 'compare-working' || choice === 'compare') {
     const other = choice === 'compare' ? await window.spoon.pickFile(`Compare ${f.path} at ${short} with…`) : `${path}/${f.path}`
     if (!other) return
@@ -82,11 +85,20 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
   const [copied, setCopied] = useState(false)
   // ⌘E: the shown file in the popup (set once the details are in).
   const openShown = useRef<(() => void) | null>(null)
+  const historyShown = useRef<string | null>(null)
   useEffect(() => {
     const open = (): void => openShown.current?.()
+    // ⌥⌘L: the shown file's history.
+    const history = (): void => {
+      if (historyShown.current) requestFileHistory({ repo: path, file: historyShown.current })
+    }
     window.addEventListener(OPEN_SELECTED_FILE, open)
-    return () => window.removeEventListener(OPEN_SELECTED_FILE, open)
-  }, [])
+    window.addEventListener(SELECTED_FILE_HISTORY, history)
+    return () => {
+      window.removeEventListener(OPEN_SELECTED_FILE, open)
+      window.removeEventListener(SELECTED_FILE_HISTORY, history)
+    }
+  }, [path])
   const settings = useSettings()
   const authorColors = authorColorMap(settings)
   const jira = jiraConfig(settings)
@@ -105,7 +117,10 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
   // Until this commit's details are in, ⌘E has nothing to open (never the previous commit's file).
   // Details still of the previous commit (shown while the new ones load) give ⌘E nothing to open.
   const stale = !!details && details.hash !== hash
-  if (!hash || error || !details || stale) openShown.current = null
+  if (!hash || error || !details || stale) {
+    openShown.current = null
+    historyShown.current = null
+  }
   if (!hash) return <div className="empty-state muted">Select a commit.</div>
   if (error) return <div className="empty-state error-text">{error}</div>
   if (!details) return <div className="panel" />
@@ -113,6 +128,7 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
   // The same file stays selected when moving between commits that both touch it; worked out here, so
   // the diff never asks for the previous commit's file in the new commit.
   const shown = details.files.find((f) => f.path === file?.path) ?? details.files[0] ?? null
+  historyShown.current = shown && !stale ? shown.path : null
   openShown.current = shown && !stale
     ? () =>
         openFileEditor({

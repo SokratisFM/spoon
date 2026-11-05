@@ -105,6 +105,7 @@ function buildMenu(): void {
           // Fork's shortcut for a new branch: the same popup.
           { label: 'New Branch…', accelerator: 'CmdOrCtrl+Shift+B', click: () => send('new-branch') },
           { label: 'Open File in Spoon…', accelerator: 'CmdOrCtrl+E', click: () => send('open-file') },
+          { label: 'Show File History…', accelerator: 'CmdOrCtrl+Alt+L', click: () => send('file-history') },
           { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('new-tag') },
           { id: 'review', label: 'Review with Claude…', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('review') },
           { type: 'separator' },
@@ -290,9 +291,10 @@ function registerIpc(): void {
   )
   handleRepo('file:atCommit', (_e, path: string, hash: string, rel: string) => git.fileAtCommit(path, hash, rel))
   handleRepo('file:atCommitToTemp', (_e, path: string, hash: string, rel: string) => git.fileAtCommitToTemp(path, hash, rel))
-  handleRepo('file:restore', (_e, path: string, hash: string, rel: string) =>
-    git.restoreFileFrom(path, hash, rel, (p) => shell.trashItem(p))
+  handleRepo('file:restore', (_e, path: string, hash: string, rel: string, from?: string) =>
+    git.restoreFileFrom(path, hash, rel, (p) => shell.trashItem(p), from)
   )
+  handleRepo('repo:fileHistory', (_e, path: string, rel: string, follow: boolean) => git.fileHistory(path, rel, !!follow))
   // Resolves to an error message, or "" when it opened.
   handleRepo('file:openDefault', async (_e, path: string, rel: string) => shell.openPath(await git.realRepoFile(path, rel)))
   handleRepo('file:thumbnail', (_e, path: string, rel: string, hash: string | null, size: number) => thumbnails.thumbnail(path, rel, hash, size))

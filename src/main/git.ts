@@ -13,6 +13,7 @@ import type {
   DiffResult,
   DiffTarget,
   FileChange,
+  FileHistoryEntry,
   FileStatus,
   LinePick,
   Ref,
@@ -2307,12 +2308,77 @@ export const backupStamp = (): string => {
  * Puts a commit's version of a file in the working copy (an unstaged change; the index is left
  * alone). Uncommitted changes to it are first copied to the Trash, so they can be got back.
  */
-export async function restoreFileFrom(cwd: string, hash: string, rel: string, trash: (abs: string) => Promise<void>): Promise<void> {
+/**
+ * Puts a commit's version of a file in the working copy (its current contents go to the Trash first).
+ * from: the file's name in that commit when it has been renamed since; it's written under rel.
+ */
+export async function restoreFileFrom(
+  cwd: string,
+  hash: string,
+  rel: string,
+  trash: (abs: string) => Promise<void>,
+  from?: string
+): Promise<void> {
   assertHash(hash)
   const abs = await realRepoFile(cwd, rel)
+  if (from !== undefined && from !== rel) await realRepoFile(cwd, from)
   return exclusive(cwd, async () => {
     const changed = (await git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', rel])).trim()
     if (changed) await backupToTrash([{ abs, rel: basename(rel) }], `${basename(resolve(cwd))} – before restoring ${basename(rel)} ${backupStamp()}`, trash)
-    await git(cwd, ['restore', `--source=${hash}`, '--worktree', '--', rel])
+    if (from === undefined || from === rel) return void (await git(cwd, ['restore', `--source=${hash}`, '--worktree', '--', rel]))
+    // Byte for byte, under today's name.
+    const { out } = await exec(cwd, ['show', `${hash}:${from}`], { encoding: 'latin1' })
+    await mkdir(dirname(abs), { recursive: true })
+    await writeFile(abs, Buffer.from(out, 'latin1'))
   })
+}
+
+/**
+ * The commits that changed a file, newest first, with what each did to it: its name then (following
+ * renames when asked), how (added, changed, renamed, deleted) and the lines added and removed.
+ */
+export async function fileHistory(cwd: string, rel: string, follow: boolean): Promise<FileHistoryEntry[]> {
+  const root = resolve(cwd)
+  if (typeof rel !== 'string' || !rel || isAbsolute(rel) || !insideRel(relative(root, resolve(root, rel)))) throw new Error(`Not a file in this repository: ${rel}`)
+  const out = await run(cwd, [
+    'log',
+    ...(follow ? ['--follow'] : []),
+    '-M',
+    '-n',
+    '5000',
+    '--format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s',
+    '--raw',
+    '--numstat',
+    '-z',
+    '--',
+    rel
+  ])
+  const entries: FileHistoryEntry[] = []
+  for (const record of out.split('\x1e')) {
+    if (!record) continue
+    const end = record.indexOf('\0')
+    const [hash, parents, author, email, time, subject] = (end < 0 ? record : record.slice(0, end)).split('\x1f')
+    if (!hash) continue
+    const tokens = (end < 0 ? '' : record.slice(end + 1)).replace(/^\n/, '').split('\0')
+    let file: FileChange | null = null
+    let added: number | null = 0
+    let removed: number | null = 0
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i].replace(/^\n/, '')
+      if (t.startsWith(':')) {
+        // ":<mode> <mode> <id> <id> <status>", then the path (old and new for a rename or copy).
+        const status = t.split(' ').pop()![0] as FileStatus
+        file = status === 'R' || status === 'C' ? { status, oldPath: tokens[++i], path: tokens[++i] } : { status, path: tokens[++i] }
+      } else {
+        const m = /^(-|\d+)\t(-|\d+)\t([\s\S]*)$/.exec(t)
+        if (!m) continue
+        added = m[1] === '-' ? null : Number(m[1])
+        removed = m[2] === '-' ? null : Number(m[2])
+        if (!m[3]) i += 2 // a rename's numstat names both paths after it
+      }
+    }
+    if (!file) continue // a merge (it shows no change of its own)
+    entries.push({ hash, parents: parents ? parents.split(' ') : [], author, email, time: Number(time), subject, file, added, removed })
+  }
+  return entries
 }

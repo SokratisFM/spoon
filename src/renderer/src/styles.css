@@ -8589,3 +8589,101 @@ kbd.setting-key {
 .tabs.no-anim .tab-unit * {
   transition: none !important;
 }
+
+/* ---------- file history ---------- */
+
+.fh-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  outline: none;
+}
+.fh-none {
+  padding: 0.6rem 0.8rem;
+}
+.fh-commit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.1rem 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.7rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.fh-commit:hover {
+  background: var(--bg-hover);
+}
+.fh-commit.on {
+  background: var(--bg-selected-strong);
+}
+.fh-subject,
+.fh-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fh-stats {
+  font-size: 0.85em;
+  justify-self: end;
+}
+.fh-meta {
+  font-size: 0.88em;
+}
+.fh-tags {
+  display: flex;
+  gap: 0.3rem;
+  justify-self: end;
+  align-items: center;
+  font-size: 0.82em;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.fh-refs {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+  margin-top: 0.15rem;
+  font-size: 0.82em;
+}
+.fh-refs .ref-badge {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fh-right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+.fh-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.fh-head .btn {
+  padding: 0.15rem 0.6rem;
+  white-space: nowrap;
+}
+.fh-head-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.fh-file .diff-line .ln {
+  width: 3.6em;
+}

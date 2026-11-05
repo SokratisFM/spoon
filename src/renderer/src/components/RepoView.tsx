@@ -39,6 +39,7 @@ import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
 import { NewBranchDialog } from './NewBranchDialog'
 import { FileEditorHost, OPEN_SELECTED_FILE } from './FileEditor'
+import { FileHistoryHost, SELECTED_FILE_HISTORY } from './FileHistoryDialog'
 import { SimpleView } from './SimpleView'
 import { askPin, setSimpleConfig, useSimpleConfig } from '../simpleMode'
 import type { SettingsTab } from './SettingsWindow'
@@ -622,6 +623,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     } else if (command.name === 'open-file') {
       // The visible list (Local Changes or the selected commit's files) opens its selected file.
       window.dispatchEvent(new Event(OPEN_SELECTED_FILE))
+    } else if (command.name === 'file-history') {
+      // The same list shows its selected file's history.
+      window.dispatchEvent(new Event(SELECTED_FILE_HISTORY))
     } else if (command.name === 'new-branch') {
       if (repo) setNewBranch(true)
     } else if (command.name === 'review') {
@@ -1060,6 +1064,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         />
       )}
       <FileEditorHost path={path} ops={ops} />
+      <FileHistoryHost path={path} ops={ops} onJump={jumpTo} />
       {newBranch && repo && <NewBranchDialog path={path} repo={repo} ops={ops} onClose={() => setNewBranch(false)} />}
       {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} github={canCreatePull} onClose={() => setTagging(null)} />}
       {reviewing && repo && (

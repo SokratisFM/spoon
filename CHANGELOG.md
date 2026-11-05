@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.49.1 — 2026-11-05
+
+- **New:** **Show File History…** (⌥⌘L, or right-click a file in Local Changes, a commit's files or Compare Branches) lists every commit that changed the file, following it back through renames and moves. Pick one to see what it changed in the file, or the whole file as it was then. From there, jump to the commit in the history, compare that version with your working copy, or restore it (your current version goes to the Trash first).
+
 ## 0.48.2 — 2026-11-04
 
 - **New:** **Compare Branches** shows everything that differs between two branches in one big window, like a pull request's Files changed on GitHub. The files are listed on the left, and every file's diff is stacked on the right in one scroll. The list follows along as you scroll, and clicking a file jumps to it. Tick **Viewed** to fold a file away as you go. Show only what a branch changed since it split off (like a pull request), or every difference between the two. Open it from Compare (⌥⌘D) → **Branches**, or right-click a branch → **Compare with…**.

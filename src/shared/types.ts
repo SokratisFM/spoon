@@ -345,6 +345,19 @@ export type DiffTarget =
   /** Between two commits (a branch comparison). */
   | { kind: 'range'; from: string; to: string; file: FileChange }
 
+/** A commit in a file's history: what it did to the file (its name then, how) and its lines added and removed (null: binary). */
+export interface FileHistoryEntry {
+  hash: string
+  parents: string[]
+  author: string
+  email: string
+  time: number
+  subject: string
+  file: FileChange
+  added: number | null
+  removed: number | null
+}
+
 /** A file in a branch comparison, with its lines added and removed (null for a binary file). */
 export interface CompareFile extends FileChange {
   added: number | null
@@ -880,7 +893,10 @@ export interface SpoonApi {
   writeWorkingFile(path: string, rel: string, text: string, eol: 'lf' | 'crlf', expect?: number): Promise<number>
   fileAtCommit(path: string, hash: string, rel: string): Promise<FileContent>
   fileAtCommitToTemp(path: string, hash: string, rel: string): Promise<string>
-  restoreFileFrom(path: string, hash: string, rel: string): Promise<void>
+  /** from: the file's name in that commit, when it was renamed since (it's written under rel). */
+  restoreFileFrom(path: string, hash: string, rel: string, from?: string): Promise<void>
+  /** The commits that changed a file, newest first (following renames when asked). */
+  fileHistory(path: string, rel: string, follow: boolean): Promise<FileHistoryEntry[]>
   openWithDefaultApp(path: string, rel: string): Promise<string>
   /** A data URL preview of the working copy's file (or its version in a commit); null when there's none. */
   fileThumbnail(path: string, rel: string, hash: string | null, size: number): Promise<string | null>
@@ -958,3 +974,4 @@ export type MenuCommand =
   | 'whats-new'
   | 'compare-files'
   | 'clone'
+  | 'file-history'

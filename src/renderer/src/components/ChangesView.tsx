@@ -8,6 +8,7 @@ import { FILES_DRAG, FILES_ORIGIN, FileList } from './FileList'
 import { requestCompare } from '../compare'
 import { useExportMarks } from '../exportMarks'
 import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
+import { requestFileHistory, SELECTED_FILE_HISTORY } from './FileHistoryDialog'
 import { DragIcon, ListViewIcon, TreeViewIcon } from './Icons'
 import { updateSettings, useSettings } from '../settings'
 import { DiffView, type HunkAction } from './DiffView'
@@ -174,8 +175,17 @@ export function ChangesView({
       const f = sel ? tree[sel.area].find((x) => x.path === sel.focused) : undefined
       if (f && f.status !== 'D') openFileEditor({ repo: path, file: f.path })
     }
+    // ⌥⌘L: its history (a new file has none yet).
+    const history = (): void => {
+      const f = sel ? tree[sel.area].find((x) => x.path === sel.focused) : undefined
+      if (f && f.status !== '?') requestFileHistory({ repo: path, file: f.path })
+    }
     window.addEventListener(OPEN_SELECTED_FILE, open)
-    return () => window.removeEventListener(OPEN_SELECTED_FILE, open)
+    window.addEventListener(SELECTED_FILE_HISTORY, history)
+    return () => {
+      window.removeEventListener(OPEN_SELECTED_FILE, open)
+      window.removeEventListener(SELECTED_FILE_HISTORY, history)
+    }
   }, [sel, tree, path])
 
   const discardRef = useRef(discard)
@@ -201,11 +211,13 @@ export function ChangesView({
         enabled: files.some((f) => f.status !== 'U')
       },
       { separator: true },
+      { id: 'history', label: 'Show File History…', accelerator: 'CmdOrCtrl+Alt+L', enabled: !!one && one.status !== '?' },
       { id: 'compare', label: 'Compare with…', enabled: files.length === 1 && files[0].status !== 'D' },
       { id: 'reveal', label: revealLabel, enabled: files.length === 1 },
       { id: 'copy', label: files.length === 1 ? 'Copy Path' : 'Copy Paths' }
     ])
     if (choice === 'edit' && one) openFileEditor({ repo: path, file: one.path })
+    else if (choice === 'history' && one) requestFileHistory({ repo: path, file: one.path })
     else if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
     else if (choice === 'discard') discard(files, area)
     else if (choice === 'compare') {
