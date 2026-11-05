@@ -8755,3 +8755,168 @@ kbd.setting-key {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+.fh-more { margin: 0.5rem auto 0.75rem; display: block; }
+
+/* ---------- welcome tour ---------- */
+/* Lighter than a dialog's backdrop: colors and sizes change behind it as they're picked. Under
+   dialogs (Settings, SSH setup), which open over it. */
+.tour-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.18);
+}
+.tour {
+  width: min(56rem, calc(100vw - 2rem));
+  height: min(38rem, calc(100vh - 3rem));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.9rem;
+  box-shadow: 0 20px 60px var(--shadow);
+  overflow: hidden;
+}
+.tour-top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem 0.4rem;
+}
+.tour-dots { display: flex; gap: 0.35rem; }
+.tour-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-faint) 40%, transparent);
+  transition: width 0.2s ease, background 0.2s ease;
+}
+.tour-dot.past { background: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.tour-dot.on { width: 1.4rem; background: var(--accent); }
+.tour-count { font-size: 0.85em; font-variant-numeric: tabular-nums; }
+.tour-skip {
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  padding: 0.2rem 0.4rem;
+}
+.tour-skip:hover { color: var(--text); text-decoration: underline; }
+.tour-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.6rem 1.25rem 1rem;
+  animation: tour-in 0.25s ease;
+}
+@keyframes tour-in {
+  from { opacity: 0; transform: translateX(0.75rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-body { animation: none; }
+  .tour-dot { transition: none; }
+}
+.tour-main {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-right: 0.25rem;
+}
+.tour .tour-title {
+  margin: 0.3rem 0 0;
+  font-size: 1.55em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--text);
+}
+.tour-lead { margin: 0 0 0.6rem; color: var(--text-muted); max-width: 34rem; }
+.tour-fields { display: flex; flex-direction: column; gap: 0.9rem; }
+.tour-fields .field { margin: 0; }
+.tour-check { align-items: flex-start; }
+.tour .tour-themes { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.5rem; }
+.tour .tour-themes .theme-name { font-size: 0.85em; }
+.tour-preview {
+  flex: 0 0 19rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  overflow-y: auto;
+}
+.pv-inline { display: flex; flex-direction: column; gap: 0.3rem; }
+.pv-inline-label {
+  font-size: 0.75em;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.pv-inline .pv-stage { height: 9.5rem; }
+.tour-body.welcome { align-items: center; gap: 2rem; }
+.tour-art {
+  flex: 0 0 14rem;
+  height: 100%;
+  max-height: 27rem;
+  display: flex;
+  justify-content: center;
+}
+.tour-art svg {
+  height: 100%;
+  width: auto;
+  border-radius: 0.8rem;
+  box-shadow: 0 0.8rem 2rem rgba(40, 30, 140, 0.35);
+}
+.tour-body.welcome .tour-title { font-size: 2em; }
+.tour-art.side { flex: 0 0 11rem; max-height: 21rem; align-self: center; opacity: 0.95; }
+.tour-welcome p { margin: 0 0 0.6rem; max-width: 30rem; }
+.tour-status { display: flex; flex-direction: column; gap: 0.7rem; }
+.tour-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+}
+.tour-status-row .tone-dot:not(.ok):not(.warn) { background: var(--text-faint); }
+.tour-status-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.tour-folder {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tour-done { display: flex; flex-direction: column; gap: 1.2rem; }
+.tour-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.tour-tips { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.45rem; color: var(--text-muted); }
+.tour-eye {
+  padding: 0 0.35em;
+  border-radius: 0.3em;
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border);
+}
+.tour-foot .spacer { flex: 1; }
+.tour-step-skip { color: var(--text-muted); }
+@media (max-width: 760px) {
+  .tour-preview, .tour-art { display: none; }
+}

@@ -84,13 +84,18 @@ export function CloneDialog({ home, recents, onCloned, onClose, initialRepo }: P
   const ssh = useAsync(() => (sshMatters ? window.spoon.sshStatus() : Promise.resolve(null)), [sshTick, sshMatters])
   const noSsh = sshMatters && !!ssh.data && ssh.data.auth.state !== 'ok'
   // Which branch to check out: the one with the latest commit unless another is picked.
-  const [branchMode, setBranchMode] = usePersistentState<'latest' | 'develop' | 'name'>('spoon.clone.branchMode', 'latest')
+  // Remembered between clones (a picked branch name isn't, so that choice starts over as the latest commit).
+  const [savedMode, setBranchMode] = usePersistentState<'latest' | 'develop' | 'name'>('spoon.clone.branchMode', 'latest')
+  const [picking, setPicking] = useState(false)
+  const branchMode = savedMode === 'name' && !picking ? 'latest' : savedMode
   const [branchName, setBranchName] = useState('')
   // The repository's branches (asked once the URL has settled): the list to pick from, and whether
   // there's a develop. Null while unknown; an error leaves the options as they are.
   const [settled, setSettled] = useState('')
   useEffect(() => {
-    const t = setTimeout(() => setSettled(source), 500)
+    // Only a URL that looks whole is asked (not every pause while typing one).
+    const whole = /^(https?|ssh|git):\/\/[^/\s]+\/\S+[^/\s]$|^[\w.-]+@[\w.-]+:\S+[^/\s]$|^\/\S+$/i.test(source)
+    const t = setTimeout(() => setSettled(whole ? source : ''), 600)
     return () => clearTimeout(t)
   }, [source])
   const branches = useAsync(
@@ -344,9 +349,9 @@ export function CloneDialog({ home, recents, onCloned, onClose, initialRepo }: P
             <span className="mono">develop</span>
             {hasDevelop === false && <span className="muted"> (not in this repository: the default branch instead)</span>}
           </label>
-          <span className="clone-branch-pick" onFocus={() => setBranchMode('name')}>
+          <span className="clone-branch-pick" onMouseDown={() => (setPicking(true), setBranchMode('name'))}>
             <label className="check">
-              <input id="clone-branch-name" type="radio" name="clone-branch" checked={branchMode === 'name'} onChange={() => setBranchMode('name')} />
+              <input id="clone-branch-name" type="radio" name="clone-branch" checked={branchMode === 'name'} onChange={() => (setPicking(true), setBranchMode('name'))} />
               Another branch:
             </label>
             <BranchPicker
@@ -354,6 +359,7 @@ export function CloneDialog({ home, recents, onCloned, onClose, initialRepo }: P
               value={branchName}
               onChange={(v) => {
                 setBranchName(v)
+                setPicking(true)
                 setBranchMode('name')
               }}
               title="Branch to check out"

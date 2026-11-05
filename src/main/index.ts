@@ -140,6 +140,13 @@ function buildMenu(): void {
           { role: 'zoom' },
           ...(isMac ? [{ type: 'separator' as const }, { role: 'front' as const }] : [])
         ]
+      },
+      {
+        role: 'help',
+        submenu: [
+          { label: 'Welcome Tour…', click: () => send('welcome-tour') },
+          ...(isMac ? [] : [{ label: 'What’s New…', click: () => send('whats-new') }])
+        ]
       }
     ])
   )
@@ -294,7 +301,10 @@ function registerIpc(): void {
   handleRepo('file:restore', (_e, path: string, hash: string, rel: string, from?: string) =>
     git.restoreFileFrom(path, hash, rel, (p) => shell.trashItem(p), from)
   )
-  handleRepo('repo:fileHistory', (_e, path: string, rel: string, follow: boolean) => git.fileHistory(path, rel, !!follow))
+  handleRepo('repo:fileHistory', (_e, path: string, rel: string, opts: { follow: boolean; limit?: number; at?: string; request?: string }) =>
+    git.fileHistory(path, rel, { follow: !!opts?.follow, limit: opts?.limit, at: opts?.at, request: typeof opts?.request === 'string' ? opts.request.replace(/[^\w-]/g, '').slice(0, 40) : undefined })
+  )
+  handleRepo('repo:cancelFileHistory', (_e, path: string, request: string) => git.cancelFileHistory(path, String(request).replace(/[^\w-]/g, '').slice(0, 40)))
   // Resolves to an error message, or "" when it opened.
   handleRepo('file:openDefault', async (_e, path: string, rel: string) => shell.openPath(await git.realRepoFile(path, rel)))
   handleRepo('file:thumbnail', (_e, path: string, rel: string, hash: string | null, size: number) => thumbnails.thumbnail(path, rel, hash, size))

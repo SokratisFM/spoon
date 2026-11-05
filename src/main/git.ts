@@ -1,11 +1,12 @@
 // Thin wrapper over the git CLI. Every call shells out to `git` with machine-readable
 // output, so LFS, hooks, credentials and config all behave exactly as in the terminal.
-import { spawn, type ChildProcess } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rename, rm, rmdir, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
+  FileHistory,
   CloneBranch,
   CloneResult,
   FileContent,
@@ -703,17 +704,20 @@ export async function clone(
     if ((await readdir(dest)).length) throw new Error(`${dest} already exists and isn't empty. Choose another name or folder.`)
   }
   inProgress.add(dest)
+  let checkedOut: string | null, note: string | null
   try {
     // Nothing is checked out until the branch is chosen (the one with the latest commit is only
     // known once everything is in).
     await exec(dirname(dest), [...SAFE_PROTOCOLS, 'clone', '--progress', '--no-checkout', '--', url, dest], { onProgress, cancellable: dest })
+    ;({ checkedOut, note } = await checkOutCloned(dest, branch))
   } catch (err) {
+    // A clone whose branch couldn't be checked out (Git LFS failing, say) goes too: no half-made folder.
     if (made) await rm(dest, { recursive: true, force: true })
+    else for (const entry of await readdir(dest).catch(() => [] as string[])) await rm(join(dest, entry), { recursive: true, force: true })
     throw err
   } finally {
     inProgress.delete(dest)
   }
-  const { checkedOut, note } = await checkOutCloned(dest, branch)
   // Left out on purpose: Spoon doesn't download them later by itself either.
   if (!submodules) await git(dest, ['config', 'spoon.autoSubmodules', 'false']).catch(() => undefined)
   return { branch: checkedOut, note, submoduleError: submodules ? await cloneSubmodules(dest, onProgress) : null }
@@ -726,10 +730,15 @@ export async function clone(
  */
 async function checkOutCloned(dest: string, branch: CloneBranch): Promise<{ checkedOut: string | null; note: string | null }> {
   const refs = (await git(dest, ['for-each-ref', '--sort=-committerdate', '--format=%(refname)', 'refs/remotes/origin/'])).split('\n').filter((r) => r && r !== 'refs/remotes/origin/HEAD')
-  const names = refs.map((r) => r.slice('refs/remotes/origin/'.length))
+  // A name git would read as an option is never checked out.
+  const names = refs.map((r) => r.slice('refs/remotes/origin/'.length)).filter((n) => !n.startsWith('-'))
+  // "Latest commit" means someone's work: not a bot's or the published website's branch.
+  const bot = /^(gh-pages|dependabot\/|renovate\/|snyk-|greenkeeper\/|pre-commit-ci|github-actions\/|release-please)/i
   // What clone made: the remote's default branch (none for an empty repository).
   const made = (await git(dest, ['symbolic-ref', '--quiet', '--short', 'HEAD'], [0, 1])).trim()
-  const asked = branch.kind === 'latest' ? names[0] : branch.kind === 'develop' ? 'develop' : branch.name
+  const asked = branch.kind === 'latest' ? (names.find((n) => !bot.test(n)) ?? names[0]) : branch.kind === 'develop' ? 'develop' : branch.name
+  // An empty repository has nothing to check out, whatever was asked for.
+  if (!names.length) return { checkedOut: made || null, note: null }
   let target = asked && names.includes(asked) ? asked : made
   let note: string | null = null
   if (asked && target !== asked) note = `There’s no ${asked} branch, so ${target || 'the default branch'} was checked out.`
@@ -745,12 +754,24 @@ async function checkOutCloned(dest: string, branch: CloneBranch): Promise<{ chec
   return { checkedOut: target, note }
 }
 
+let lsRemotes = 0
 /** A repository's branches, from the URL before it's cloned (newest first isn't known yet: by name). */
 export async function remoteBranches(url: string): Promise<string[]> {
   assertArg(url, 'repository URL')
   if (/^https?:\/\/[^/@]+@/i.test(url)) return []
-  const { out } = await exec(tmpdir(), [...SAFE_PROTOCOLS, 'ls-remote', '--heads', '--', url], { maxBytes: 20 * 1024 * 1024 })
-  return out.split('\n').flatMap((l) => /\trefs\/heads\/(.+)$/.exec(l)?.[1] ?? []).sort((a, b) => a.localeCompare(b))
+  // Given up after 20 s (a host that never answers); its own key, so nothing else is cancelled with it.
+  const key = join(tmpdir(), `spoon-ls-remote-${++lsRemotes}`)
+  const timer = setTimeout(() => cancel(key), 20_000)
+  try {
+    const { out } = await exec(tmpdir(), [...SAFE_PROTOCOLS, 'ls-remote', '--heads', '--', url], { maxBytes: 20 * 1024 * 1024, cancellable: key })
+    return out
+      .split('\n')
+      .flatMap((l) => /\trefs\/heads\/(.+)$/.exec(l)?.[1] ?? [])
+      .filter((n) => !n.startsWith('-'))
+      .sort((a, b) => a.localeCompare(b))
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /** Clones under way: what's left of them goes when Spoon quits mid-clone. */
@@ -767,11 +788,18 @@ const SAFE_PROTOCOLS = ['-c', 'protocol.ext.allow=never', '-c', 'protocol.file.a
 /** Downloads a repository's submodules (all of them, nested ones too); the error, if one failed. */
 export async function cloneSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string | null> {
   if (!existsSync(join(cwd, '.gitmodules'))) return null
+  // Never alongside the automatic download (a tab opened on it): one after the other, by real path.
+  await downloadDone(cwd)
+  const key = downloadsKey(cwd)
+  const task = exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress'], { onProgress, cancellable: true }).then(() => [] as string[])
+  submoduleDownloads.set(key, task)
   try {
-    await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress'], { onProgress, cancellable: true })
+    await task
     return null
   } catch (err) {
     return (err as Error).message
+  } finally {
+    if (submoduleDownloads.get(key) === task) submoduleDownloads.delete(key)
   }
 }
 
@@ -799,14 +827,41 @@ export async function newSubmodules(cwd: string): Promise<string[]> {
   if (!named.length) return []
   // Only submodules the parent records (stage 0: not one whose pointer is in conflict).
   const index = await git(cwd, ['ls-files', '-s', '-z', '--', ...named.map((s) => s.path)]).catch(() => '')
-  const recorded = new Set(index.split('\0').flatMap((e) => /^160000 [0-9a-f]+ 0\t(.+)$/.exec(e)?.[1] ?? []))
+  const recorded = new Map(index.split('\0').flatMap((e) => {
+    const m = /^160000 ([0-9a-f]+) 0\t(.+)$/.exec(e)
+    return m ? [[m[2], m[1]] as const] : []
+  }))
   const dirs = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'])).trim().split('\n')
+  // `submodule.active` pathspecs (git clone --recurse-submodules=<spec>): only matching ones are on,
+  // unless a submodule's own active setting says otherwise.
+  const specs = (await git(cwd, ['config', '--get-all', 'submodule.active'], [0, 1])).split('\n').filter(Boolean)
+  const bySpec = specs.length
+    ? new Set((await git(cwd, ['ls-files', '-z', '--', ...specs]).catch(() => '')).split('\0').filter(Boolean))
+    : null
+  const setting = async (key: string, type?: 'bool'): Promise<string> =>
+    (await git(cwd, ['config', ...(type ? ['--type=bool'] : []), '--get', key], [0, 1]).catch(() => '')).trim()
+  // Only from the host the repository itself comes from (relative URLs included): an opened
+  // repository's .gitmodules naming some other server waits for Initialize.
+  const home = await remoteHost(cwd)
+  const urls = await git(cwd, ['config', '-z', '-f', '.gitmodules', '--get-regexp', '^submodule\\..*\\.url$'], [0, 1]).catch(() => '')
+  const urlOf = new Map(urls.split('\0').filter(Boolean).map((e) => {
+    const nl = e.indexOf('\n')
+    return [e.slice(0, nl).replace(/^submodule\./, '').replace(/\.url$/, ''), e.slice(nl + 1).trim()] as const
+  }))
   const fresh: string[] = []
   for (const s of named) {
-    if (!recorded.has(s.path)) continue
-    // Set to inactive, or to not update, in this clone's own settings.
-    const local = (await git(cwd, ['config', '--get-regexp', `^submodule\\.${s.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(active|update)$`], [0, 1])).trim()
-    if (/\.active false$|\.update none$/m.test(local)) continue
+    const commit = recorded.get(s.path)
+    if (!commit) continue
+    const url = (await setting(`submodule.${s.name}.url`)) || urlOf.get(s.name) || ''
+    if (home && !/^\.\.?\//.test(url) && (await hostOf(url)) !== home) continue
+    // Turned off in this clone's own settings (false, no, off, 0 all count).
+    const active = await setting(`submodule.${s.name}.active`, 'bool')
+    if (active === 'false') continue
+    if (!active && bySpec && !bySpec.has(s.path)) continue
+    if ((await setting(`submodule.${s.name}.update`)) === 'none') continue
+    // Tried before and couldn't be downloaded (no access, say): not again until the parent records
+    // another commit for it.
+    if ((await setting(`spoon-submodule.${s.name}.failed`)) === commit) continue
     if (dirs.some((d) => existsSync(join(d, 'modules', s.name)))) continue
     const dir = join(cwd, s.path)
     // git only downloads into an empty (or missing) folder.
@@ -816,6 +871,58 @@ export async function newSubmodules(cwd: string): Promise<string[]> {
   return fresh
 }
 
+/** The host a git URL reaches (an ssh alias resolved the way ssh would), lowercased; '' for a local path. */
+async function hostOf(url: string): Promise<string> {
+  let host = ''
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
+    try {
+      host = new URL(url).hostname
+    } catch {
+      return ''
+    }
+  } else {
+    // scp style: [user@]host:path (not a Windows drive letter).
+    const m = /^(?:[^@/]+@)?([^:/]+):(?!\\)/.exec(url)
+    if (!m || m[1].length === 1) return ''
+    host = m[1]
+  }
+  host = host.toLowerCase()
+  // Over ssh (ssh:// or scp style) the name may be an alias from ~/.ssh/config.
+  if (/^ssh:\/\//i.test(url) || !/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) host = (await sshHostName(host)) ?? host
+  return host === 'ssh.github.com' || host === 'www.github.com' ? 'github.com' : host
+}
+const sshNames = new Map<string, Promise<string | null>>()
+/** What ssh's config makes of a host name (an alias like github-work → github.com). */
+function sshHostName(alias: string): Promise<string | null> {
+  if (!/^[\w.-]+$/.test(alias)) return Promise.resolve(null)
+  if (!sshNames.has(alias))
+    sshNames.set(alias, new Promise((done) =>
+      execFile('ssh', ['-G', alias], { env, timeout: 5_000 }, (err, out) => done(err ? null : (/^hostname (\S+)$/m.exec(out)?.[1]?.toLowerCase() ?? null)))
+    ))
+  return sshNames.get(alias)!
+}
+/** The host of the repository's own remote (origin, else the first one); '' when it has none. */
+async function remoteHost(cwd: string): Promise<string> {
+  const remotes = (await git(cwd, ['remote'], [0, 1]).catch(() => '')).split('\n').filter(Boolean)
+  const name = remotes.includes('origin') ? 'origin' : remotes[0]
+  if (!name) return ''
+  return hostOf((await git(cwd, ['remote', 'get-url', '--', name], [0, 2, 128]).catch(() => '')).trim())
+}
+
+/** Notes the submodules a download didn't bring (with the commit asked for), so they aren't tried again by themselves. */
+async function noteFailedSubmodules(cwd: string, paths: string[]): Promise<void> {
+  const still = new Set(await newSubmodules(cwd).catch(() => [] as string[]))
+  const names = await git(cwd, ['config', '-z', '-f', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'], [0, 1]).catch(() => '')
+  for (const entry of names.split('\0').filter(Boolean)) {
+    const nl = entry.indexOf('\n')
+    const name = /^submodule\.(.+)\.path$/.exec(entry.slice(0, nl))?.[1]
+    const path = entry.slice(nl + 1)
+    if (!name || !paths.includes(path) || !still.has(path)) continue
+    const commit = /^160000 ([0-9a-f]+) 0\t/.exec((await git(cwd, ['ls-files', '-s', '--', path]).catch(() => '')).trim())?.[1]
+    if (commit) await git(cwd, ['config', `spoon-submodule.${name}.failed`, commit]).catch(() => undefined)
+  }
+}
+
 /**
  * Downloads the submodules never downloaded here (and theirs); the paths it downloaded. It runs beside
  * the repository's other git work rather than queued with it (MainLib alone can take minutes): it only
@@ -823,16 +930,22 @@ export async function newSubmodules(cwd: string): Promise<string[]> {
  * doesn't touch. One download per repository at a time; its Cancel is its own.
  */
 export function downloadNewSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string[]> {
-  const key = repoKey(cwd)
+  const key = downloadsKey(cwd)
   const running = submoduleDownloads.get(key)
   if (running) return running
   const task = (async () => {
     const paths = await newSubmodules(cwd)
     if (paths.length)
-      await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths], {
-        onProgress,
-        cancellable: downloadKey(cwd)
-      })
+      try {
+        await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths], {
+          onProgress,
+          cancellable: downloadKey(cwd)
+        })
+      } catch (err) {
+        // Cancelled ones are tried again next time; ones that failed wait for a new commit (or Initialize).
+        if ((err as Error).message !== 'Cancelled.') await noteFailedSubmodules(cwd, paths)
+        throw err
+      }
     return paths
   })().finally(() => submoduleDownloads.delete(key))
   submoduleDownloads.set(key, task)
@@ -843,18 +956,33 @@ const submoduleDownloads = new Map<string, Promise<string[]>>()
 const downloadKey = (cwd: string): string => join(repoKey(cwd), '.git', 'spoon-submodule-download')
 export const cancelSubmoduleDownload = (cwd: string): void => cancel(downloadKey(cwd))
 /** Waits for a submodule download under way in the repository (Initialize after it, not alongside). */
-const downloadDone = (cwd: string): Promise<unknown> => (submoduleDownloads.get(repoKey(cwd)) ?? Promise.resolve()).catch(() => undefined)
+const downloadDone = (cwd: string): Promise<unknown> => (submoduleDownloads.get(downloadsKey(cwd)) ?? Promise.resolve()).catch(() => undefined)
+/** By real path, so a folder reached through a link is the same repository. */
+const downloadsKey = (cwd: string): string => {
+  try {
+    return realpathSync(resolve(cwd))
+  } catch {
+    return repoKey(cwd)
+  }
+}
 
-/** owner/name (lowercase) for each repository whose remote is on GitHub; null for the rest. */
+/**
+ * owner/name (lowercase) for each repository whose remote is on GitHub; null for the rest. The URL is
+ * read as git uses it (insteadOf rules), and ssh host aliases (git@github-work:…) count when ssh's
+ * config points them at GitHub.
+ */
 export async function githubSlugs(paths: string[]): Promise<(string | null)[]> {
   return Promise.all(
     paths.map(async (path) => {
       if (typeof path !== 'string' || !isAbsolute(path) || !existsSync(join(path, '.git'))) return null
-      const out = await git(path, ['config', '--get-regexp', '^remote\\..*\\.url$'], [0, 1]).catch(() => '')
+      const remotes = (await git(path, ['remote'], [0, 1]).catch(() => '')).split('\n').filter(Boolean)
       // origin first, then any other remote that's on GitHub.
-      const urls = out.split('\n').filter(Boolean).sort((a, b) => Number(!a.startsWith('remote.origin.')) - Number(!b.startsWith('remote.origin.')))
-      for (const line of urls) {
-        const m = /github\.com[:/]+([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i.exec(line.slice(line.indexOf(' ') + 1).trim())
+      remotes.sort((a, b) => Number(a !== 'origin') - Number(b !== 'origin'))
+      for (const name of remotes) {
+        const url = (await git(path, ['ls-remote', '--get-url', '--', name], [0, 1, 128]).catch(() => '')).trim()
+        if ((await hostOf(url)) !== 'github.com') continue
+        const where = /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? (() => { try { return new URL(url).pathname } catch { return '' } })() : url.slice(url.indexOf(':') + 1)
+        const m = /^\/*([^/\s]+\/[^/\s]+?)(?:\.git)?\/*$/.exec(where)
         if (m) return m[1].toLowerCase()
       }
       return null
@@ -1529,13 +1657,31 @@ export async function fetch(cwd: string, prune: boolean, onProgress: (l: string)
 }
 
 /** git couldn't reach (or wasn't let into) a repository: no access, unknown host, no network. */
+// Network and sign-in failures only: a merge stopped by a locked file ("Permission denied", "unable to
+// unlink") isn't a remote that couldn't be reached.
 const UNREACHABLE =
-  /Could not read from remote repository|Permission denied|Authentication failed|Repository not found|Could not resolve host|unable to access|Connection (refused|timed out|closed)|Host key verification failed/i
+  /Could not read from remote repository|Permission denied \((publickey|keyboard-interactive|password)|Permission to \S+ denied|Authentication failed|Repository not found|Could not resolve host|unable to access '[a-z][a-z0-9+.-]*:\/\/|Connection (refused|timed out|closed)|Host key verification failed/i
 
 /**
  * Says which repository a fetch (or pull) couldn't reach: a submodule git was fetching when it
  * failed, or this repository's remote, with the address git used. git's own message names neither.
  */
+/** A URL without the user name and password it may carry (https://token@host/…); scp-style git@host:… stays. */
+export function withoutCredentials(url: string): string {
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url
+  try {
+    const u = new URL(url)
+    if (!u.username && !u.password) return url
+    // ssh://git@host keeps its (non-secret) user name; a password never shows.
+    if (/^ssh:$/i.test(u.protocol) && !u.password) return url
+    u.username = ''
+    u.password = ''
+    return u.toString()
+  } catch {
+    return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, '$1')
+  }
+}
+
 async function whichFailed(cwd: string, err: unknown, remote?: string): Promise<unknown> {
   if (!(err instanceof GitError) || !UNREACHABLE.test(err.message)) return err
   const lines = err.stderr.split(/[\r\n]+/)
@@ -1545,8 +1691,9 @@ async function whichFailed(cwd: string, err: unknown, remote?: string): Promise<
     .slice(0, failed < 0 ? lines.length : failed)
     .flatMap((l) => /^Fetching submodule (.+)$/.exec(l.trim())?.[1] ?? [])
     .pop()
+  // Without a user name or password a URL may carry (error dialogs get screenshotted).
   const urlOf = async (dir: string, name: string): Promise<string> =>
-    (await run(dir, ['remote', 'get-url', '--', name], { okCodes: [0, 2, 128] }).catch(() => '')).trim()
+    withoutCredentials((await run(dir, ['remote', 'get-url', '--', name], { okCodes: [0, 2, 128] }).catch(() => '')).trim())
   let where: string
   if (sub) {
     const url = await urlOf(join(cwd, sub), 'origin')
@@ -2415,7 +2562,11 @@ export async function sizeAtCommit(cwd: string, hash: string, rel: string): Prom
  */
 export async function backupToTrash(files: { abs: string; rel: string }[], label: string, trash: (abs: string) => Promise<void>): Promise<void> {
   const present: { abs: string; rel: string }[] = []
-  for (const f of files) if ((await stat(f.abs).catch(() => null))?.isFile()) present.push(f)
+  // A link is kept as the link itself (not what it points to).
+  for (const f of files) {
+    const st = await lstat(f.abs).catch(() => null)
+    if (st?.isFile() || st?.isSymbolicLink()) present.push(f)
+  }
   if (!present.length) return
   const dir = await mkdtemp(join(tmpdir(), 'spoon-backup-'))
   try {
@@ -2437,12 +2588,11 @@ export const backupStamp = (): string => {
 }
 
 /**
- * Puts a commit's version of a file in the working copy (an unstaged change; the index is left
- * alone). Uncommitted changes to it are first copied to the Trash, so they can be got back.
- */
-/**
- * Puts a commit's version of a file in the working copy (its current contents go to the Trash first).
+ * Puts a commit's version of a file in the working copy as an unstaged change (the index is left alone).
  * from: the file's name in that commit when it has been renamed since; it's written under rel.
+ * The version comes through git's own filters for today's name (Git LFS, line endings), with its
+ * mode (executable, or a link). Whatever is at rel now goes to the Trash first when it differs, ignored
+ * and skip-worktree files included; a link there is replaced, never written through.
  */
 export async function restoreFileFrom(
   cwd: string,
@@ -2453,64 +2603,131 @@ export async function restoreFileFrom(
 ): Promise<void> {
   assertHash(hash)
   const abs = await realRepoFile(cwd, rel)
-  if (from !== undefined && from !== rel) await realRepoFile(cwd, from)
+  const src = from ?? rel
+  if (src !== rel) await realRepoFile(cwd, src)
   return exclusive(cwd, async () => {
-    const changed = (await git(cwd, ['status', '--porcelain', '--untracked-files=all', '--', rel])).trim()
-    if (changed) await backupToTrash([{ abs, rel: basename(rel) }], `${basename(resolve(cwd))} – before restoring ${basename(rel)} ${backupStamp()}`, trash)
-    if (from === undefined || from === rel) return void (await git(cwd, ['restore', `--source=${hash}`, '--worktree', '--', rel]))
-    // Byte for byte, under today's name.
-    const { out } = await exec(cwd, ['show', `${hash}:${from}`], { encoding: 'latin1' })
+    const entry = (await git(cwd, ['ls-tree', '-z', hash, '--', src])).split('\0')[0]
+    const m = /^(\d{6}) (\w+) ([0-9a-f]+)\t/.exec(entry)
+    if (!m) throw new Error(`${src} isn’t in ${hash.slice(0, 7)}.`)
+    const [, mode, type, oid] = m
+    if (type !== 'blob') throw new Error(`${src} is a ${type === 'commit' ? 'submodule' : 'folder'} in ${hash.slice(0, 7)}; only files can be restored.`)
+    const link = mode === '120000'
+    const executable = mode === '100755'
+    const { out } = await exec(cwd, link ? ['cat-file', 'blob', oid] : ['cat-file', '--filters', `--path=${rel}`, oid], { encoding: 'latin1' })
+    const data = Buffer.from(out, 'latin1')
+
+    const now = await lstat(abs).catch(() => null)
+    if (now?.isDirectory()) throw new Error(`${rel} is a folder now; Spoon won’t replace it with a file.`)
+    if (now) {
+      const same = now.isSymbolicLink()
+        ? link && (await readlink(abs)) === data.toString()
+        : !link && now.isFile() && ((now.mode & 0o111) !== 0) === executable && (await readFile(abs)).equals(data)
+      if (same) return
+      await backupToTrash([{ abs, rel: basename(rel) }], `${basename(resolve(cwd))} – before restoring ${basename(rel)} ${backupStamp()}`, trash)
+    }
+
+    // Written next to it, then moved over it: a link at rel is replaced as an entry, not followed.
     await mkdir(dirname(abs), { recursive: true })
-    await writeFile(abs, Buffer.from(out, 'latin1'))
+    const tmp = join(dirname(abs), `.${basename(abs)}.spoon-restore-${process.pid}-${Date.now()}`)
+    try {
+      if (link) await symlink(data.toString(), tmp)
+      else {
+        await writeFile(tmp, data, { flag: 'wx' })
+        // Today's permissions (a private file stays private), with git's executable bit.
+        const base = now?.isFile() ? now.mode & 0o666 : 0o644
+        await chmod(tmp, executable ? base | ((base & 0o444) >> 2) : base)
+      }
+      await rename(tmp, abs)
+    } catch (err) {
+      await rm(tmp, { force: true })
+      throw err
+    }
   })
 }
 
 /**
  * The commits that changed a file, newest first, with what each did to it: its name then (following
- * renames when asked), how (added, changed, renamed, deleted) and the lines added and removed.
+ * renames when asked), how (added, changed, renamed, deleted) and the lines added and removed. Merges
+ * show only where they changed the file themselves (a conflict resolved by hand). It reads `limit`
+ * commits at a time (more: there may be older ones), walking from HEAD and from `at` when the file was
+ * picked in a commit that isn't on it. renamedTo: the file's name today, when it has been renamed since.
+ * A newer call with the same `request` key, or cancelFileHistory, stops this one.
  */
-export async function fileHistory(cwd: string, rel: string, follow: boolean): Promise<FileHistoryEntry[]> {
+export async function fileHistory(
+  cwd: string,
+  rel: string,
+  opts: { follow: boolean; limit?: number; at?: string; request?: string }
+): Promise<FileHistory> {
   const root = resolve(cwd)
   if (typeof rel !== 'string' || !rel || isAbsolute(rel) || !insideRel(relative(root, resolve(root, rel)))) throw new Error(`Not a file in this repository: ${rel}`)
-  const out = await run(cwd, [
+  const limit = Math.max(1, Math.min(5000, Math.floor(Number(opts.limit) || 300)))
+  if (opts.at !== undefined) assertHash(opts.at)
+  const key = historyKey(cwd, opts.request)
+  if (opts.request) cancel(key)
+  const head = (await git(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD'], [0, 1])).trim()
+  const starts = [...new Set([head, opts.at].filter((r): r is string => !!r))]
+  if (!starts.length) return { entries: [], more: false, renamedTo: null }
+  const { out } = await exec(cwd, [
     'log',
-    ...(follow ? ['--follow'] : []),
+    ...(opts.follow ? ['--follow'] : []),
     '-M',
+    '--diff-merges=dense-combined',
     '-n',
-    '5000',
+    String(limit),
     '--format=%x1e%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s',
     '--raw',
     '--numstat',
     '-z',
+    ...starts,
     '--',
     rel
-  ])
+  ], { cancellable: opts.request ? key : undefined })
   const entries: FileHistoryEntry[] = []
+  let seen = 0
   for (const record of out.split('\x1e')) {
     if (!record) continue
     const end = record.indexOf('\0')
     const [hash, parents, author, email, time, subject] = (end < 0 ? record : record.slice(0, end)).split('\x1f')
     if (!hash) continue
+    seen++
     const tokens = (end < 0 ? '' : record.slice(end + 1)).replace(/^\n/, '').split('\0')
     let file: FileChange | null = null
     let added: number | null = 0
     let removed: number | null = 0
+    let counted = false
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i].replace(/^\n/, '')
       if (t.startsWith(':')) {
-        // ":<mode> <mode> <id> <id> <status>", then the path (old and new for a rename or copy).
+        // ":<mode> <mode> <id> <id> <status>", then the path (old and new for a rename or copy); a
+        // merge's combined line ("::…") has a status per parent and one path.
         const status = t.split(' ').pop()![0] as FileStatus
-        file = status === 'R' || status === 'C' ? { status, oldPath: tokens[++i], path: tokens[++i] } : { status, path: tokens[++i] }
+        file = !t.startsWith('::') && (status === 'R' || status === 'C') ? { status, oldPath: tokens[++i], path: tokens[++i] } : { status, path: tokens[++i] }
       } else {
         const m = /^(-|\d+)\t(-|\d+)\t([\s\S]*)$/.exec(t)
         if (!m) continue
+        counted = true
         added = m[1] === '-' ? null : Number(m[1])
         removed = m[2] === '-' ? null : Number(m[2])
         if (!m[3]) i += 2 // a rename's numstat names both paths after it
       }
     }
-    if (!file) continue // a merge (it shows no change of its own)
-    entries.push({ hash, parents: parents ? parents.split(' ') : [], author, email, time: Number(time), subject, file, added, removed })
+    if (!file) continue // a merge that only took one side's version
+    const parentList = parents ? parents.split(' ') : []
+    // A merge's own change has no single count of lines.
+    if (parentList.length > 1 && !counted) added = removed = null
+    entries.push({ hash, parents: parentList, author, email, time: Number(time), subject, file, added, removed, merge: parentList.length > 1 })
   }
-  return entries
+  // Looked up under an old name: what it's called now, when the newest commit here renamed it away.
+  let renamedTo: string | null = null
+  const newest = entries[0]
+  if (newest?.file.status === 'D') {
+    const raw = await git(cwd, ['diff-tree', '-z', '-r', '-M', '--name-status', '--no-commit-id', newest.hash], [0, 1]).catch(() => '')
+    const t = raw.split('\0')
+    for (let i = 0; i < t.length; i++) if (/^R\d*$/.test(t[i]) && t[i + 1] === newest.file.path) renamedTo = t[i + 2]
+    if (renamedTo && !(await git(cwd, ['cat-file', '-e', `HEAD:${renamedTo}`], [0, 1, 128]).then(() => true, () => false))) renamedTo = null
+  }
+  return { entries, more: seen >= limit, renamedTo }
 }
+const historyKey = (cwd: string, request?: string): string => join(repoKey(cwd), '.git', `spoon-history-${request ?? ''}`)
+/** Stops a File History lookup (its dialog closed, or asked for something else). */
+export const cancelFileHistory = (cwd: string, request: string): void => cancel(historyKey(cwd, request))

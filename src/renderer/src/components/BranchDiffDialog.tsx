@@ -232,7 +232,8 @@ export function BranchDiffDialog({ path, base: initialBase, compare: initialComp
               ])
               if (choice === 'history') {
                 onClose()
-                requestFileHistory({ repo: path, file: f.path })
+                // Walked from the compared branch's tip too (it may not be checked out).
+                requestFileHistory({ repo: path, file: f.path, at: data?.to })
               } else if (choice === 'copy') navigator.clipboard.writeText(f.path)
             }}
             emptyText="No files match."

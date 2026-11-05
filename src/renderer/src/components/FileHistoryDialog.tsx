@@ -3,7 +3,7 @@
 // history, compare that version with the working copy, or put it back.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { FileHistoryEntry, Ref } from '../../../shared/types'
+import type { FileHistory, FileHistoryEntry, Ref } from '../../../shared/types'
 import { cleanError, useAsync, usePersistentState } from '../hooks'
 import { codeLineHeight, useSettings } from '../settings'
 import { paletteVars } from '../syntax'
@@ -17,10 +17,16 @@ import { Modal } from './Modal'
 import { Split } from './Split'
 import { CodeText, DiffView, useLineLooks, type Line, type Parsed } from './DiffView'
 
+/** Commits read at a time. */
+const PAGE = 300
+let historyRequests = 0
+
 export interface FileHistoryRequest {
   repo: string
   /** The file as it's named now (or in the commit it was picked from). */
   file: string
+  /** The commit it was picked in: its history is walked from there too (a branch that isn't checked out). */
+  at?: string
 }
 
 /** Opens a file's history from anywhere; the repository's view shows it. */
@@ -46,15 +52,37 @@ export function FileHistoryHost({ path, ops, onJump }: { path: string; ops: Ops;
 }
 
 function FileHistoryDialog({ req, ops, onJump, onClose }: { req: FileHistoryRequest; ops: Ops; onJump: (hash: string) => void; onClose: () => void }) {
-  const { repo, file } = req
+  const { repo, at } = req
   const settings = useSettings()
   const [follow, setFollow] = usePersistentState('spoon.fileHistory.follow', true)
   const [show, setShow] = usePersistentState<'changes' | 'file'>('spoon.fileHistory.show', 'changes')
-  const history = useAsync(() => window.spoon.fileHistory(repo, file, follow), [repo, file, follow])
+  // Read a page at a time ("Show older commits" asks for more); a lookup still running when the dialog
+  // closes or asks for something else is stopped.
+  const [limit, setLimit] = useState(PAGE)
+  const [history, setHistory] = useState<{ data: FileHistory | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true })
+  useEffect(() => {
+    const request = `h${++historyRequests}`
+    let live = true
+    setHistory((h) => ({ ...h, loading: true }))
+    window.spoon.fileHistory(repo, req.file, { follow, limit, at, request }).then(
+      (data) => live && setHistory({ data, error: null, loading: false }),
+      (err) => {
+        const message = cleanError(err)
+        if (live && message !== 'Cancelled.') setHistory({ data: null, error: message, loading: false })
+      }
+    )
+    return () => {
+      live = false
+      void window.spoon.cancelFileHistory(repo, request)
+    }
+  }, [repo, req.file, at, follow, limit])
+  useEffect(() => setLimit(PAGE), [follow])
+  // Asked for under an old name: today's name is the one shown, restored and compared.
+  const file = history.data?.renamedTo ?? req.file
   const [filter, setFilter] = useState('')
   const entries = useMemo(() => {
     const words = filter.toLowerCase().split(/\s+/).filter(Boolean)
-    return (history.data ?? []).filter((e) => words.every((w) => `${e.subject} ${e.author} ${e.hash}`.toLowerCase().includes(w)))
+    return (history.data?.entries ?? []).filter((e) => words.every((w) => `${e.subject} ${e.author} ${e.hash}`.toLowerCase().includes(w)))
   }, [history.data, filter])
   const [picked, setPicked] = useState<string | null>(null)
   const entry = entries.find((e) => e.hash === picked) ?? entries[0] ?? null
@@ -100,7 +128,7 @@ function FileHistoryDialog({ req, ops, onJump, onClose }: { req: FileHistoryRequ
   }
 
   const { dir, name } = splitPath(file)
-  const count = history.data?.length ?? 0
+  const count = history.data?.entries.length ?? 0
   return (
     <div className="branch-diff-modal file-history">
       <Modal
@@ -108,7 +136,8 @@ function FileHistoryDialog({ req, ops, onJump, onClose }: { req: FileHistoryRequ
         titleExtra={
           <span className="bd-summary muted">
             {dir.replace(/\/$/, '') || '(top folder)'}
-            {history.data && ` · ${count === 5000 ? 'latest 5,000' : count} commit${count === 1 ? '' : 's'}`}
+            {history.data && ` · ${history.data.more ? `latest ${count.toLocaleString()}` : count} commit${count === 1 ? '' : 's'}`}
+            {history.data?.renamedTo && ` · now ${history.data.renamedTo}`}
           </span>
         }
         onClose={onClose}
@@ -138,7 +167,7 @@ function FileHistoryDialog({ req, ops, onJump, onClose }: { req: FileHistoryRequ
             <div className="empty-state small error-text">{history.error}</div>
           ) : !history.data ? (
             <div className="empty-state small muted">Reading the history…</div>
-          ) : !history.data.length ? (
+          ) : !history.data.entries.length ? (
             <div className="empty-state muted">No commit has this file yet.</div>
           ) : (
             <Split id="file-history" direction="row" mode="rem" initial={20} min={12} max={40}>
@@ -178,7 +207,7 @@ function FileHistoryDialog({ req, ops, onJump, onClose }: { req: FileHistoryRequ
                         {e.file.status === 'R' && e.added === 0 && e.removed === 0 ? (
                           <span className="muted">renamed</span>
                         ) : e.added === null ? (
-                          <span className="muted">binary</span>
+                          <span className="muted">{e.merge ? 'resolved' : 'binary'}</span>
                         ) : (
                           <>
                             <span className="plus">+{e.added}</span> <span className="minus">−{e.removed}</span>
@@ -192,6 +221,7 @@ function FileHistoryDialog({ req, ops, onJump, onClose }: { req: FileHistoryRequ
                         {e.file.status === 'R' && e.file.oldPath && <span className="muted">from {e.file.oldPath}</span>}
                         {e.file.status === 'A' && <span className="muted">added</span>}
                         {e.file.status === 'D' && <span className="minus">deleted</span>}
+                        {e.merge && <span className="muted">merge</span>}
                       </span>
                       {/* Branches and tags on their own line, so the message and author keep their room. */}
                       {!!refs.get(e.hash)?.length && (
@@ -205,6 +235,11 @@ function FileHistoryDialog({ req, ops, onJump, onClose }: { req: FileHistoryRequ
                       )}
                     </button>
                   ))}
+                  {history.data.more && !filter && (
+                    <button className="btn fh-more" disabled={history.loading} onClick={() => setLimit((l) => l + PAGE)}>
+                      {history.loading ? 'Reading…' : 'Show older commits'}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="fh-right">
@@ -262,8 +297,11 @@ function WholeFile({ repo, entry, lineH }: { repo: string; entry: FileHistoryEnt
   const box = useRef<HTMLDivElement>(null)
   const rows = useVirtualizer({ count: parsed?.lines.length ?? 0, getScrollElement: () => box.current, estimateSize: () => lineH, overscan: 30 })
   if (loaded.error) return <div className="empty-state small error-text">{loaded.error}</div>
-  if (!loaded.data) return <div className="empty-state small muted">{loaded.loading ? 'Loading…' : 'This version is too big to show.'}</div>
+  // While another version loads, the one before isn't shown under this commit's header.
+  if (loaded.loading || !loaded.data) return <div className="empty-state small muted">{loaded.loading ? 'Loading…' : 'This version is too big to show.'}</div>
   if (/\0/.test(loaded.data.text.slice(0, 8000))) return <div className="empty-state small muted">Binary file.</div>
+  if (/^version https:\/\/git-lfs\.github\.com\/spec\/v1\n/.test(loaded.data.text))
+    return <div className="empty-state small muted">This version is stored in Git LFS; Compare with Working Copy or Restore brings the file itself.</div>
   return (
     <div className="diff fh-file" style={paletteVars(settings.syntaxPalette, settings.syntaxIdeBackground)}>
       {loaded.data.side === 'old' && <div className="list-footnote">This commit deleted the file; this is its last version.</div>}

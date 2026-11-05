@@ -7,6 +7,7 @@ import { RepoView } from './components/RepoView'
 import { GitHistoryDialog } from './components/GitHistoryDialog'
 import { warmTabs } from './repoCache'
 import { SettingsWindow, type SettingsTab } from './components/SettingsWindow'
+import { shouldShowTour, WelcomeTour } from './components/WelcomeTour'
 import { askPin, PinHost, setSimpleConfig, simpleConfig, useSimpleConfig } from './simpleMode'
 import { runAgents, useLinkedExports } from './exportsAgent'
 import { Welcome } from './components/Welcome'
@@ -57,6 +58,18 @@ export function App() {
     const open = (): void => setWhatsNew({ since: null })
     window.addEventListener('spoon:whats-new', open)
     return () => window.removeEventListener('spoon:whats-new', open)
+  }, [])
+  // The welcome tour: by itself on a fresh install only (Help → Welcome Tour any time).
+  const [tour, setTour] = useState(() =>
+    shouldShowTour(storage.getItem('spoon.tabs') !== null || storage.getItem('spoon.settings') !== null || projects.length > 0)
+  )
+  useEffect(() => {
+    const open = (): void => {
+      setSettingsWindow(false)
+      setTour(true)
+    }
+    window.addEventListener('spoon:welcome-tour', open)
+    return () => window.removeEventListener('spoon:welcome-tour', open)
   }, [])
   const [palette, setPalette] = useState(false)
   const [gitHistory, setGitHistory] = useState(false)
@@ -695,6 +708,7 @@ export function App() {
           if (!simpleOnRef.current) setGitHistory((open) => !open)
         }
         else if (cmd === 'whats-new') setWhatsNew({ since: null })
+        else if (cmd === 'welcome-tour') setTour(true)
         else if (cmd === 'compare-files') setComparing(true)
         else if (cmd === 'clone') setCloning(true)
         else if (cmd === 'filter-commits' && settingsOpen.current) window.dispatchEvent(new Event('spoon:settings-search'))
@@ -885,7 +899,17 @@ export function App() {
 
       {settingsWindow && <SettingsWindow initialTab={settingsWindow} project={current && !currentText && !currentCompare ? current : null} onClose={() => setSettingsWindow(false)} />}
 
-      {whatsNew && appVersion && (
+      {tour && (
+        <WelcomeTour
+          home={home}
+          onClose={() => setTour(false)}
+          onOpenSettings={(tab) => setSettingsWindow(tab)}
+          onClone={() => setCloning(true)}
+          onOpenFolder={pickRepo}
+          onSearch={() => setPalette(true)}
+        />
+      )}
+      {whatsNew && appVersion && !tour && (
         <WhatsNewDialog current={appVersion} since={whatsNew.since} onClose={() => setWhatsNew(null)} />
       )}
       {gitHistory && <GitHistoryDialog current={current} onClose={() => setGitHistory(false)} />}

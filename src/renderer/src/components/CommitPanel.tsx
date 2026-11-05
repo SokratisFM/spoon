@@ -53,7 +53,7 @@ async function fileMenu(path: string, d: CommitDetails, f: FileChange, ops: Ops)
   if (choice === 'edit') openFileEditor({ repo: path, file: f.path, at })
   else if (choice === 'view') openFileEditor({ repo: path, file: f.path, at, show: 'commit' })
   else if (choice === 'default') window.spoon.openWithDefaultApp(path, f.path)
-  else if (choice === 'history') requestFileHistory({ repo: path, file: f.path })
+  else if (choice === 'history') requestFileHistory({ repo: path, file: f.path, at: d.hash })
   else if (choice === 'compare-working' || choice === 'compare') {
     const other = choice === 'compare' ? await window.spoon.pickFile(`Compare ${f.path} at ${short} with…`) : `${path}/${f.path}`
     if (!other) return
@@ -85,12 +85,12 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
   const [copied, setCopied] = useState(false)
   // ⌘E: the shown file in the popup (set once the details are in).
   const openShown = useRef<(() => void) | null>(null)
-  const historyShown = useRef<string | null>(null)
+  const historyShown = useRef<{ file: string; at: string } | null>(null)
   useEffect(() => {
     const open = (): void => openShown.current?.()
     // ⌥⌘L: the shown file's history.
     const history = (): void => {
-      if (historyShown.current) requestFileHistory({ repo: path, file: historyShown.current })
+      if (historyShown.current) requestFileHistory({ repo: path, ...historyShown.current })
     }
     window.addEventListener(OPEN_SELECTED_FILE, open)
     window.addEventListener(SELECTED_FILE_HISTORY, history)
@@ -128,7 +128,7 @@ export const CommitPanel = memo(function CommitPanel({ path, hash, onJump, ops }
   // The same file stays selected when moving between commits that both touch it; worked out here, so
   // the diff never asks for the previous commit's file in the new commit.
   const shown = details.files.find((f) => f.path === file?.path) ?? details.files[0] ?? null
-  historyShown.current = shown && !stale ? shown.path : null
+  historyShown.current = shown && !stale ? { file: shown.path, at: details.hash } : null
   openShown.current = shown && !stale
     ? () =>
         openFileEditor({

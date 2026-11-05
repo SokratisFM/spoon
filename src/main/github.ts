@@ -138,11 +138,12 @@ export async function disconnect(): Promise<void> {
 
 // ---------- browser sign-in (OAuth device flow) ----------
 
-let deviceCancelled = false
+/** Device codes whose wait was cancelled (each wait checks its own, so a new sign-in doesn't revive an old one). */
+const cancelledCodes = new Set<string>()
+let waitingCode: string | null = null
 
 export async function deviceStart(clientId: string, withKeys = false): Promise<DeviceCode> {
   if (!clientId.trim()) throw new Error('Add your OAuth app’s Client ID first.')
-  deviceCancelled = false
   const res = await fetch('https://github.com/login/device/code', {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -168,34 +169,50 @@ export async function deviceStart(clientId: string, withKeys = false): Promise<D
 export async function deviceWait(clientId: string, code: DeviceCode): Promise<GitHubAccount> {
   let interval = code.interval
   const deadline = Date.now() + code.expiresIn * 1000
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, interval * 1000))
-    if (deviceCancelled) throw new Error('Sign-in cancelled.')
-    const res = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: clientId.trim(),
-        device_code: code.deviceCode,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-      }),
-      signal: timeout()
-    })
-    const data = (await res.json()) as Record<string, string | number>
-    if (data.access_token) return connect(String(data.access_token), 'browser')
-    if (data.error === 'authorization_pending') continue
-    if (data.error === 'slow_down') {
-      interval = Number(data.interval ?? interval + 5)
-      continue
+  waitingCode = code.deviceCode
+  let hiccups = 0
+  try {
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, interval * 1000))
+      if (cancelledCodes.has(code.deviceCode)) throw new Error('Sign-in cancelled.')
+      let data: Record<string, string | number>
+      try {
+        const res = await fetch('https://github.com/login/oauth/access_token', {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_id: clientId.trim(),
+            device_code: code.deviceCode,
+            grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+          }),
+          signal: timeout()
+        })
+        data = (await res.json()) as Record<string, string | number>
+        hiccups = 0
+      } catch (err) {
+        // A dropped connection or a page that isn't JSON: asked again, up to a few times in a row.
+        if (++hiccups > 5) throw err
+        continue
+      }
+      if (cancelledCodes.has(code.deviceCode)) throw new Error('Sign-in cancelled.')
+      if (data.access_token) return connect(String(data.access_token), 'browser')
+      if (data.error === 'authorization_pending') continue
+      if (data.error === 'slow_down') {
+        interval = Number(data.interval ?? interval + 5)
+        continue
+      }
+      if (data.error === 'access_denied') throw new Error('Sign-in was cancelled on GitHub.')
+      throw new Error(String(data.error_description ?? data.error))
     }
-    if (data.error === 'access_denied') throw new Error('Sign-in was cancelled on GitHub.')
-    throw new Error(String(data.error_description ?? data.error))
+    throw new Error('The code expired. Start again.')
+  } finally {
+    cancelledCodes.delete(code.deviceCode)
+    if (waitingCode === code.deviceCode) waitingCode = null
   }
-  throw new Error('The code expired. Start again.')
 }
 
 export function deviceCancel(): void {
-  deviceCancelled = true
+  if (waitingCode) cancelledCodes.add(waitingCode)
 }
 
 // ---------- API ----------

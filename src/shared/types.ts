@@ -356,6 +356,16 @@ export interface FileHistoryEntry {
   file: FileChange
   added: number | null
   removed: number | null
+  /** A merge that changed the file itself (a conflict resolved by hand). */
+  merge?: boolean
+}
+
+export interface FileHistory {
+  entries: FileHistoryEntry[]
+  /** There may be older commits than these. */
+  more: boolean
+  /** The file's name today, when the history was asked for under an older name. */
+  renamedTo: string | null
 }
 
 /** A file in a branch comparison, with its lines added and removed (null for a binary file). */
@@ -906,7 +916,8 @@ export interface SpoonApi {
   /** from: the file's name in that commit, when it was renamed since (it's written under rel). */
   restoreFileFrom(path: string, hash: string, rel: string, from?: string): Promise<void>
   /** The commits that changed a file, newest first (following renames when asked). */
-  fileHistory(path: string, rel: string, follow: boolean): Promise<FileHistoryEntry[]>
+  fileHistory(path: string, rel: string, opts: { follow: boolean; limit?: number; at?: string; request?: string }): Promise<FileHistory>
+  cancelFileHistory(path: string, request: string): Promise<void>
   openWithDefaultApp(path: string, rel: string): Promise<string>
   /** A data URL preview of the working copy's file (or its version in a commit); null when there's none. */
   fileThumbnail(path: string, rel: string, hash: string | null, size: number): Promise<string | null>
@@ -982,6 +993,7 @@ export type MenuCommand =
   | 'new-branch'
   | 'open-file'
   | 'whats-new'
+  | 'welcome-tour'
   | 'compare-files'
   | 'clone'
   | 'file-history'

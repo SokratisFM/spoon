@@ -7,8 +7,9 @@ import { CloudIcon, FolderIcon, LockIcon, SearchIcon } from './Icons'
 import type { CloneableRepo } from '../../../shared/types'
 import { useGitHubAccount } from '../github'
 import { nameOf, sepOf, useCloneFolder, useCloneProtocol, useCloneSubmodules } from '../cloneDefaults'
-import { cleanError } from '../hooks'
+import { cleanError, usePersistentState } from '../hooks'
 import { requestSshSetup, sshTrouble } from '../sshHelp'
+import { triedSubmodules } from './Submodules'
 import { keys, mod } from '../platform'
 
 interface Item {
@@ -23,7 +24,9 @@ interface Item {
 // Scan results survive closing the palette, so reopening it is instant; a fresh scan runs each time.
 let scanCache: { key: string; paths: string[] } | null = null
 // The GitHub account's repositories, the same way (fresh ones are asked for each time).
-let ghCache: { login: string; repos: CloneableRepo[] } | null = null
+let ghCache: { login: string; repos: CloneableRepo[]; at: number } | null = null
+/** How long the list is reused before it's asked for again (⌘R asks now). */
+const GITHUB_TTL = 10 * 60_000
 // Which GitHub repository each local one is (by its remote), so it isn't offered for cloning again.
 const slugCache = new Map<string, string | null>()
 /** GitHub repositories listed before anything is typed; typing searches them all. */
@@ -61,20 +64,35 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }:
   // The account's GitHub repositories, minus the ones already on this computer.
   const account = useGitHubAccount()
   const [ghRepos, setGhRepos] = useState<CloneableRepo[]>(account && ghCache?.login === account.login ? ghCache.repos : [])
+  const [ghRefresh, setGhRefresh] = useState(0)
+  // ⌘R (View → Refresh) while the search is open reloads the list from GitHub.
+  useEffect(
+    () =>
+      window.spoon.onMenu((command) => {
+        if (command === 'refresh') setGhRefresh((n) => n + 1)
+      }),
+    []
+  )
+  const [ghLoading, setGhLoading] = useState(false)
   useEffect(() => {
     if (!account) return setGhRepos([])
+    if (!ghRefresh && ghCache?.login === account.login && Date.now() - ghCache.at < GITHUB_TTL) return
+    // Remotes may have changed too: matched again with the fresh list.
+    slugCache.clear()
     let live = true
+    setGhLoading(true)
     window.spoon
       .ghCloneableRepos()
       .then(({ repos }) => {
-        ghCache = { login: account.login, repos }
+        ghCache = { login: account.login, repos, at: Date.now() }
         if (live) setGhRepos(repos)
       })
       .catch(() => undefined)
+      .finally(() => live && setGhLoading(false))
     return () => {
       live = false
     }
-  }, [account?.login]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [account?.login, ghRefresh]) // eslint-disable-line react-hooks/exhaustive-deps
   const [slugs, setSlugs] = useState<Set<string>>(() => new Set([...slugCache.values()].filter((v): v is string => !!v)))
   const localPaths = useMemo(() => [...projects.map((p) => p.path), ...found], [projects, found])
   useEffect(() => {
@@ -96,6 +114,7 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }:
   const { folder } = useCloneFolder(home, projects.map((p) => p.path))
   const [protocol] = useCloneProtocol()
   const [submodules] = useCloneSubmodules()
+  const [branchMode] = usePersistentState<'latest' | 'develop' | 'name'>('spoon.clone.branchMode', 'latest')
   const [armed, setArmed] = useState<string | null>(null)
   const [clone, setClone] = useState<{ repo: CloneableRepo; dest: string; line: string; error?: string } | null>(null)
   const [destTaken, setDestTaken] = useState(false)
@@ -183,8 +202,11 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }:
     const dest = destOf(repo)
     setClone({ repo, dest, line: '' })
     try {
-      await window.spoon.clone(urlOf(repo), dest, submodules, { kind: 'latest' })
-      // A submodule that couldn't come down is tried again (and explained) by the opened tab.
+      // The Clone dialog's choice (a branch picked by name there means nothing here: latest commit).
+      const { submoduleError } = await window.spoon.clone(urlOf(repo), dest, submodules, branchMode === 'develop' ? { kind: 'develop' } : { kind: 'latest' })
+      // Submodules stopped with Esc stay stopped (the opened tab doesn't start them again); one that
+      // failed is tried again, and explained, by the tab.
+      if (submoduleError === 'Cancelled.') triedSubmodules.add(`${dest}\0*`)
       onClose()
       onOpen(dest)
     } catch (err) {
@@ -219,7 +241,8 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }:
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (cloning) {
-      // Only Escape does anything while cloning: it stops the clone (which leaves nothing behind).
+      // Only Escape does anything while cloning: it stops the clone (nothing is left of it), or, once the
+      // repository is in, its submodules (the repository opens without them).
       if (e.key === 'Escape') window.spoon.cancel(clone!.dest)
       e.preventDefault()
       return
@@ -274,12 +297,12 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }:
             onKeyDown={onKeyDown}
             spellCheck={false}
           />
-          {scanning && !githubOnly && <span className="spinner" title="Scanning for repositories" />}
+          {(scanning && !githubOnly) || ghLoading ? <span className="spinner" title={ghLoading ? 'Loading your GitHub repositories' : 'Scanning for repositories'} /> : null}
           {account && (
             <button
               className={`palette-scope ${githubOnly ? 'on' : ''}`}
               aria-pressed={githubOnly}
-              title={`Only GitHub repositories that aren’t on this computer (${keys('⌘G')})`}
+              title={`Only GitHub repositories that aren’t on this computer (${keys('⌘G')}). ${keys('⌘R')} reloads the list from GitHub.`}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setGithubOnly((g) => !g)}
             >
@@ -356,7 +379,7 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }:
                           </>
                         )}
                       </span>
-                      <span className="badge">latest-commit branch</span>
+                      <span className="badge">{branchMode === 'develop' ? 'develop' : 'latest-commit branch'}</span>
                       {submodules && <span className="badge">+ submodules</span>}
                       <span className="spacer" />
                       <button className="btn" onClick={() => options(it.repo!)}>

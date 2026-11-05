@@ -4,6 +4,17 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.52.0 — 2026-11-05
+
+- **New:** A welcome tour on the first launch, on Mac and Windows: a few small steps (colors, size and spacing, diffs, history, a few extras, GitHub and SSH, your projects) where every change shows up as you pick it, with a preview beside it. Skip any step, or the whole tour; Help → Welcome Tour (or Settings → About) shows it again.
+- **New:** A proper Windows setup wizard, starring a wizard who has put down his fork: welcome, choose where Spoon goes, then open it. It's a single file that installs without internet access and without administrator rights.
+- **Fixed:** Restoring an old version of a file from its history no longer writes through a link at the file's current name; restored files keep Git LFS content, line endings and the executable bit; and the current version goes to the Trash first whenever it differs, ignored and skip-worktree files included.
+- **Fixed:** Fetch and pull errors no longer show a password or token from the remote's URL, and a merge stopped by a locked file is no longer reported as an unreachable remote.
+- **Improved:** Missing submodules: Spoon follows `submodule.active` (and “no”/“off” values), only downloads from the project's own server by itself, and doesn't retry one it couldn't download until the project points it at a new commit. Retrying from the Clone dialog never runs alongside a download already under way.
+- **Improved:** Cloning on “the branch with the latest commit” skips bot branches (gh-pages, dependabot, renovate), the Tab search uses your Clone choice, a clone whose branch can't be checked out leaves no half-made folder, and the branch list waits for a complete URL and gives up after 20 seconds.
+- **Improved:** File History shows merges that changed the file by hand, reads 300 commits at a time (Show older commits), stops reading when closed, finds a renamed file's current name, and follows a commit picked on another branch.
+- **Improved:** Settings → Accounts checks SSH once per opening, the Tab search reuses your GitHub repository list for 10 minutes (⌘R reloads it) and recognises more ways a project's remote can point at GitHub, and browser sign-in rides out a dropped connection.
+
 ## 0.51.2 — 2026-11-05
 
 - **Improved:** Downloading missing submodules no longer holds up Fetch, Pull or anything else in the repository. It runs alongside them, with its own line in the toolbar saying which submodule is coming down and how far along it is (“Downloading MainLib (1 of 4) · 64% · 497 MiB”), and its own Cancel.

@@ -1,7 +1,7 @@
 {
   "name": "spoon",
   "productName": "Spoon",
-  "version": "0.51.2",
+  "version": "0.52.0",
   "description": "A Fork-style git client with a scalable, modern UI",
   "main": "./out/main/index.js",
   "private": true,
@@ -14,7 +14,8 @@
     "dist:mac": "electron-vite build && electron-builder --mac dir",
     "install:mac": "npm run dist:mac && sh scripts/install-mac.sh",
     "keygen": "node scripts/keygen.mjs",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "installer-art": "electron scripts/render-installer-art.cjs"
   },
   "devDependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -95,13 +96,19 @@
       "artifactName": "Spoon-${version}-win-x64-setup.${ext}"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
       "allowElevation": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Spoon",
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerSidebar": "build/installer/sidebar.bmp",
+      "uninstallerSidebar": "build/installer/sidebar.bmp",
+      "installerHeader": "build/installer/header.bmp",
+      "include": "build/installer/installer.nsh",
+      "runAfterFinish": true
     }
   }
 }

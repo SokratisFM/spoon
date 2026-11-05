@@ -947,7 +947,7 @@ function PullGroupsField() {
   )
 }
 
-function ThemeCard({ id, name, hint }: { id: ThemeChoice; name: string; hint?: string }) {
+export function ThemeCard({ id, name, hint }: { id: ThemeChoice; name: string; hint?: string }) {
   const s = useSettings()
   const theme = id === 'custom' ? activeTheme({ ...s, theme: 'custom' }) : resolveTheme(id)
   const c = theme.colors
@@ -1228,7 +1228,8 @@ function AccountsTab() {
     window.addEventListener('spoon:sshChanged', on)
     return () => window.removeEventListener('spoon:sshChanged', on)
   }, [])
-  const ssh = useAsync(() => window.spoon.sshStatus(), [sshTick])
+  // Once per opening of Settings (ssh -T can ask for Touch ID with some agents), again after the SSH dialog changes something.
+  const ssh = useAsync(() => once(`ssh:${sshTick}`, () => window.spoon.sshStatus()), [sshTick])
   const sshAuth = ssh.data?.auth
 
   // Spoon's own OAuth app (spoon.config.json) unless you've set your own Client ID.
@@ -1879,6 +1880,9 @@ function AboutTab() {
           <button className="btn" onClick={() => window.dispatchEvent(new Event('spoon:whats-new'))}>
             What’s new
           </button>
+          <button className="btn" onClick={() => window.dispatchEvent(new Event('spoon:welcome-tour'))}>
+            Welcome tour
+          </button>
         </div>
         <span className="hint">
           Spoon checks every few hours, downloads updates in the background and verifies their signature before
@@ -1955,7 +1959,11 @@ function ProjectsTab() {
         </label>
         <span className="hint">
           When a repository opens (one cloned with another app, say) or a pull adds a submodule, Spoon downloads the
-          submodules this computer doesn’t have yet, so the project opens complete. Ones you removed are left alone.
+          submodules this computer doesn’t have yet, so the project opens complete. Ones you turned off or removed with
+          “git submodule deinit” are left alone (if you also delete their copy in .git/modules, they come back). One
+          that can’t be downloaded (no access to it, say) isn’t tried again until the project points it at a new commit,
+          and one on a different server than the project itself waits for you; Initialize in the submodules list
+          downloads either.
         </span>
       </div>
 

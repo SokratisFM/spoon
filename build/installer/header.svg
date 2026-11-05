@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 57" width="600" height="228">
+  <!-- The Windows installer's page header (150×57, top right): the wizard's hat and its spoon. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#e9ecff"/>
+      <stop offset="1" stop-color="#8fa2ff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff7c2" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#ffe680" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#cfd6ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="150" height="57" fill="url(#bg)"/>
+  <circle cx="125" cy="22" r="18" fill="url(#glow)"/>
+  <!-- hat -->
+  <path d="M74 50 C 80 32, 88 18, 104 8 C 100 22, 102 36, 106 50 Z" fill="#3b2f9e"/>
+  <ellipse cx="90" cy="50" rx="22" ry="4.5" fill="#2a2180"/>
+  <path d="M75.5 45 C 85 47.5, 96 47.5, 105 45 L 105.5 49 C 96 51.5, 85 51.5, 75 49 Z" fill="#ffe680"/>
+  <path d="M92 26 l1.2 2.6 2.8 .3 -2.1 1.9 .6 2.8 -2.5 -1.5 -2.5 1.5 .6 -2.8 -2.1 -1.9 2.8 -.3 z" fill="#ffe680"/>
+  <!-- spoon -->
+  <g transform="rotate(24 125 26)">
+    <rect x="123" y="31" width="4" height="22" rx="2" fill="url(#metal)" stroke="#5b67ea" stroke-width="0.6"/>
+    <ellipse cx="125" cy="22" rx="7" ry="10" fill="url(#metal)" stroke="#5b67ea" stroke-width="0.6"/>
+    <ellipse cx="123.4" cy="18.5" rx="2.4" ry="4" fill="#ffffff"/>
+  </g>
+  <path d="M141 8 l1 2.2 2.2 1 -2.2 1 -1 2.2 -1 -2.2 -2.2 -1 2.2 -1 z" fill="#ffffff"/>
+  <path d="M112 6 l.8 1.7 1.7 .8 -1.7 .8 -.8 1.7 -.8 -1.7 -1.7 -.8 1.7 -.8 z" fill="#ffffff"/>
+</svg>

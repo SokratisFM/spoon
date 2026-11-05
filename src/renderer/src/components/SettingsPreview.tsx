@@ -251,6 +251,20 @@ export function PreviewCard() {
   )
 }
 
+/** A setting's scene as it looks now, drawn into its own box (the welcome tour's previews). */
+export function ScenePreview({ spec, label }: { spec: PreviewSpec; label?: string }) {
+  return (
+    <div className="pv-inline">
+      {label && <span className="pv-inline-label">{label}</span>}
+      <div className="pv-stage">
+        <FitStage fitKey={JSON.stringify(spec)} fixed={SIZE_SCENES.has(spec.kind)}>
+          <Stage spec={spec} phase />
+        </FitStage>
+      </div>
+    </div>
+  )
+}
+
 /**
  * A scene drawn as large as its stage allows. Scenes are made for a small card, so what they show
  * (text, dots, bars, drawings) is measured and scaled up to fill the stage, centered, keeping its
