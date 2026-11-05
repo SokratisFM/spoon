@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { MenuCommand } from '../../shared/types'
+import type { CloneableRepo, MenuCommand } from '../../shared/types'
 import { cleanError, usePersistentState } from './hooks'
 import { getSettings, resetScale, SCALE_STEP, setTabColor, TAB_PALETTE, tabColorFor, tabLook, updateSettings, useSettings } from './settings'
 import { ideSchemes } from './syntax'
@@ -134,7 +134,8 @@ export function App() {
     window.addEventListener('spoon:branchDiff', on)
     return () => window.removeEventListener('spoon:branchDiff', on)
   }, [])
-  const [cloning, setCloning] = useState(false)
+  // true, or the GitHub repository picked in the Tab search's Options….
+  const [cloning, setCloning] = useState<boolean | CloneableRepo>(false)
   // SSH setup for GitHub: from an error about SSH access, or Settings (requestSshSetup).
   const [sshSetup, setSshSetup] = useState(false)
   useEffect(() => {
@@ -877,7 +878,7 @@ export function App() {
           openTabs={tabs}
           onOpen={openRepo}
           onBrowse={pickRepo}
-          onClone={() => setCloning(true)}
+          onClone={(repo) => setCloning(repo ?? true)}
           onClose={() => setPalette(false)}
         />
       )}
@@ -898,7 +899,13 @@ export function App() {
         />
       )}
       {cloning && (
-        <CloneDialog home={home} recents={projects.map((p) => p.path)} onCloned={openRepo} onClose={() => setCloning(false)} />
+        <CloneDialog
+          home={home}
+          recents={projects.map((p) => p.path)}
+          onCloned={openRepo}
+          onClose={() => setCloning(false)}
+          initialRepo={typeof cloning === 'object' ? cloning : undefined}
+        />
       )}
       {sshSetup && <SshSetupDialog onClose={() => setSshSetup(false)} />}
       {branchDiff && (

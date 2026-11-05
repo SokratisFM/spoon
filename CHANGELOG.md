@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.51.1 — 2026-11-05
+
+- **New:** The Tab search lists your GitHub repositories that aren’t on this computer yet. Pick one and press Enter to clone it right there, next to your other projects, on the branch with the latest commit and with its submodules. ⌘Enter opens the Clone dialog to choose something else. Repositories you already have show up once, as your project. **GitHub only** (⌘G) in the search lists just the GitHub repositories you don’t have yet.
+
 ## 0.50.2 — 2026-11-05
 
 - **New:** Missing submodules download by themselves. When you open a repository cloned with another app, or a pull adds a submodule, Spoon downloads the submodules this computer doesn’t have yet (MainLib, say), so Unity finds everything. Submodules you removed on purpose are left alone. You can turn this off in Settings → Projects.

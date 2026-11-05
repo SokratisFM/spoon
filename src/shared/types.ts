@@ -841,6 +841,8 @@ export interface SpoonApi {
   clone(url: string, dest: string, submodules: boolean, branch: CloneBranch): Promise<CloneResult>
   /** The branches of a repository not cloned yet, by name. */
   remoteBranches(url: string): Promise<string[]>
+  /** owner/name (lowercase) of each repository's GitHub remote, or null. */
+  githubSlugs(paths: string[]): Promise<(string | null)[]>
   /** Downloads a repository's submodules; the error if one failed. */
   cloneSubmodules(path: string): Promise<string | null>
   /** Submodules never downloaded on this computer (paths). */

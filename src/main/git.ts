@@ -826,6 +826,23 @@ export function downloadNewSubmodules(cwd: string, onProgress?: (line: string) =
   })
 }
 
+/** owner/name (lowercase) for each repository whose remote is on GitHub; null for the rest. */
+export async function githubSlugs(paths: string[]): Promise<(string | null)[]> {
+  return Promise.all(
+    paths.map(async (path) => {
+      if (typeof path !== 'string' || !isAbsolute(path) || !existsSync(join(path, '.git'))) return null
+      const out = await git(path, ['config', '--get-regexp', '^remote\\..*\\.url$'], [0, 1]).catch(() => '')
+      // origin first, then any other remote that's on GitHub.
+      const urls = out.split('\n').filter(Boolean).sort((a, b) => Number(!a.startsWith('remote.origin.')) - Number(!b.startsWith('remote.origin.')))
+      for (const line of urls) {
+        const m = /github\.com[:/]+([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/i.exec(line.slice(line.indexOf(' ') + 1).trim())
+        if (m) return m[1].toLowerCase()
+      }
+      return null
+    })
+  )
+}
+
 /** Two branches (or any commits) compared: the commits between them and every file that differs. */
 export async function compareRefs(cwd: string, base: string, compare: string, mode: CompareMode): Promise<RefCompare> {
   const tip = async (ref: string): Promise<string> => {

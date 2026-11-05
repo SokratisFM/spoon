@@ -8,6 +8,7 @@ import { cleanError, useAsync, usePersistentState } from '../hooks'
 import { tildify } from '../projects'
 import { requestSshSetup, sshTrouble } from '../sshHelp'
 import { triedSubmodules } from './Submodules'
+import { githubSlug, nameOf, sepOf, useCloneFolder, useCloneProtocol, useCloneSubmodules } from '../cloneDefaults'
 import { Modal } from './Modal'
 import { choose } from '../dialogs'
 import { LockIcon } from './Icons'
@@ -19,6 +20,8 @@ interface Props {
   recents: string[]
   onCloned: (path: string) => void
   onClose: () => void
+  /** A GitHub repository to start with (picked in the Tab search). */
+  initialRepo?: CloneableRepo
 }
 
 type Phase =
@@ -26,48 +29,33 @@ type Phase =
   | { kind: 'cloning'; dest: string; step: string; line: string }
   | { kind: 'submodules'; dest: string; error: string; retrying: boolean }
 
-/** owner/name when the URL is a GitHub repository. */
-const githubSlug = (url: string): string | null => /github\.com[:/]+([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/.exec(url.trim())?.[1] ?? null
-/** The folder a URL clones into, as git would name it. */
-const nameOf = (url: string): string => /([^/:\s]+?)(?:\.git)?\/*$/.exec(url.trim())?.[1] ?? ''
 /** A long folder path as its last two folders. */
 const short = (path: string): string => {
   const sep = path.includes('\\') && !path.includes('/') ? '\\' : '/'
   const parts = path.split(/[\\/]/)
   return parts.length > 4 ? `…${sep}${parts.slice(-2).join(sep)}` : path
 }
-const sepOf = (path: string): string => (path.includes('\\') && !path.includes('/') ? '\\' : '/')
-const parentOf = (path: string): string => path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')))
 const ago = (iso: string | null): string => {
   if (!iso) return ''
   const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000)
   return days < 1 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? `${days} days ago` : new Date(iso).toLocaleDateString()
 }
 
-export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
+export function CloneDialog({ home, recents, onCloned, onClose, initialRepo }: Props) {
   const account = useAsync(() => window.spoon.ghAccount(), [])
   const [mode, setMode] = usePersistentState<'github' | 'url'>('spoon.clone.mode', 'github')
   const fromGitHub = mode === 'github' && !!account.data
+  // Picked in the Tab search: the GitHub list, with it selected.
+  useEffect(() => {
+    if (initialRepo) setMode('github')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const repos = useAsync(() => (fromGitHub ? window.spoon.ghCloneableRepos() : Promise.resolve(null)), [fromGitHub])
-  const [query, setQuery] = useState('')
-  const [picked, setPicked] = useState<CloneableRepo | null>(null)
+  const [query, setQuery] = useState(initialRepo?.fullName ?? '')
+  const [picked, setPicked] = useState<CloneableRepo | null>(initialRepo ?? null)
   const [url, setUrl] = useState('')
-  const [protocol, setProtocol] = usePersistentState<'ssh' | 'https'>('spoon.clone.protocol', 'ssh')
-  const [submodules, setSubmodules] = usePersistentState('spoon.clone.submodules', true)
-  // By default, next to the last project: the folder holding it, or, for a submodule (MainLib inside a
-  // game), the folder holding the repository it's part of.
-  const outside = useAsync(async () => {
-    let top = recents[0]
-    if (!top) return home
-    for (let i = 0; i < 5; i++) {
-      const [up] = await window.spoon.repoParents([top]).catch(() => [null])
-      if (!up) break
-      top = up
-    }
-    return parentOf(top) || home
-  }, [])
-  const [parent, setParent] = usePersistentState<string>('spoon.clone.parent', '')
-  const folder = parent || outside.data || home
+  const [protocol, setProtocol] = useCloneProtocol()
+  const [submodules, setSubmodules] = useCloneSubmodules()
+  const { folder, setParent } = useCloneFolder(home, recents)
   const [name, setName] = useState('')
   const [phase, setPhase] = useState<Phase>({ kind: 'form' })
   // Looked at again after SSH setup closes.

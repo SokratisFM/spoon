@@ -434,6 +434,7 @@ function registerIpc(): void {
     git.clone(url, dest, submodules, branch, progress(e, dest))
   )
   ipcMain.handle('repo:remoteBranches', (_e, url: string) => git.remoteBranches(url))
+  ipcMain.handle('repo:githubSlugs', (_e, paths: string[]) => git.githubSlugs(Array.isArray(paths) ? paths.slice(0, 2000) : []))
   handleRepo('repo:cloneSubmodules', (e, path: string) => git.cloneSubmodules(path, progress(e, path)))
   handleRepo('repo:newSubmodules', (_e, path: string) => git.newSubmodules(path))
   handleRepo('repo:downloadNewSubmodules', (e, path: string) => git.downloadNewSubmodules(path, progress(e, path)))

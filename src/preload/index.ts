@@ -85,6 +85,7 @@ const api: SpoonApi = {
   ghCloneableRepos: () => ipcRenderer.invoke('gh:cloneableRepos'),
   clone: (url, dest, submodules, branch) => ipcRenderer.invoke('repo:clone', url, dest, submodules, branch),
   remoteBranches: (url) => ipcRenderer.invoke('repo:remoteBranches', url),
+  githubSlugs: (paths) => ipcRenderer.invoke('repo:githubSlugs', paths),
   cloneSubmodules: (path) => ipcRenderer.invoke('repo:cloneSubmodules', path),
   newSubmodules: (path) => ipcRenderer.invoke('repo:newSubmodules', path),
   downloadNewSubmodules: (path) => ipcRenderer.invoke('repo:downloadNewSubmodules', path),
