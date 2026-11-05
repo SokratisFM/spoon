@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NewTicketForm, type CreatedTicket } from './NewTicketForm'
 import type { JiraIssue, RepoState } from '../../../shared/types'
 import { Modal } from './Modal'
+import { BranchPicker } from './BranchPicker'
 import type { Ops } from './RepoView'
 import { useSettings } from '../settings'
 import { usePersistentState } from '../hooks'
@@ -197,7 +198,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [base, setBase] = useState(defaultBase)
-  const baseRef = [...locals, ...remotes].find((r) => r.name === base)
+  const baseRefs = useMemo(() => [...locals, ...remotes], [locals, remotes])
+  const baseRef = baseRefs.find((r) => r.name === base)
 
   // The version the release starts from: what the chosen base has (the bump lands only on the release
   // branch, so the working copy may say something else).
@@ -302,26 +304,14 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const basedOn = (
     <div className="field">
       <span className="field-label">Based on</span>
-      <select value={base} onChange={(e) => setBase(e.target.value)}>
-        {locals.length > 0 && (
-          <optgroup label="Branches">
-            {locals.map((r) => (
-              <option key={r.name} value={r.name}>
-                {r.name}
-              </option>
-            ))}
-          </optgroup>
-        )}
-        {remotes.length > 0 && (
-          <optgroup label="Remote branches">
-            {remotes.map((r) => (
-              <option key={r.name} value={r.name}>
-                {r.name}
-              </option>
-            ))}
-          </optgroup>
-        )}
-      </select>
+      {/* Type to search, or name any branch, tag or commit; the list picks as you go. */}
+      <BranchPicker
+        className="nb-base"
+        refs={baseRefs}
+        value={baseRef?.fullName ?? base}
+        onChange={(v) => setBase(baseRefs.find((r) => r.fullName === v)?.name ?? v)}
+        title="The branch, tag or commit the new branch starts from"
+      />
       {baseRef?.kind === 'head' && !!baseRef.behind && (
         <span className="hint warn">
           {base} is {baseRef.behind} commit{baseRef.behind === 1 ? '' : 's'} behind {baseRef.upstream}.

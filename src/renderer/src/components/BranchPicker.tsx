@@ -77,8 +77,13 @@ export function BranchPicker({ refs, value, onChange, title, className }: Props)
     setBox(input.current?.getBoundingClientRect() ?? null)
     const i = refs.filter((r) => r.kind !== 'stash')
     setAt(Math.max(0, GROUPS.flatMap(([k]) => i.filter((r) => r.kind === k)).findIndex((r) => r.fullName === value)))
+    // All of it selected, so typing replaces it: now, and again once the field shows the text.
+    input.current?.select()
     requestAnimationFrame(() => input.current?.select())
+    justOpened.current = true
   }
+  // The click that opened it mustn't drop the selection when the button comes up.
+  const justOpened = useRef(false)
   const close = (): void => setQuery(null)
   // Set while a pick closes the field, so leaving it doesn't also take what was typed.
   const picking = useRef(false)
@@ -148,7 +153,14 @@ export function BranchPicker({ refs, value, onChange, title, className }: Props)
         onMouseDown={() => {
           if (!open && document.activeElement === input.current) begin()
         }}
+        onMouseUp={(e) => {
+          if (!justOpened.current) return
+          justOpened.current = false
+          e.preventDefault()
+          input.current?.select()
+        }}
         onChange={(e) => {
+          justOpened.current = false
           setQuery(e.target.value)
           setTyped(true)
           setAt(0)

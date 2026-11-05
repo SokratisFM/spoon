@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.52.1 — 2026-11-05
+
+- **Improved:** New branch: “Based on” is a field you can type in. It searches branches as you type, and takes any other branch, tag or commit you name.
+- **Fixed:** Clicking into a branch field (New branch, Compare Branches) selects its text, so typing replaces it instead of adding to it.
+
 ## 0.52.0 — 2026-11-05
 
 - **New:** A welcome tour on the first launch, on Mac and Windows: a few small steps (colors, size and spacing, diffs, history, a few extras, GitHub and SSH, your projects) where every change shows up as you pick it, with a preview beside it. Skip any step, or the whole tour; Help → Welcome Tour (or Settings → About) shows it again.
