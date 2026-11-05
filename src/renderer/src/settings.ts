@@ -135,6 +135,8 @@ export interface Settings {
   spotlightFadeCommits: boolean
   /** Review with Claude: the toolbar button, ⇧⌘R, the commit box button and right-click items. */
   claudeEnabled: boolean
+  /** Download submodules never downloaded on this computer when a repository opens or a pull adds one. */
+  autoSubmodules: boolean
   /** MainLib updates: which submodule, its version branches, and the two Confluence pages. */
   mainlibName: string
   mainlibPrefix: string
@@ -208,6 +210,7 @@ const DEFAULTS: Settings = {
   laneSpotlight: 'selected',
   spotlightFadeCommits: false,
   claudeEnabled: true,
+  autoSubmodules: true,
   mainlibName: MAINLIB_DEFAULTS.name,
   mainlibPrefix: MAINLIB_DEFAULTS.prefix,
   mainlibChangelogUrl: MAINLIB_DEFAULTS.changelog,

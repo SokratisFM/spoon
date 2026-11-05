@@ -17,7 +17,7 @@ import * as thumbnails from './thumbnails'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
 import { homedir } from 'node:os'
-import type { ClaudeLaunch, JiraNewIssue, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, CompareMode, DiffTarget, LinePick, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
+import type { ClaudeLaunch, JiraNewIssue, NewPull, NewRelease, NewTagOptions, DiscardEntry, DeviceCode, ReviewSubmission, CheckoutTarget, CompareMode, CloneBranch, DiffTarget, LinePick, MenuCommand, PullOptions, PushOptions, RebaseStep } from '../shared/types'
 
 // Lets a test run keep its own settings and tabs instead of sharing yours.
 if (process.env.SPOON_USER_DATA) app.setPath('userData', process.env.SPOON_USER_DATA)
@@ -430,8 +430,13 @@ function registerIpc(): void {
   const progress = (e: Electron.IpcMainInvokeEvent, path: string) => (line: string) =>
     void (!e.sender.isDestroyed() && e.sender.send('progress', path, line))
   ipcMain.handle('repo:fetch', (e, path: string, prune: boolean) => git.fetch(path, prune, progress(e, path)))
-  ipcMain.handle('repo:clone', (e, url: string, dest: string, submodules: boolean) => git.clone(url, dest, submodules, progress(e, dest)))
+  ipcMain.handle('repo:clone', (e, url: string, dest: string, submodules: boolean, branch: CloneBranch) =>
+    git.clone(url, dest, submodules, branch, progress(e, dest))
+  )
+  ipcMain.handle('repo:remoteBranches', (_e, url: string) => git.remoteBranches(url))
   handleRepo('repo:cloneSubmodules', (e, path: string) => git.cloneSubmodules(path, progress(e, path)))
+  handleRepo('repo:newSubmodules', (_e, path: string) => git.newSubmodules(path))
+  handleRepo('repo:downloadNewSubmodules', (e, path: string) => git.downloadNewSubmodules(path, progress(e, path)))
   ipcMain.handle('repo:fetchQuietly', (_e, path: string) => git.fetchQuietly(path))
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
   ipcMain.handle('repo:push', (e, path: string, opts: PushOptions) => git.push(path, opts, progress(e, path)))

@@ -3,12 +3,15 @@
 // without SSH access, say) doesn't undo the clone: it opens anyway, and SSH setup and a retry are
 // offered for the rest.
 import { useEffect, useMemo, useState } from 'react'
-import type { CloneableRepo } from '../../../shared/types'
+import type { CloneableRepo, CloneBranch } from '../../../shared/types'
 import { cleanError, useAsync, usePersistentState } from '../hooks'
 import { tildify } from '../projects'
 import { requestSshSetup, sshTrouble } from '../sshHelp'
+import { triedSubmodules } from './Submodules'
 import { Modal } from './Modal'
+import { choose } from '../dialogs'
 import { LockIcon } from './Icons'
+import { BranchPicker } from './BranchPicker'
 
 interface Props {
   home: string
@@ -92,7 +95,32 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
   const sshMatters = overSsh && !!githubSlug(source)
   const ssh = useAsync(() => (sshMatters ? window.spoon.sshStatus() : Promise.resolve(null)), [sshTick, sshMatters])
   const noSsh = sshMatters && !!ssh.data && ssh.data.auth.state !== 'ok'
-  const ready = !!source && !!dest && /^[^/\\]+$/.test(name.trim())
+  // Which branch to check out: the one with the latest commit unless another is picked.
+  const [branchMode, setBranchMode] = usePersistentState<'latest' | 'develop' | 'name'>('spoon.clone.branchMode', 'latest')
+  const [branchName, setBranchName] = useState('')
+  // The repository's branches (asked once the URL has settled): the list to pick from, and whether
+  // there's a develop. Null while unknown; an error leaves the options as they are.
+  const [settled, setSettled] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(source), 500)
+    return () => clearTimeout(t)
+  }, [source])
+  const branches = useAsync(
+    () => (settled && (!overSsh || !noSsh) ? window.spoon.remoteBranches(settled) : Promise.resolve(null)),
+    [settled, noSsh]
+  )
+  const branchRefs = useMemo(
+    () => (branches.data ?? []).map((b) => ({ name: b, fullName: b, kind: 'head' as const, target: '' })),
+    [branches.data]
+  )
+  const hasDevelop = branches.data && !branches.loading ? branches.data.includes('develop') : null
+  useEffect(() => {
+    // A newly chosen repository starts from no picked branch.
+    setBranchName('')
+  }, [settled])
+  const branch: CloneBranch =
+    branchMode === 'develop' ? { kind: 'develop' } : branchMode === 'name' && branchName ? { kind: 'name', name: branchName } : { kind: 'latest' }
+  const ready = !!source && !!dest && /^[^/\\]+$/.test(name.trim()) && (branchMode !== 'name' || !!branchName)
 
   // Progress lines for this clone (they come named by its folder).
   useEffect(() => {
@@ -107,10 +135,14 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
     const label = githubSlug(source) ?? name.trim()
     setPhase({ kind: 'cloning', dest, step: `Cloning ${label}…`, line: '' })
     try {
-      const { submoduleError } = await window.spoon.clone(source, dest, submodules)
+      const { submoduleError, note } = await window.spoon.clone(source, dest, submodules, branch)
+      // This dialog says why the submodules didn't come down: the opened tab doesn't try again by itself.
+      if (submoduleError) triedSubmodules.add(`${dest}\0*`)
       onCloned(dest)
       if (submoduleError) setPhase({ kind: 'submodules', dest, error: submoduleError, retrying: false })
       else onClose()
+      // Not the branch asked for (no develop, say): said once it's open.
+      if (note) void choose({ title: `${label} was cloned`, detail: note, cancelId: 'ok', buttons: [{ id: 'ok', label: 'OK', kind: 'primary' }] })
     } catch (err) {
       const message = cleanError(err)
       setPhase({ kind: 'form', error: message === 'Cancelled.' ? undefined : message })
@@ -312,6 +344,37 @@ export function CloneDialog({ home, recents, onCloned, onClose }: Props) {
         </span>
         {exists.data && <span className="hint warn">There’s already a {name.trim()} folder there; it has to be empty.</span>}
       </label>
+      <div className="field">
+        <span className="field-label">Check out</span>
+        <div className="clone-branch">
+          <label className="check">
+            <input id="clone-branch-latest" type="radio" name="clone-branch" checked={branchMode === 'latest'} onChange={() => setBranchMode('latest')} />
+            The branch with the latest commit
+          </label>
+          <label className="check" title={hasDevelop === false ? 'This repository has no develop branch: its default branch is checked out instead.' : undefined}>
+            <input id="clone-branch-develop" type="radio" name="clone-branch" checked={branchMode === 'develop'} onChange={() => setBranchMode('develop')} />
+            <span className="mono">develop</span>
+            {hasDevelop === false && <span className="muted"> (not in this repository: the default branch instead)</span>}
+          </label>
+          <span className="clone-branch-pick" onFocus={() => setBranchMode('name')}>
+            <label className="check">
+              <input id="clone-branch-name" type="radio" name="clone-branch" checked={branchMode === 'name'} onChange={() => setBranchMode('name')} />
+              Another branch:
+            </label>
+            <BranchPicker
+              refs={branchRefs}
+              value={branchName}
+              onChange={(v) => {
+                setBranchName(v)
+                setBranchMode('name')
+              }}
+              title="Branch to check out"
+            />
+          </span>
+          {branchMode === 'name' && branches.loading && <span className="hint">Looking up its branches…</span>}
+          {branchMode === 'name' && branches.error && <span className="hint">Couldn’t list its branches; type the branch name.</span>}
+        </div>
+      </div>
       <label className="check">
         <input type="checkbox" checked={submodules} onChange={(e) => setSubmodules(e.target.checked)} />
         Also download submodules <span className="muted">(like MainLib)</span>

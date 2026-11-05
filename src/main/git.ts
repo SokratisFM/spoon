@@ -6,6 +6,8 @@ import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, rmd
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
+  CloneBranch,
+  CloneResult,
   FileContent,
   Commit,
   CommitDetails,
@@ -683,8 +685,9 @@ export async function clone(
   url: string,
   dest: string,
   submodules: boolean,
+  branch: CloneBranch,
   onProgress?: (line: string) => void
-): Promise<{ submoduleError: string | null }> {
+): Promise<CloneResult> {
   assertArg(url, 'repository URL')
   if (typeof dest !== 'string' || !isAbsolute(dest)) throw new Error(`Not a folder path: ${dest}`)
   // A password or token in the URL would be saved in the clone's settings (and its command history).
@@ -701,14 +704,53 @@ export async function clone(
   }
   inProgress.add(dest)
   try {
-    await exec(dirname(dest), [...SAFE_PROTOCOLS, 'clone', '--progress', '--', url, dest], { onProgress, cancellable: dest })
+    // Nothing is checked out until the branch is chosen (the one with the latest commit is only
+    // known once everything is in).
+    await exec(dirname(dest), [...SAFE_PROTOCOLS, 'clone', '--progress', '--no-checkout', '--', url, dest], { onProgress, cancellable: dest })
   } catch (err) {
     if (made) await rm(dest, { recursive: true, force: true })
     throw err
   } finally {
     inProgress.delete(dest)
   }
-  return { submoduleError: submodules ? await cloneSubmodules(dest, onProgress) : null }
+  const { checkedOut, note } = await checkOutCloned(dest, branch)
+  // Left out on purpose: Spoon doesn't download them later by itself either.
+  if (!submodules) await git(dest, ['config', 'spoon.autoSubmodules', 'false']).catch(() => undefined)
+  return { branch: checkedOut, note, submoduleError: submodules ? await cloneSubmodules(dest, onProgress) : null }
+}
+
+/**
+ * Checks out the chosen branch of a fresh --no-checkout clone: the one with the latest commit, develop,
+ * or one by name (the remote's default branch when the repository has no such branch). Only that
+ * branch is made locally, as `git clone --branch` would.
+ */
+async function checkOutCloned(dest: string, branch: CloneBranch): Promise<{ checkedOut: string | null; note: string | null }> {
+  const refs = (await git(dest, ['for-each-ref', '--sort=-committerdate', '--format=%(refname)', 'refs/remotes/origin/'])).split('\n').filter((r) => r && r !== 'refs/remotes/origin/HEAD')
+  const names = refs.map((r) => r.slice('refs/remotes/origin/'.length))
+  // What clone made: the remote's default branch (none for an empty repository).
+  const made = (await git(dest, ['symbolic-ref', '--quiet', '--short', 'HEAD'], [0, 1])).trim()
+  const asked = branch.kind === 'latest' ? names[0] : branch.kind === 'develop' ? 'develop' : branch.name
+  let target = asked && names.includes(asked) ? asked : made
+  let note: string | null = null
+  if (asked && target !== asked) note = `There’s no ${asked} branch, so ${target || 'the default branch'} was checked out.`
+  if (!target || !names.includes(target)) {
+    // An empty repository, or a default branch that isn't there: nothing to check out.
+    return { checkedOut: made || null, note }
+  }
+  if (target === made) await git(dest, ['checkout', '--force', '--quiet', made])
+  else {
+    await git(dest, ['checkout', '--force', '--quiet', '-b', target, '--track', `origin/${target}`])
+    if (made) await git(dest, ['branch', '-D', '--quiet', made]).catch(() => undefined)
+  }
+  return { checkedOut: target, note }
+}
+
+/** A repository's branches, from the URL before it's cloned (newest first isn't known yet: by name). */
+export async function remoteBranches(url: string): Promise<string[]> {
+  assertArg(url, 'repository URL')
+  if (/^https?:\/\/[^/@]+@/i.test(url)) return []
+  const { out } = await exec(tmpdir(), [...SAFE_PROTOCOLS, 'ls-remote', '--heads', '--', url], { maxBytes: 20 * 1024 * 1024 })
+  return out.split('\n').flatMap((l) => /\trefs\/heads\/(.+)$/.exec(l)?.[1] ?? []).sort((a, b) => a.localeCompare(b))
 }
 
 /** Clones under way: what's left of them goes when Spoon quits mid-clone. */
@@ -731,6 +773,57 @@ export async function cloneSubmodules(cwd: string, onProgress?: (line: string) =
   } catch (err) {
     return (err as Error).message
   }
+}
+
+/**
+ * Submodules never downloaded on this computer: listed in .gitmodules and recorded by the parent, with
+ * an empty folder and no saved copy in the git folder's modules/. One removed with `deinit` keeps its
+ * saved copy, so it isn't brought back; neither is one set to `update = none`, nor any in a
+ * repository cloned with its submodules left out on purpose (spoon.autoSubmodules false).
+ */
+export async function newSubmodules(cwd: string): Promise<string[]> {
+  if (!existsSync(join(cwd, '.gitmodules'))) return []
+  if ((await git(cwd, ['config', '--bool', 'spoon.autoSubmodules'], [0, 1])).trim() === 'false') return []
+  const config = await git(cwd, ['config', '-z', '-f', '.gitmodules', '--get-regexp', '^submodule\\..*\\.(path|update)$'], [0, 1])
+  const subs = new Map<string, { path?: string; skip?: boolean }>()
+  for (const entry of config.split('\0').filter(Boolean)) {
+    const nl = entry.indexOf('\n')
+    const m = /^submodule\.(.+)\.(path|update)$/.exec(entry.slice(0, nl))
+    if (!m) continue
+    const sub = subs.get(m[1]) ?? {}
+    if (m[2] === 'path') sub.path = entry.slice(nl + 1)
+    else if (entry.slice(nl + 1).trim() === 'none') sub.skip = true
+    subs.set(m[1], sub)
+  }
+  const named = [...subs].flatMap(([name, s]) => (s.path && !s.skip ? [{ name, path: s.path }] : []))
+  if (!named.length) return []
+  // Only submodules the parent records (stage 0: not one whose pointer is in conflict).
+  const index = await git(cwd, ['ls-files', '-s', '-z', '--', ...named.map((s) => s.path)]).catch(() => '')
+  const recorded = new Set(index.split('\0').flatMap((e) => /^160000 [0-9a-f]+ 0\t(.+)$/.exec(e)?.[1] ?? []))
+  const dirs = (await git(cwd, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'])).trim().split('\n')
+  const fresh: string[] = []
+  for (const s of named) {
+    if (!recorded.has(s.path)) continue
+    // Set to inactive, or to not update, in this clone's own settings.
+    const local = (await git(cwd, ['config', '--get-regexp', `^submodule\\.${s.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.(active|update)$`], [0, 1])).trim()
+    if (/\.active false$|\.update none$/m.test(local)) continue
+    if (dirs.some((d) => existsSync(join(d, 'modules', s.name)))) continue
+    const dir = join(cwd, s.path)
+    // git only downloads into an empty (or missing) folder.
+    if (existsSync(dir) && (await readdir(dir).catch(() => ['?'])).length) continue
+    fresh.push(s.path)
+  }
+  return fresh
+}
+
+/** Downloads the submodules never downloaded here (and theirs); the paths it downloaded. */
+export function downloadNewSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string[]> {
+  return exclusive(cwd, async () => {
+    const paths = await newSubmodules(cwd)
+    if (paths.length)
+      await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths], { onProgress, cancellable: true })
+    return paths
+  })
 }
 
 /** Two branches (or any commits) compared: the commits between them and every file that differs. */

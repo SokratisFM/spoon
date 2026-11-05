@@ -5,6 +5,12 @@ import { BackIcon, BoxIcon, ChevronIcon } from './Icons'
 import { revealLabel } from '../platform'
 import { contextMenu } from '../menus'
 
+/**
+ * Submodules whose automatic download was already tried this session ("<repo>\0<path>"), or a whole
+ * repository's ("<repo>\0*": one whose clone already said why its submodules didn't come down).
+ */
+export const triedSubmodules = new Set<string>()
+
 export function submoduleStatus(s: Submodule): { label: string; tone: 'ok' | 'warn' | 'danger' | 'off' } {
   if (s.state === 'uninitialized') return { label: 'not initialized', tone: 'off' }
   if (s.state === 'conflict') return { label: 'conflict', tone: 'danger' }

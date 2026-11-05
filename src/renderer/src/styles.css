@@ -8687,3 +8687,9 @@ kbd.setting-key {
 .fh-file .diff-line .ln {
   width: 3.6em;
 }
+
+/* Clone: which branch to check out */
+.clone-branch { display: flex; flex-direction: column; gap: 4px; }
+.clone-branch .check { margin: 0; }
+.clone-branch-pick { display: flex; align-items: center; gap: 8px; }
+.clone-branch-pick .branch-picker { flex: 1; min-width: 0; max-width: 22rem; }

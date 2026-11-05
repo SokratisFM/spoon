@@ -1221,6 +1221,16 @@ function AccountsTab() {
     }
   }
 
+  // Whether SSH to GitHub already works (looked at again after the SSH dialog changes something).
+  const [sshTick, setSshTick] = useState(0)
+  useEffect(() => {
+    const on = (): void => setSshTick((t) => t + 1)
+    window.addEventListener('spoon:sshChanged', on)
+    return () => window.removeEventListener('spoon:sshChanged', on)
+  }, [])
+  const ssh = useAsync(() => window.spoon.sshStatus(), [sshTick])
+  const sshAuth = ssh.data?.auth
+
   // Spoon's own OAuth app (spoon.config.json) unless you've set your own Client ID.
   const builtInClientId = useAppInfo()?.githubClientId ?? ''
   const clientId = s.githubClientId || builtInClientId
@@ -1274,10 +1284,16 @@ function AccountsTab() {
       <div className="connect-row ssh-row">
         <div className="palette-text">
           <span className="palette-name">SSH key</span>
-          <span className="palette-path">Needed for repositories downloaded over SSH, like MainLib.</span>
+          <span className="palette-path">
+            {ssh.loading && !ssh.data
+              ? 'Checking…'
+              : sshAuth?.state === 'ok'
+                ? <><span className="ssh-ok">✓</span> Working: GitHub knows this computer’s key as @{sshAuth.user}.</>
+                : 'Needed for repositories downloaded over SSH, like MainLib.'}
+          </span>
         </div>
         <button className="btn" onClick={requestSshSetup}>
-          Set Up SSH Key…
+          {sshAuth?.state === 'ok' ? 'Details…' : 'Set Up SSH Key…'}
         </button>
       </div>
 
@@ -1931,6 +1947,16 @@ function ProjectsTab() {
           />
           Include repos inside other repos (submodules)
         </label>
+      </div>
+      <div className="field">
+        <label className="check">
+          <input type="checkbox" checked={s.autoSubmodules} onChange={(e) => updateSettings({ autoSubmodules: e.target.checked })} />
+          Download missing submodules automatically
+        </label>
+        <span className="hint">
+          When a repository opens (one cloned with another app, say) or a pull adds a submodule, Spoon downloads the
+          submodules this computer doesn’t have yet, so the project opens complete. Ones you removed are left alone.
+        </span>
       </div>
 
       <div className="field">

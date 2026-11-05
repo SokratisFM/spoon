@@ -53,7 +53,7 @@ import { CommitPanel } from './CommitPanel'
 import { ChangesView } from './ChangesView'
 import { ErrorModal, overlayOpen } from './Modal'
 import { PullDialog, PushDialog } from './SyncDialogs'
-import { ParentChip, SubmoduleChip, submoduleActions } from './Submodules'
+import { ParentChip, SubmoduleChip, submoduleActions, triedSubmodules } from './Submodules'
 import { NetButton, type NetKind, type NetState } from './NetButton'
 import { DeleteBranchDialog } from './DeleteBranchDialog'
 import { CheckoutBlockedDialog, overwrittenFiles } from './CheckoutBlockedDialog'
@@ -528,6 +528,27 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     [path, ops, onOpenRepo, mainlibName]
   )
 
+  // Submodules never downloaded on this computer (a clone made without them, or one a pull just
+  // added) come down by themselves, so the project opens complete (Unity needs MainLib, say). Each
+  // is tried once per session: one that fails says why and waits for Initialize.
+  const autoSubmodules = useSettings().autoSubmodules
+  const pendingSubs = repo?.submodules.filter((s) => s.state === 'uninitialized').map((s) => s.path).join('\0') ?? ''
+  useEffect(() => {
+    if (!autoSubmodules || !pendingSubs || triedSubmodules.has(`${path}\0*`)) return
+    const fresh = pendingSubs.split('\0').filter((p) => !triedSubmodules.has(`${path}\0${p}`))
+    if (!fresh.length) return
+    for (const p of fresh) triedSubmodules.add(`${path}\0${p}`)
+    window.spoon
+      .newSubmodules(path)
+      .then((paths) => {
+        if (!paths.length) return
+        const names = paths.map((p) => p.split('/').pop()!)
+        const what = names.length === 1 ? names[0] : `${names.length} submodules`
+        ops.run(`Downloading ${what}…`, () => window.spoon.downloadNewSubmodules(path), `Couldn’t download ${what}`)
+      })
+      .catch(() => undefined)
+  }, [path, pendingSubs, autoSubmodules, ops])
+
   // Fetch/pull/push with their button animation: working (ring follows git's %), then done
   // (check, "+N" new commits, which also slide into the list) or failed (shake).
   const netOp = async (kind: NetKind, label: string, fn: () => Promise<unknown>, failTitle: string): Promise<void> => {
@@ -872,7 +893,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
                 {busy.label}
                 {busy.progress && <span className="muted"> {busy.progress}</span>}
               </span>
-              {(busy.network || /^(Updating|Initializing|Deleting) /.test(busy.label)) && (
+              {(busy.network || /^(Updating|Initializing|Deleting|Downloading) /.test(busy.label)) && (
                 <button className="mini-btn" onClick={() => window.spoon.cancel(path)} title="Stop this git command">
                   Cancel
                 </button>

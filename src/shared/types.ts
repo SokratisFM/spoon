@@ -838,9 +838,15 @@ export interface SpoonApi {
   sshStatus(): Promise<SshStatus>
   ghCloneableRepos(): Promise<{ repos: CloneableRepo[]; more: boolean }>
   /** Clones into dest (progress comes as dest's), then its submodules; a submodule failure is returned, not thrown. */
-  clone(url: string, dest: string, submodules: boolean): Promise<{ submoduleError: string | null }>
+  clone(url: string, dest: string, submodules: boolean, branch: CloneBranch): Promise<CloneResult>
+  /** The branches of a repository not cloned yet, by name. */
+  remoteBranches(url: string): Promise<string[]>
   /** Downloads a repository's submodules; the error if one failed. */
   cloneSubmodules(path: string): Promise<string | null>
+  /** Submodules never downloaded on this computer (paths). */
+  newSubmodules(path: string): Promise<string[]>
+  /** Downloads them (and their own submodules); the paths it downloaded. */
+  downloadNewSubmodules(path: string): Promise<string[]>
   sshCreateKey(): Promise<SshKey>
   sshTrustGitHub(): Promise<void>
   /** Replaces a GitHub host key GitHub no longer publishes (after the user confirmed). */
@@ -975,3 +981,13 @@ export type MenuCommand =
   | 'compare-files'
   | 'clone'
   | 'file-history'
+
+/** Which branch a clone checks out: the one with the latest commit, develop, or one by name. */
+export type CloneBranch = { kind: 'latest' } | { kind: 'develop' } | { kind: 'name'; name: string }
+export interface CloneResult {
+  /** The branch checked out (null for an empty repository). */
+  branch: string | null
+  /** Why it isn't the one asked for (no develop branch, say). */
+  note: string | null
+  submoduleError: string | null
+}
