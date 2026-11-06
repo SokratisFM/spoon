@@ -144,7 +144,7 @@ force-quits. Sidebar sections can be reordered or hidden in Settings → Appeara
 - **Local Changes**: double-click or press Enter to stage/unstage; ⌘-click and ⇧-click select several files; right-click for more.
   **Stage hunk / Unstage hunk** buttons sit on each hunk header in the diff.
 - **Commit**: summary + description, Amend, ⌘Enter. The draft is kept per repository.
-- **Fetch / Pull / Push** in the toolbar (⇧⌘F, ⇧⌘L, ⇧⌘P). Pull can rebase and autostash; Push can set the upstream and push tags.
+- **Fetch / Pull / Push** in the toolbar (⇧⌘F, ⇧⌘L, ⇧⌘P). Fetch gets the whole project (the main repository and all its submodules), from any of them. Pull can rebase and autostash; Push can set the upstream and push tags.
 - **Merge**: right-click a branch (sidebar or history) → Merge into the checked-out branch. A merge that stops on conflicts shows a banner with Commit Merge and Abort.
   Badges show how many commits you are behind/ahead.
 - **Checkout**: double-click a branch, remote branch or tag in the sidebar, or right-click a commit.

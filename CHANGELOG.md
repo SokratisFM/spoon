@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.53.1 — 2026-11-06
+
+- **Improved:** Fetch gets the whole project: the main repository and every submodule in it (nested ones too), whichever of them you press Fetch in. Before, a submodule was only fetched when the main repository's new commits pointed it somewhere new.
+
 ## 0.53.0 — 2026-11-06
 
 - **New:** Merge branches: right-click a branch in the sidebar or in the history and choose “Merge … into …”. When it would only fast-forward you can still create a merge commit. If it stops on conflicts, a banner lets you commit the merge once they're resolved, or abort it.

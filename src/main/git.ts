@@ -1666,12 +1666,34 @@ export async function syncInfo(cwd: string): Promise<SyncInfo> {
   }
 }
 
+/** The outermost repository this one is a submodule of (itself when it isn't one). */
+async function topRepository(cwd: string): Promise<string> {
+  let dir = resolve(cwd)
+  for (let i = 0; i < 20; i++) {
+    const up = (await git(dir, ['rev-parse', '--show-superproject-working-tree'], [0, 128]).catch(() => '')).trim()
+    if (!up) return dir
+    dir = up
+  }
+  return dir
+}
+
+/**
+ * Fetches the whole project: from its outermost repository down through every submodule downloaded
+ * here (nested ones too), whichever of them it's started from. git on its own fetches a submodule
+ * only when the parent's new commits point it somewhere new.
+ */
 export async function fetch(cwd: string, prune: boolean, onProgress: (l: string) => void): Promise<void> {
-  await exclusive(cwd, () =>
-    run(cwd, ['fetch', '--all', '--progress', ...(prune ? ['--prune'] : [])], { onProgress, cancellable: true }).catch(async (err) => {
-      throw await whichFailed(cwd, err)
-    })
-  )
+  const top = await topRepository(cwd)
+  const args = ['fetch', '--all', '--progress', '--recurse-submodules=yes', '--jobs=4', ...(prune ? ['--prune'] : [])]
+  // The tab it was started from holds its own lock and Cancel; the outermost one's lock too.
+  const now = (): Promise<void> =>
+    run(top, args, { onProgress, cancellable: cwd }).then(
+      () => undefined,
+      async (err) => {
+        throw await whichFailed(top, err)
+      }
+    )
+  await exclusive(top, () => (repoKey(top) === repoKey(cwd) ? now() : exclusive(cwd, now)))
 }
 
 /** git couldn't reach (or wasn't let into) a repository: no access, unknown host, no network. */
