@@ -110,6 +110,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
           ? `Checkout ${ref.name} as Local Branch`
           : `Checkout Tag ${ref.name}…`
     const canRebase = !!repo.headBranch && ref.kind !== 'tag' && !isCurrent && ref.target !== repo.headHash
+    const canMerge = !!repo.headBranch && !isCurrent && ref.target !== repo.headHash
     setPicked(ref.fullName)
     // Its open pull request: a remote branch's name is looked up without its remote.
     const remote = ref.kind === 'remote' ? repo.remotes.filter((x) => ref.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0] : undefined
@@ -121,9 +122,10 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     const choice = await contextMenu([
       { id: 'checkout', label: checkoutLabel, enabled: !isCurrent },
       ...(compareWith ? [{ id: 'compare', label: `Compare with ${shortRef(compareWith)}` }] : []),
+      ...(canMerge ? [{ separator: true }, { id: 'merge', label: `Merge ${ref.name} into ${repo.headBranch}…` }] : []),
       ...(canRebase
         ? [
-            { separator: true },
+            ...(canMerge ? [] : [{ separator: true }]),
             { id: 'rebase', label: `Rebase ${repo.headBranch} onto ${ref.name}` },
             { id: 'irebase', label: `Interactive Rebase ${repo.headBranch} onto ${ref.name}…` }
           ]
@@ -145,6 +147,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     else if (choice === 'compare' && compareWith) requestBranchDiff({ path: repo.path, base: compareWith, compare: ref.fullName })
     else if (choice === 'pr') ops.createPull?.(ref.name)
     else if (choice === 'open-pr' && pull) ops.openPull(pull.number)
+    else if (choice === 'merge') ops.merge(ref.fullName, ref.name)
     else if (choice === 'rebase' || choice === 'irebase') ops.rebase(ref.name, choice === 'irebase')
     else if (choice === 'show') onJump(ref.target)
     else if (choice === 'copy') navigator.clipboard.writeText(ref.name)

@@ -39,6 +39,9 @@ import type {
   RebaseAction,
   RebaseCommit,
   RebasePlan,
+  MergePlan,
+  MergeResult,
+  MergeState,
   RebaseProgress,
   RebaseResult,
   RebaseStep,
@@ -96,7 +99,7 @@ const CANCELLED = 'Cancelled.'
 const cancellable = new Map<string, Set<ChildProcess>>()
 const repoKey = (cwd: string): string => resolve(cwd)
 
-function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out: string; truncated: boolean }> {
+function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out: string; truncated: boolean; err: string }> {
   const okCodes = opts.okCodes ?? [0]
   return new Promise((done, reject) => {
     // Cancellable commands get their own process group: `fetch --all`, `pull` and `submodule update`
@@ -157,7 +160,7 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
       if (cancelled) return reject(new GitError(CANCELLED, code, err))
       if (truncated || (code !== null && okCodes.includes(code))) {
         const buf = Buffer.concat(out)
-        return done({ out: (truncated ? buf.subarray(0, opts.maxBytes) : buf).toString(opts.encoding ?? 'utf8'), truncated })
+        return done({ out: (truncated ? buf.subarray(0, opts.maxBytes) : buf).toString(opts.encoding ?? 'utf8'), truncated, err })
       }
       // Keep only the final state of each \r-updated progress line.
       const msg = err
@@ -280,6 +283,7 @@ export async function openRepo(path: string): Promise<RepoState> {
     remotes: remotesOut.split('\n').filter(Boolean),
     operation: detectOperation(gitDir),
     rebase: readRebaseProgress(gitDir),
+    merge: readMergeState(gitDir),
     submodules,
     superproject: superproject || null
   }
@@ -720,7 +724,14 @@ export async function clone(
   }
   // Left out on purpose: Spoon doesn't download them later by itself either.
   if (!submodules) await git(dest, ['config', 'spoon.autoSubmodules', 'false']).catch(() => undefined)
-  return { branch: checkedOut, note, submoduleError: submodules ? await cloneSubmodules(dest, onProgress) : null }
+  const submoduleError = submodules ? await cloneSubmodules(dest, onProgress) : null
+  let root = resolve(dest)
+  try {
+    root = realpathSync(root)
+  } catch {
+    // keep the path as given
+  }
+  return { branch: checkedOut, note, submoduleError, root }
 }
 
 /**
@@ -836,7 +847,8 @@ export async function newSubmodules(cwd: string): Promise<string[]> {
   // unless a submodule's own active setting says otherwise.
   const specs = (await git(cwd, ['config', '--get-all', 'submodule.active'], [0, 1])).split('\n').filter(Boolean)
   const bySpec = specs.length
-    ? new Set((await git(cwd, ['ls-files', '-z', '--', ...specs]).catch(() => '')).split('\0').filter(Boolean))
+    ? // Pathspecs proper here (libs/*, :(glob)…, :(exclude)…), not the literal file names used everywhere else.
+      new Set((await run(cwd, ['ls-files', '-z', '--', ...specs], { env: { GIT_LITERAL_PATHSPECS: '0' } }).catch(() => '')).split('\0').filter(Boolean))
     : null
   const setting = async (key: string, type?: 'bool'): Promise<string> =>
     (await git(cwd, ['config', ...(type ? ['--type=bool'] : []), '--get', key], [0, 1]).catch(() => '')).trim()
@@ -894,7 +906,8 @@ async function hostOf(url: string): Promise<string> {
 const sshNames = new Map<string, Promise<string | null>>()
 /** What ssh's config makes of a host name (an alias like github-work → github.com). */
 function sshHostName(alias: string): Promise<string | null> {
-  if (!/^[\w.-]+$/.test(alias)) return Promise.resolve(null)
+  // Never an option: the name comes from a repository's .gitmodules.
+  if (!/^[\w.][\w.-]*$/.test(alias)) return Promise.resolve(null)
   if (!sshNames.has(alias))
     sshNames.set(alias, new Promise((done) =>
       execFile('ssh', ['-G', alias], { env, timeout: 5_000 }, (err, out) => done(err ? null : (/^hostname (\S+)$/m.exec(out)?.[1]?.toLowerCase() ?? null)))
@@ -908,6 +921,9 @@ async function remoteHost(cwd: string): Promise<string> {
   if (!name) return ''
   return hostOf((await git(cwd, ['remote', 'get-url', '--', name], [0, 2, 128]).catch(() => '')).trim())
 }
+
+/** git's ways of saying a repository can't be had (rather than couldn't be reached just now). */
+const NO_ACCESS = /Permission denied \((publickey|keyboard-interactive|password)|Permission to \S+ denied|Authentication failed|Repository not found|repository '[^']*' not found|access denied|not authorized|HTTP 40[134]\b|returned error: 40[134]\b/i
 
 /** Notes the submodules a download didn't bring (with the commit asked for), so they aren't tried again by themselves. */
 async function noteFailedSubmodules(cwd: string, paths: string[]): Promise<void> {
@@ -942,8 +958,9 @@ export function downloadNewSubmodules(cwd: string, onProgress?: (line: string) =
           cancellable: downloadKey(cwd)
         })
       } catch (err) {
-        // Cancelled ones are tried again next time; ones that failed wait for a new commit (or Initialize).
-        if ((err as Error).message !== 'Cancelled.') await noteFailedSubmodules(cwd, paths)
+        // Ones git couldn't get (no access, gone) wait for a new commit (or Initialize). Cancelled ones,
+        // and ones that failed because the network or the server was down, are tried again next time.
+        if (NO_ACCESS.test((err as Error).message)) await noteFailedSubmodules(cwd, paths)
         throw err
       }
     return paths
@@ -1600,8 +1617,9 @@ export async function createMainlibRelease(cwd: string, name: string, base: stri
     if ((await git(cwd, ['status', '--porcelain', '--untracked-files=no'])).trim())
       throw new Error('You have uncommitted changes. Commit or stash them first, or make the branch without bumping the version.')
     const was = await git(cwd, ['show', `${base}:${MAINLIB_VERSION_FILE}`]).catch(() => null)
-    if (was === null) throw new Error(`${base} has no ${MAINLIB_VERSION_FILE}.`)
-    if (versionIn(was) === version) throw new Error(`${base} is already at ${version}: there’s nothing to bump.`)
+    const shown = base.replace(/^refs\/(heads|remotes|tags)\//, '')
+    if (was === null) throw new Error(`${shown} has no ${MAINLIB_VERSION_FILE}.`)
+    if (versionIn(was) === version) throw new Error(`${shown} is already at ${version}: there’s nothing to bump.`)
     const back = (await git(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1])).trim() || (await git(cwd, ['rev-parse', 'HEAD'])).trim()
     await git(cwd, ['switch', '--no-track', '-c', name, base])
     try {
@@ -2185,6 +2203,91 @@ async function rebaseInteractiveNow(cwd: string, onto: string, steps: RebaseStep
 export async function rebaseContinue(cwd: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult> {
   if (!['continue', 'skip', 'abort'].includes(action)) throw new Error(`Unknown rebase action: ${action}`)
   return exclusive(cwd, () => rebaseOutcome(cwd, git(cwd, ['rebase', `--${action}`])))
+}
+
+// ---------- merge ----------
+
+/** What merging `from` into the checked-out branch would do. */
+export async function mergePlan(cwd: string, from: string): Promise<MergePlan> {
+  assertArg(from, 'branch')
+  const count = async (range: string): Promise<number> =>
+    Number((await git(cwd, ['rev-list', '--count', range, '--'])).trim()) || 0
+  const commits = await count(`HEAD..${from}`)
+  const ours = await count(`${from}..HEAD`)
+  return { commits, fastForward: commits > 0 && ours === 0 }
+}
+
+/** git's message when putting the autostashed changes back hit conflicts (they stay in the stash). */
+function autostashNote(stderr: string): string | undefined {
+  if (!/stash/i.test(stderr) || !/conflict/i.test(stderr)) return undefined
+  const lines = stderr.split('\n').map((l) => l.trim())
+  const from = lines.findIndex((l) => /autostash|local changes are stashed/i.test(l) && !/^Created autostash/i.test(l))
+  return lines.slice(from < 0 ? 0 : from).filter(Boolean).join(' ')
+}
+
+/**
+ * Runs a merge step. Stopping on conflicts is part of merging, so `merge` failing with unmerged paths
+ * left behind isn't an error; anything else (a hook saying no, say) is, even with MERGE_HEAD still there.
+ */
+async function mergeOutcome(cwd: string, args: string[], stopsOnConflicts: boolean): Promise<MergeResult> {
+  const gitDir = await gitDirOf(cwd)
+  const inProgress = (): boolean => existsSync(join(gitDir, 'MERGE_HEAD'))
+  let stderr = ''
+  try {
+    stderr = (await exec(cwd, args, { env: { GIT_MERGE_AUTOEDIT: 'no' } })).err
+  } catch (err) {
+    const unmerged = stopsOnConflicts && inProgress() && !!(await git(cwd, ['diff', '--name-only', '--diff-filter=U'])).trim()
+    if (!unmerged) throw err
+    stderr = err instanceof GitError ? err.stderr : ''
+  }
+  return { done: !inProgress(), stashNote: autostashNote(stderr) }
+}
+
+/**
+ * How to name a branch to `git merge` so its message reads as usual ("Merge branch 'feat'"): by its
+ * short name when that means the same ref, else by the full one (a tag called the same would win)
+ * with git's usual message given.
+ */
+async function mergeName(cwd: string, from: string): Promise<string[]> {
+  const m = /^refs\/(heads|remotes)\/(.+)$/.exec(from)
+  if (!m) return [from]
+  const short = m[2]
+  const means = (await git(cwd, ['rev-parse', '--verify', '--quiet', '--symbolic-full-name', short], [0, 1]).catch(() => '')).trim()
+  if (means === from) return [short]
+  const head = (await git(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]).catch(() => '')).trim()
+  // Like git's own message: " into <branch>" except into the main line.
+  const into = head && !['main', 'master'].includes(head) ? ` into ${head}` : ''
+  return ['-m', `Merge ${m[1] === 'heads' ? 'branch' : 'remote-tracking branch'} '${short}'${into}`, from]
+}
+
+/** Merges `from` into the checked-out branch; noFastForward always makes a merge commit. */
+export async function merge(cwd: string, from: string, noFastForward: boolean): Promise<MergeResult> {
+  assertArg(from, 'branch')
+  return exclusive(cwd, async () => {
+    const what = await mergeName(cwd, from)
+    return mergeOutcome(cwd, ['merge', '--no-edit', '--autostash', ...(noFastForward ? ['--no-ff'] : []), ...what], true)
+  })
+}
+
+/** Finishes a merge that stopped on conflicts (with git's own message), or puts everything back. */
+export async function mergeContinue(cwd: string, action: 'continue' | 'abort'): Promise<MergeResult> {
+  if (!['continue', 'abort'].includes(action)) throw new Error(`Unknown merge action: ${action}`)
+  return exclusive(cwd, () =>
+    mergeOutcome(cwd, action === 'abort' ? ['merge', '--abort'] : ['commit', '--no-edit', '--cleanup=strip'], false)
+  )
+}
+
+/** While a merge is stopped: the first line of git's merge message ("Merge branch 'x' into y"), and
+ *  whether uncommitted changes were set aside for it (they come back when it's committed or aborted). */
+function readMergeState(gitDir: string): MergeState | null {
+  if (!existsSync(join(gitDir, 'MERGE_HEAD'))) return null
+  let subject = 'Merge'
+  try {
+    subject = readFileSync(join(gitDir, 'MERGE_MSG'), 'utf8').split('\n')[0].trim() || subject
+  } catch {
+    // keep the plain name
+  }
+  return { subject, autostash: existsSync(join(gitDir, 'MERGE_AUTOSTASH')) }
 }
 
 // ---------- pull requests ----------

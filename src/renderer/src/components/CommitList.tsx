@@ -336,6 +336,7 @@ export const CommitList = memo(function CommitList({
           ? [
               { separator: true },
               ...branches.slice(0, 3).flatMap((b) => [
+                { id: `merge:${b.kind === 'head' ? 'refs/heads' : 'refs/remotes'}/${b.label}`, label: `Merge ${b.label} into ${repo.headBranch}…` },
                 { id: `rebase:${b.label}`, label: `Rebase ${repo.headBranch} onto ${b.label}` },
                 { id: `irebase:${b.label}`, label: `Interactive Rebase ${repo.headBranch} onto ${b.label}…` }
               ])
@@ -415,6 +416,7 @@ export const CommitList = memo(function CommitList({
       if (choice.startsWith('open-pr:')) return ops.openPull(Number(choice.slice(8)))
       if (choice.startsWith('compare:') && repo.headBranch)
         return requestBranchDiff({ path: repo.path, base: `refs/heads/${repo.headBranch}`, compare: choice.slice(8) })
+      if (choice.startsWith('merge:')) return ops.merge(choice.slice(6), choice.slice(6).replace(/^refs\/(heads|remotes)\//, ''))
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)
       if (choice.startsWith('copy:')) return void navigator.clipboard.writeText(choice.slice(5))

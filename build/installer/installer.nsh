@@ -1,6 +1,21 @@
 ; Spoon's Windows setup wizard: its own words on the standard pages (Welcome, Choose folder,
 ; Installing, Finished), with the wizard-and-spoon pictures (build/installer/*.bmp).
 
+!include LogicLib.nsh
+
+; Abort (Next turns off) when $INSTDIR is the folder or inside it. == ignores case, like Windows.
+!macro spoonRejectUnder DIR
+  StrCpy $R1 "${DIR}"
+  ${If} $R1 != ""
+    StrLen $R2 "$R1\"
+    StrCpy $R3 $INSTDIR $R2
+    ${If} $INSTDIR == $R1
+    ${OrIf} $R3 == "$R1\"
+      Abort
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 !macro customWelcomePage
   !define MUI_WELCOMEPAGE_TITLE "Welcome to Spoon"
   !define MUI_WELCOMEPAGE_TEXT "Spoon is a friendly git client: your branches, changes and history, all in one window.$\r$\n$\r$\nThis wizard puts Spoon on this computer in about a minute. Installing it just for you needs no administrator rights, and it never touches your projects.$\r$\n$\r$\nFound a fork in your toolbox? Time to put it down. Click Next."
@@ -8,7 +23,7 @@
   ; The next page with a header is choosing the folder.
   !define MUI_PAGE_HEADER_TEXT "Where should Spoon live?"
   !define MUI_PAGE_HEADER_SUBTEXT "The usual place is fine for almost everyone."
-  !define MUI_DIRECTORYPAGE_TEXT_TOP "Spoon installs just for you, in your own user folder. To put it somewhere else, choose another folder; your settings and projects stay where they are either way."
+  !define MUI_DIRECTORYPAGE_TEXT_TOP "Spoon installs just for you, in your own user folder. To put it somewhere else, choose another folder (not Program Files or Windows: those need administrator rights); your settings and projects stay where they are either way."
 !macroend
 
 !macro customPageAfterChangeDir
@@ -23,3 +38,13 @@
 !define MUI_FINISHPAGE_TITLE "Spoon is ready"
 !define MUI_FINISHPAGE_TEXT "Spoon is on your computer, with shortcuts on the desktop and in the Start menu.$\r$\n$\r$\nThe first time it opens, a short tour shows what you can make your own: colors, sizes, how diffs and history look, and your GitHub and SSH setup. You can skip it at any time.$\r$\n$\r$\nSpoon keeps itself up to date from then on."
 !define MUI_FINISHPAGE_RUN_TEXT "Open Spoon now"
+
+; This setup never asks for administrator rights, so folders that need them can't be chosen: Next stays
+; off for Program Files (either one) and Windows, instead of the copying failing halfway.
+!ifndef BUILD_UNINSTALLER
+  Function .onVerifyInstDir
+    !insertmacro spoonRejectUnder "$PROGRAMFILES"
+    !insertmacro spoonRejectUnder "$PROGRAMFILES64"
+    !insertmacro spoonRejectUnder "$WINDIR"
+  FunctionEnd
+!endif

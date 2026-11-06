@@ -276,7 +276,7 @@ export function SizeControls() {
             A
           </button>
         </div>
-        <span className="hint">Scales every element and font. Shortcut: {keys('⌘+ ⌘− ⌘0')}</span>
+        <span className="hint">Scales every element and font. Shortcut: {keys('⌘+ ⌘− ⌥⌘0')}</span>
       </label>
       <label className="field">
         <span className="field-label">

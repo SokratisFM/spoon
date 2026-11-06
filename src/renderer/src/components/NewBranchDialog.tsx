@@ -200,6 +200,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const [base, setBase] = useState(defaultBase)
   const baseRefs = useMemo(() => [...locals, ...remotes], [locals, remotes])
   const baseRef = baseRefs.find((r) => r.name === base)
+  // What git is given: the full name of a listed branch, so a tag with the same name can't win.
+  const baseArg = baseRef?.fullName ?? base
 
   // The version the release starts from: what the chosen base has (the bump lands only on the release
   // branch, so the working copy may say something else).
@@ -207,14 +209,14 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   useEffect(() => {
     if (!release || !base) return
     let live = true
-    window.spoon.mainlibVersion(path, base).then(
+    window.spoon.mainlibVersion(path, baseArg).then(
       (v) => live && setBaseVersion(v),
       () => live && setBaseVersion(null)
     )
     return () => {
       live = false
     }
-  }, [path, base, release])
+  }, [path, baseArg, release])
 
   const problem = release
     ? !/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(version.trim())
@@ -242,7 +244,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     if (problem || creating) return
     // The dialog stays until it worked, so a failure doesn't lose what was filled in.
     setCreating(true)
-    const ok = await ops.run(`Creating ${name}…`, () => window.spoon.createBranch(path, name, base), 'Couldn’t create the branch')
+    const ok = await ops.run(`Creating ${name}…`, () => window.spoon.createBranch(path, name, baseArg), 'Couldn’t create the branch')
     setCreating(false)
     if (!ok) return
     onClose()
@@ -256,8 +258,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     const v = version.trim()
     setCreating(true)
     const ok = bump
-      ? await ops.run(`Creating ${releaseName}…`, () => window.spoon.createMainlibRelease(path, releaseName, base, v), 'Couldn’t make the release branch')
-      : await ops.run(`Creating ${releaseName}…`, () => window.spoon.createBranch(path, releaseName, base), 'Couldn’t make the release branch')
+      ? await ops.run(`Creating ${releaseName}…`, () => window.spoon.createMainlibRelease(path, releaseName, baseArg, v), 'Couldn’t make the release branch')
+      : await ops.run(`Creating ${releaseName}…`, () => window.spoon.createBranch(path, releaseName, baseArg), 'Couldn’t make the release branch')
     setCreating(false)
     if (!ok) return
     onClose()

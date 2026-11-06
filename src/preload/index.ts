@@ -57,6 +57,9 @@ const api: SpoonApi = {
   rebase: (path, onto) => ipcRenderer.invoke('repo:rebase', path, onto),
   rebaseInteractive: (path, onto, steps) => ipcRenderer.invoke('repo:rebaseInteractive', path, onto, steps),
   rebaseContinue: (path, action) => ipcRenderer.invoke('repo:rebaseContinue', path, action),
+  mergePlan: (path, from) => ipcRenderer.invoke('repo:mergePlan', path, from),
+  merge: (path, from, noFastForward) => ipcRenderer.invoke('repo:merge', path, from, noFastForward),
+  mergeContinue: (path, action) => ipcRenderer.invoke('repo:mergeContinue', path, action),
   cancel: (path) => ipcRenderer.invoke('repo:cancel', path),
   onProgress: (handler) => {
     const listener = (_e: unknown, repo: string, line: string): void => handler(repo, line)

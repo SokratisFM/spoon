@@ -4,6 +4,17 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.53.0 — 2026-11-06
+
+- **New:** Merge branches: right-click a branch in the sidebar or in the history and choose “Merge … into …”. When it would only fast-forward you can still create a merge commit. If it stops on conflicts, a banner lets you commit the merge once they're resolved, or abort it.
+- **New:** ⌘0 jumps to the checked-out branch in the history, like clicking its name at the top left. Default Size for the interface moved to ⌥⌘0.
+- **Fixed:** New branch: a tag with the same name as the branch you base it on no longer gets used instead.
+- **Fixed:** Submodules that couldn't download because you were offline (or GitHub was down) are tried again next time, instead of waiting until the project points them at a new commit.
+- **Fixed:** Automatic submodule downloads respect `submodule.active` patterns like `libs/*` (from a clone made with `--recurse-submodules=<pattern>`).
+- **Fixed:** Stopping the submodule download after a clone now stays stopped when the projects folder is a link to another folder.
+- **Improved:** The welcome tour checks your SSH key only when it reaches the GitHub step, not as soon as it opens.
+- **Improved:** Windows setup: Program Files and the Windows folder can't be chosen as the install folder, since setup doesn't ask for administrator rights.
+
 ## 0.52.1 — 2026-11-05
 
 - **Improved:** New branch: “Based on” is a field you can type in. It searches branches as you type, and takes any other branch, tag or commit you name.

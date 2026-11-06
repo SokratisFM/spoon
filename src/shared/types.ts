@@ -200,6 +200,8 @@ export interface RepoState {
   operation: string | null // "MERGING", "REBASING", ...
   /** While a rebase is stopped: where it is and why it stopped. */
   rebase: RebaseProgress | null
+  /** While a merge is stopped on conflicts. */
+  merge: MergeState | null
   submodules: Submodule[]
   /** When this repo is itself a submodule: the parent repo's path. */
   superproject: string | null
@@ -270,6 +272,27 @@ export interface RebaseStep {
   action: RebaseAction
   /** New message for "reword". */
   message?: string
+}
+
+export interface MergePlan {
+  /** Commits the merge brings in. */
+  commits: number
+  /** The checked-out branch has nothing of its own, so it can just move up. */
+  fastForward: boolean
+}
+
+export interface MergeState {
+  /** git's merge message subject ("Merge branch 'x' into y"). */
+  subject: string
+  /** Uncommitted changes were set aside for the merge; they come back when it's committed or aborted. */
+  autostash: boolean
+}
+
+/** done: the merge finished. Otherwise it stopped on conflicts and is still in progress. */
+export interface MergeResult {
+  done: boolean
+  /** Putting the set-aside changes back hit conflicts: git's message (they're kept in the stash). */
+  stashNote?: string
 }
 
 /** done: the rebase finished. Otherwise it stopped (conflict or "edit") and is still in progress. */
@@ -819,6 +842,10 @@ export interface SpoonApi {
   /** Steps are oldest first, like git's todo list. */
   rebaseInteractive(path: string, onto: string, steps: RebaseStep[]): Promise<RebaseResult>
   rebaseContinue(path: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult>
+  mergePlan(path: string, from: string): Promise<MergePlan>
+  /** Merges a ref into the checked-out branch. */
+  merge(path: string, from: string, noFastForward: boolean): Promise<MergeResult>
+  mergeContinue(path: string, action: 'continue' | 'abort'): Promise<MergeResult>
   /** Ends the running fetch/pull/push/submodule update in this repo; it then fails with "Cancelled.". */
   cancel(path: string): Promise<void>
   /** Progress lines from the running fetch/pull/push of a repo. */
@@ -974,6 +1001,7 @@ export type MenuCommand =
   | 'zoom-in'
   | 'zoom-out'
   | 'zoom-reset'
+  | 'show-head'
   | 'open-repo'
   | 'refresh'
   | 'fetch'
@@ -1006,4 +1034,6 @@ export interface CloneResult {
   /** Why it isn't the one asked for (no develop branch, say). */
   note: string | null
   submoduleError: string | null
+  /** Where it landed with links resolved: the path the opened tab knows it by. */
+  root: string
 }

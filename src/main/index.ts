@@ -121,13 +121,14 @@ function buildMenu(): void {
           { label: 'Git Command History', accelerator: 'CmdOrCtrl+Shift+H', click: () => send('git-history') },
           { label: 'Filter Commits', accelerator: 'CmdOrCtrl+F', click: () => send('filter-commits') },
           { label: 'Squish Branches', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('squish') },
+          { label: 'Show Current Branch', accelerator: 'CmdOrCtrl+0', click: () => send('show-head') },
           { type: 'separator' },
           // UI scaling is done by the renderer (CSS), not Electron's page zoom, so layout
           // and row heights stay crisp and consistent at every size.
           { label: 'Bigger', accelerator: 'CmdOrCtrl+=', click: () => send('zoom-in') },
           { label: 'Bigger', accelerator: 'CmdOrCtrl+Plus', visible: false, click: () => send('zoom-in') },
           { label: 'Smaller', accelerator: 'CmdOrCtrl+-', click: () => send('zoom-out') },
-          { label: 'Default Size', accelerator: 'CmdOrCtrl+0', click: () => send('zoom-reset') },
+          { label: 'Default Size', accelerator: 'CmdOrCtrl+Alt+0', click: () => send('zoom-reset') },
           { type: 'separator' },
           { role: 'toggleDevTools' },
           { role: 'togglefullscreen' }
@@ -415,6 +416,9 @@ function registerIpc(): void {
   ipcMain.handle('repo:rebaseContinue', (_e, path: string, action: 'continue' | 'skip' | 'abort') =>
     git.rebaseContinue(path, action)
   )
+  handleRepo('repo:mergePlan', (_e, path: string, from: string) => git.mergePlan(path, from))
+  handleRepo('repo:merge', (_e, path: string, from: string, noFastForward: boolean) => git.merge(path, from, !!noFastForward))
+  handleRepo('repo:mergeContinue', (_e, path: string, action: 'continue' | 'abort') => git.mergeContinue(path, action))
   ipcMain.handle('ide:schemes', () => ide.detect())
   ipcMain.handle('ide:import', async () => {
     const res = await dialog.showOpenDialog(win!, {

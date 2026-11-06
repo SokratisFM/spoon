@@ -86,7 +86,8 @@ From then on Spoon checks every few hours, downloads updates in the background, 
 
 ## Resizing the UI
 
-- **⌘+ / ⌘− / ⌘0** scale the whole interface (80%–200%).
+- **⌘+ / ⌘− / ⌥⌘0** scale the whole interface (80%–200%).
+- **⌘0** jumps to the checked-out branch in the history (like clicking the branch name at the top left).
 - The **Aa** button (top right) has sliders for interface size and diff font size, plus row spacing and theme.
 - Panel sizes are stored in `rem`, so sidebars grow with the text instead of truncating it.
 
@@ -144,6 +145,7 @@ force-quits. Sidebar sections can be reordered or hidden in Settings → Appeara
   **Stage hunk / Unstage hunk** buttons sit on each hunk header in the diff.
 - **Commit**: summary + description, Amend, ⌘Enter. The draft is kept per repository.
 - **Fetch / Pull / Push** in the toolbar (⇧⌘F, ⇧⌘L, ⇧⌘P). Pull can rebase and autostash; Push can set the upstream and push tags.
+- **Merge**: right-click a branch (sidebar or history) → Merge into the checked-out branch. A merge that stops on conflicts shows a banner with Commit Merge and Abort.
   Badges show how many commits you are behind/ahead.
 - **Checkout**: double-click a branch, remote branch or tag in the sidebar, or right-click a commit.
   Checking out a remote branch creates (or switches to) the matching local tracking branch.

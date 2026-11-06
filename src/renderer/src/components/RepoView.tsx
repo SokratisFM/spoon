@@ -7,6 +7,7 @@ import type {
   MenuCommand,
   PullSummary,
   RebasePlan,
+  MergePlan,
   Ref,
   RepoState,
   Submodule,
@@ -59,6 +60,7 @@ import { DeleteBranchDialog } from './DeleteBranchDialog'
 import { CheckoutBlockedDialog, overwrittenFiles } from './CheckoutBlockedDialog'
 import { RebaseEditor } from './RebaseEditor'
 import { RebaseBanner } from './RebaseBanner'
+import { MergeBanner } from './MergeBanner'
 import { SubmoduleUpdateDialog } from './SubmoduleUpdateDialog'
 import { MainLibDialog } from './MainLibDialog'
 import { CreatePullDialog } from './CreatePullDialog'
@@ -77,6 +79,8 @@ export interface Ops {
   checkout: (target: CheckoutTarget, description: string) => void
   /** Rebase the current branch onto a branch; interactive opens the editable plan first. */
   rebase: (onto: string, interactive: boolean) => void
+  /** Merge a ref (its full name, refs/heads/…) into the current branch, asking first; name is how it's shown. */
+  merge: (ref: string, name: string) => void
   /** Push the current branch to its upstream (or origin) without the Push dialog. */
   push: () => void
   /** Open the Create Pull Request dialog for a local branch (null when GitHub isn't set up here). */
@@ -493,6 +497,63 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     [path, run]
   )
 
+  // Putting back the changes a merge set aside hit conflicts: they're kept in the stash, so say where.
+  const reportStash = (note: string | undefined): void => {
+    if (!note) return
+    void choose({
+      title: 'Your uncommitted changes didn’t go back cleanly',
+      detail: `${note}\n\nThey’re safe in the stash “autostash” (Stashes in the sidebar). Local Changes shows the conflicts.`,
+      cancelId: 'ok',
+      buttons: [{ id: 'ok', label: 'OK', kind: 'primary' }]
+    })
+    setView('changes')
+  }
+  const reportStashRef = useRef(reportStash)
+  reportStashRef.current = reportStash
+
+  const merge = useCallback<Ops['merge']>(
+    async (from, name) => {
+      const branch = repoRef.current?.headBranch
+      if (!branch) return
+      let plan: MergePlan
+      try {
+        plan = await window.spoon.mergePlan(path, from)
+      } catch (err) {
+        setOpError({ title: 'Merge failed', message: cleanError(err) })
+        return
+      }
+      if (!plan.commits) {
+        setOpError({ title: 'Nothing to merge', message: `${branch} already has everything on ${name}.` })
+        return
+      }
+      const n = `${plan.commits} ${plan.commits === 1 ? 'commit' : 'commits'}`
+      const choice = await choose({
+        title: `Merge ${name} into ${branch}?`,
+        detail: plan.fastForward
+          ? `${branch} has nothing of its own, so it just moves up to ${name} (${n}). Create a merge commit instead to keep a record of the merge.`
+          : `${n} from ${name} will be merged into ${branch} with a merge commit.`,
+        cancelId: 'cancel',
+        buttons: [
+          { id: 'cancel', label: 'Cancel' },
+          ...(plan.fastForward ? [{ id: 'commit', label: 'Create Merge Commit' }] : []),
+          { id: 'merge', label: 'Merge', kind: 'primary' as const }
+        ]
+      })
+      if (choice === 'cancel') return
+      run(
+        `Merging ${name} into ${branch}…`,
+        async () => {
+          const res = await window.spoon.merge(path, from, choice === 'commit')
+          if (!res.done) setView('changes')
+          reportStashRef.current(res.stashNote)
+        },
+        'Merge failed'
+      )
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [path, run]
+  )
+
   // Defined further down (it uses the Push button's animation); read through a ref so ops stays stable.
   const quickPushRef = useRef<() => void>(() => undefined)
   const canCreatePull = !!account && !!ghSlug
@@ -502,6 +563,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       run,
       checkout,
       rebase,
+      merge,
       push: () => quickPushRef.current(),
       createPull: canCreatePull ? setPrFor : null,
       tag: openTag,
@@ -519,7 +581,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       }
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run, checkout, rebase, canCreatePull, claudeEnabled]
+    [run, checkout, rebase, merge, canCreatePull, claudeEnabled]
   )
   const [mainlibFor, setMainlibFor] = useState<Submodule | null>(null)
   const mainlibName = useSettings().mainlibName
@@ -534,7 +596,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const autoSubmodules = useSettings().autoSubmodules
   const pendingSubs = repo?.submodules.filter((s) => s.state === 'uninitialized').map((s) => s.path).join('\0') ?? ''
   useEffect(() => {
-    if (!autoSubmodules || !pendingSubs || triedSubmodules.has(`${path}\0*`)) return
+    // The clone may have marked it by the path it was given or by its real one.
+    if (!autoSubmodules || !pendingSubs || triedSubmodules.has(`${path}\0*`) || (repo && triedSubmodules.has(`${repo.path}\0*`))) return
     const fresh = pendingSubs.split('\0').filter((p) => !triedSubmodules.has(`${path}\0${p}`))
     if (!fresh.length) return
     for (const p of fresh) triedSubmodules.add(`${path}\0${p}`)
@@ -546,7 +609,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         startSubmoduleDownload(path, paths, () => void load())
       })
       .catch(() => undefined)
-  }, [path, pendingSubs, autoSubmodules, load])
+  }, [path, pendingSubs, autoSubmodules, load]) // eslint-disable-line react-hooks/exhaustive-deps
   // A download that failed says why (once), here or when the tab is next shown.
   const download = useSubmoduleDownload(path)
   useEffect(() => {
@@ -630,9 +693,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       if ((command.name === 'pull' || command.name === 'push') && (stuck || wrongBranch || !repo?.headBranch)) return
       if (command.name === 'pull') return getLatest()
       if (command.name === 'push') return ops.push()
-      if (['filter-commits', 'new-tag', 'new-branch', 'review', 'discard'].includes(command.name)) return
+      if (['filter-commits', 'new-tag', 'new-branch', 'review', 'discard', 'show-head'].includes(command.name)) return
     }
-    if (command.name === 'filter-commits') {
+    if (command.name === 'show-head') {
+      if (repo?.headHash) jumpTo(repo.headHash)
+    } else if (command.name === 'filter-commits') {
       setView('history')
       filterInput.current?.focus()
       filterInput.current?.select()
@@ -822,7 +887,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         <div className="toolbar-repo">
           <button
             className="branch-chip"
-            title="Show the checked-out commit"
+            title={`Show the checked-out commit (${keys('⌘0')})`}
             disabled={!repo.headHash}
             onClick={() => repo.headHash && jumpTo(repo.headHash)}
           >
@@ -936,6 +1001,22 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       </div>
 
       {error && <div className="banner error">{error}</div>}
+      {repo.merge && !repo.rebase && (
+        <MergeBanner
+          subject={repo.merge.subject}
+          autostash={repo.merge.autostash}
+          conflicts={tree.unstaged.filter((f) => f.status === 'U').length}
+          busy={!!busy}
+          onShowChanges={() => setView('changes')}
+          onAction={(action) =>
+            run(
+              action === 'abort' ? 'Aborting merge…' : 'Committing merge…',
+              async () => reportStash((await window.spoon.mergeContinue(path, action)).stashNote),
+              'Merge failed'
+            )
+          }
+        />
+      )}
       {repo.rebase && (
         <RebaseBanner
           progress={repo.rebase}

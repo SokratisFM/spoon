@@ -54,13 +54,6 @@ export function WelcomeTour({ home, onClose, onOpenSettings, onClone, onOpenFold
   const s = useSettings()
   const account = useGitHubAccount()
   const [at, setAt] = useState(0)
-  const [sshTick, setSshTick] = useState(0)
-  useEffect(() => {
-    const on = (): void => setSshTick((t) => t + 1)
-    window.addEventListener('spoon:sshChanged', on)
-    return () => window.removeEventListener('spoon:sshChanged', on)
-  }, [])
-  const ssh = useAsync(() => window.spoon.sshStatus(), [sshTick])
 
   const finish = (how: 'done' | 'skipped'): void => {
     markSeen(how)
@@ -236,22 +229,7 @@ export function WelcomeTour({ home, onClose, onOpenSettings, onClone, onOpenFold
               {account ? 'Details…' : 'Connect…'}
             </button>
           </div>
-          <div className="tour-status-row">
-            <span className={`tone-dot ${ssh.data?.auth.state === 'ok' ? 'ok' : ssh.loading ? '' : 'warn'}`} />
-            <span className="tour-status-text">
-              <b>SSH key</b>
-              <span className="muted">
-                {ssh.loading && !ssh.data
-                  ? 'Checking…'
-                  : ssh.data?.auth.state === 'ok'
-                    ? `Working: GitHub knows this computer’s key as @${ssh.data.auth.user}.`
-                    : 'Not set up yet. Spoon can make a key and add it to GitHub for you.'}
-              </span>
-            </span>
-            <button className="btn" onClick={requestSshSetup}>
-              {ssh.data?.auth.state === 'ok' ? 'Details…' : 'Set Up…'}
-            </button>
-          </div>
+          <SshRow />
           <p className="hint">Both can wait: Settings → Accounts has them whenever you need them.</p>
         </div>
       )
@@ -384,6 +362,35 @@ export function WelcomeTour({ home, onClose, onOpenSettings, onClone, onOpenFold
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** The SSH key's state, checked only once the GitHub step shows (the check may ask for Touch ID). */
+function SshRow() {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const on = (): void => setTick((t) => t + 1)
+    window.addEventListener('spoon:sshChanged', on)
+    return () => window.removeEventListener('spoon:sshChanged', on)
+  }, [])
+  const ssh = useAsync(() => window.spoon.sshStatus(), [tick])
+  return (
+    <div className="tour-status-row">
+      <span className={`tone-dot ${ssh.data?.auth.state === 'ok' ? 'ok' : ssh.loading ? '' : 'warn'}`} />
+      <span className="tour-status-text">
+        <b>SSH key</b>
+        <span className="muted">
+          {ssh.loading && !ssh.data
+            ? 'Checking…'
+            : ssh.data?.auth.state === 'ok'
+              ? `Working: GitHub knows this computer’s key as @${ssh.data.auth.user}.`
+              : 'Not set up yet. Spoon can make a key and add it to GitHub for you.'}
+        </span>
+      </span>
+      <button className="btn" onClick={requestSshSetup}>
+        {ssh.data?.auth.state === 'ok' ? 'Details…' : 'Set Up…'}
+      </button>
     </div>
   )
 }

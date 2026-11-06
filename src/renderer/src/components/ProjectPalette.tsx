@@ -203,10 +203,11 @@ export function ProjectPalette({ openTabs, onOpen, onBrowse, onClone, onClose }:
     setClone({ repo, dest, line: '' })
     try {
       // The Clone dialog's choice (a branch picked by name there means nothing here: latest commit).
-      const { submoduleError } = await window.spoon.clone(urlOf(repo), dest, submodules, branchMode === 'develop' ? { kind: 'develop' } : { kind: 'latest' })
+      const { submoduleError, root } = await window.spoon.clone(urlOf(repo), dest, submodules, branchMode === 'develop' ? { kind: 'develop' } : { kind: 'latest' })
       // Submodules stopped with Esc stay stopped (the opened tab doesn't start them again); one that
       // failed is tried again, and explained, by the tab.
-      if (submoduleError === 'Cancelled.') triedSubmodules.add(`${dest}\0*`)
+      // By both names: the tab may know the folder by its real path (a linked projects folder).
+      if (submoduleError === 'Cancelled.') for (const p of [dest, root]) triedSubmodules.add(`${p}\0*`)
       onClose()
       onOpen(dest)
     } catch (err) {

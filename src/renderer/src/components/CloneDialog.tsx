@@ -128,9 +128,10 @@ export function CloneDialog({ home, recents, onCloned, onClose, initialRepo }: P
     const label = githubSlug(source) ?? name.trim()
     setPhase({ kind: 'cloning', dest, step: `Cloning ${label}…`, line: '' })
     try {
-      const { submoduleError, note } = await window.spoon.clone(source, dest, submodules, branch)
+      const { submoduleError, note, root } = await window.spoon.clone(source, dest, submodules, branch)
       // This dialog says why the submodules didn't come down: the opened tab doesn't try again by itself.
-      if (submoduleError) triedSubmodules.add(`${dest}\0*`)
+      // By both names: the tab may know the folder by its real path (a linked projects folder).
+      if (submoduleError) for (const p of [dest, root]) triedSubmodules.add(`${p}\0*`)
       onCloned(dest)
       if (submoduleError) setPhase({ kind: 'submodules', dest, error: submoduleError, retrying: false })
       else onClose()
