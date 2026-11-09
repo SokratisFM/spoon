@@ -9149,3 +9149,268 @@ kbd.setting-key {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ctx-icon.jenkins {
+  color: #d33833;
+}
+
+/* Start Jenkins Build */
+.build-who {
+  margin-right: auto;
+  font-size: 0.85em;
+}
+.build-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.9rem;
+  margin-bottom: 0.9rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--warn);
+  color: var(--text);
+  font-size: 0.92em;
+}
+.build-banner > span {
+  flex: 1 1 100%;
+}
+.build-banner .link-btn {
+  color: var(--accent);
+}
+.build-job {
+  font-size: 0.88em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.build-more {
+  margin-bottom: 0.9rem;
+}
+.build-more > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.88em;
+  margin-bottom: 0.6rem;
+}
+.build-more textarea {
+  font: inherit;
+  resize: vertical;
+}
+
+/* Jenkins build cards, bottom right */
+.jk-cards {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(26rem, calc(100vw - 2rem));
+}
+.jk-card {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  font-size: 0.9em;
+}
+.jk-card.ok {
+  border-color: var(--add);
+}
+.jk-card.bad {
+  border-color: var(--danger);
+}
+.jk-card.warn {
+  border-color: var(--warn);
+}
+.jk-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.jk-head .link-btn {
+  color: var(--accent);
+}
+.jk-logo {
+  color: #d33833;
+  flex: none;
+}
+.jk-status {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.jk-card.ok .jk-status {
+  color: var(--add);
+}
+.jk-card.bad .jk-status {
+  color: var(--danger);
+}
+.jk-close {
+  padding: 0.1rem;
+}
+.jk-branch {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jk-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+}
+.jk-stage {
+  font-size: 0.78em;
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.jk-stage.ok {
+  border-color: var(--add);
+  color: var(--add);
+}
+.jk-stage.run {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.jk-stage.bad {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.jk-stage.warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.jk-why {
+  margin-top: 0.35rem;
+  font-size: 0.82em;
+  color: var(--text-muted);
+}
+
+/* Settings → Accounts: an index of the services beside their sections. */
+.acct-layout {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  gap: 1.1rem;
+  align-items: start;
+}
+.acct-index {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-right: 0.7rem;
+  border-right: 1px solid var(--border);
+}
+.acct-index button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.38rem 0.55rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.92em;
+  text-align: left;
+  cursor: pointer;
+}
+.acct-index button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.acct-index button.on {
+  background: var(--bg-hover);
+  color: var(--text);
+  font-weight: 600;
+}
+.acct-icon {
+  display: inline-flex;
+  flex: none;
+}
+.acct-icon .icon {
+  width: 1rem;
+  height: 1rem;
+}
+.acct-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acct-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+.acct-dot.on {
+  background: var(--add);
+}
+.acct-dot.todo {
+  background: var(--warn);
+}
+.acct-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  min-width: 0;
+}
+.acct-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  scroll-margin-top: 0.2rem;
+}
+.acct-section + .acct-section {
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--border);
+}
+.acct-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1.02em;
+  font-weight: 600;
+}
+.acct-heading .acct-icon .icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.acct-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.acct-fields .field {
+  margin-bottom: 0;
+}
+/* The heading names the service, so its first setting's own title would just repeat it. */
+.acct-fields > .field:first-child > .field-label:first-child {
+  display: none;
+}
+.jenkins-steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.jenkins-steps .link-btn {
+  color: var(--accent);
+  font-size: inherit;
+}
+.compare-bar .compare-apply {
+  margin-left: auto;
+}

@@ -37,6 +37,7 @@ const RELATED: [string, string][] = [
   ['search for repositories', 'scan folder projects find'],
   ['your projects', 'recent list forget remove'],
   ['build command', 'slack jenkins send build pipeline channel bot unity'],
+  ['jenkins', 'build pipeline ci vpn token server job'],
   ['new tickets', 'jira create ticket issue task bug defect fix version assign description template'],
   ['simple mode', 'artist designer easy beginner non-technical basic'],
   ['pin lock', 'password lock simple'],

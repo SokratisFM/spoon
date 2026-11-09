@@ -369,11 +369,21 @@ export const CommitList = memo(function CommitList({
               return refs.length
                 ? [
                     { separator: true },
-                    ...refs.map((b) => ({
-                      id: `build:${b.kind === 'head' ? 'refs/heads' : 'refs/remotes'}/${b.label}`,
-                      label: refs.length === 1 ? 'Send Build to Slack…' : `Send Build of ${b.label} to Slack…`,
-                      icon: 'slack' as const
-                    }))
+                    ...refs.flatMap((b) => {
+                      const ref = `${b.kind === 'head' ? 'refs/heads' : 'refs/remotes'}/${b.label}`
+                      return [
+                        {
+                          id: `build:${ref}`,
+                          label: refs.length === 1 ? 'Send Build to Slack…' : `Send Build of ${b.label} to Slack…`,
+                          icon: 'slack' as const
+                        },
+                        {
+                          id: `jenkins:${ref}`,
+                          label: refs.length === 1 ? 'Start Jenkins Build…' : `Start Jenkins Build of ${b.label}…`,
+                          icon: 'jenkins' as const
+                        }
+                      ]
+                    })
                   ]
                 : []
             })()
@@ -434,9 +444,10 @@ export const CommitList = memo(function CommitList({
       if (choice.startsWith('open-pr:')) return ops.openPull(Number(choice.slice(8)))
       if (choice.startsWith('compare:') && repo.headBranch)
         return requestBranchDiff({ path: repo.path, base: `refs/heads/${repo.headBranch}`, compare: choice.slice(8) })
-      if (choice.startsWith('build:')) {
-        const ref = repo.refs.find((r) => r.fullName === choice.slice(6))
-        return void (ref && ops.sendBuild?.(ref))
+      if (choice.startsWith('build:') || choice.startsWith('jenkins:')) {
+        const slack = choice.startsWith('build:')
+        const ref = repo.refs.find((r) => r.fullName === choice.slice(slack ? 6 : 8))
+        return void (ref && ops.sendBuild?.(ref, slack ? 'slack' : 'jenkins'))
       }
       if (choice.startsWith('merge:')) return ops.merge(choice.slice(6), choice.slice(6).replace(/^refs\/(heads|remotes)\//, ''))
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)

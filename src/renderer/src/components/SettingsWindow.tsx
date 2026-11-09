@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { BUILD_CHANNEL, slackOpenUrl } from '../buildCommand'
 import { clearFilter, filterOptions, type SearchResult } from '../settingsSearch'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
@@ -6,7 +6,7 @@ import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
 import appIcon from '../../../../build/icon.png'
 import { cleanError, useSlidingIndicator, useAsync } from '../hooks'
 import { hoverPreview, PreviewCard, PreviewEye, type Preview, type PreviewSpec, type SectionState } from './SettingsPreview'
-import type { DeviceCode, AtlassianAccount, SyntaxPalette, SyntaxSlot } from '../../../shared/types'
+import type { DeviceCode, AtlassianAccount, JenkinsAccount, SyntaxPalette, SyntaxSlot } from '../../../shared/types'
 import { ideSchemes, paletteVars, SAMPLE, SLOT_LABELS } from '../syntax'
 import { CodeText } from './DiffView'
 import { contextMenu } from '../menus'
@@ -46,7 +46,7 @@ import {
   type ThemeChoice
 } from '../themes'
 import { Modal } from './Modal'
-import { CloseIcon, PlusIcon, SearchIcon } from './Icons'
+import { BoxIcon, ClaudeIcon, CloseIcon, GitHubLogoIcon, JenkinsLogoIcon, JiraLogoIcon, PlusIcon, SearchIcon, SlackLogoIcon } from './Icons'
 import { keys } from '../platform'
 
 export type SettingsTab = 'appearance' | 'authors' | 'projects' | 'simple' | 'accounts' | 'about'
@@ -60,6 +60,9 @@ const TABS: [Tab, string][] = [
   ['accounts', 'Accounts'],
   ['about', 'About']
 ]
+
+/** Settings search shows every option as a flat list, so tabs leave out their own grouping then. */
+const SearchingContext = createContext(false)
 
 function TabPage({ tab }: { tab: Tab }) {
   if (tab === 'appearance') return <AppearanceTab />
@@ -182,7 +185,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance', project = n
       <ProjectContext.Provider value={project}>
       <div className={`settings-page ${searching ? 'search-results' : ''}`} ref={page}>
         {searching ? (
-          <>
+          <SearchingContext.Provider value={true}>
             {TABS.map(([id, label]) => (
               <section key={id} className="search-group" data-tab={id}>
                 <h5 className="search-group-title">{label}</h5>
@@ -208,7 +211,7 @@ export function SettingsWindow({ onClose, initialTab = 'appearance', project = n
                 )}
               </div>
             )}
-          </>
+          </SearchingContext.Provider>
         ) : (
           <TabPage tab={tab} />
         )}
@@ -1248,9 +1251,21 @@ function AccountsTab() {
     })
 
   const sourceLabel = { gh: 'GitHub CLI sign-in', token: 'Personal access token', browser: 'Browser sign-in' }
+  const linked = useLinkedAccounts()
+  const jiraOk = /^https:\/\//.test(s.jiraSite)
 
   return (
-    <>
+    <AccountsIndex
+      sections={[
+        { id: 'github', label: 'GitHub', icon: <GitHubLogoIcon />, state: account ? 'on' : 'todo' },
+        { id: 'jira', label: 'Jira', icon: <JiraLogoIcon />, state: jiraOk ? 'on' : 'off', color: '#2684ff' },
+        { id: 'claude', label: 'Claude', icon: <ClaudeIcon />, state: s.claudeEnabled ? 'on' : 'off', color: '#d97757' },
+        { id: 'mainlib', label: 'MainLib', icon: <BoxIcon />, state: linked.atlassian === undefined ? 'off' : linked.atlassian ? 'on' : 'todo', color: '#2684ff' },
+        { id: 'slack', label: 'Slack builds', icon: <SlackLogoIcon />, state: 'on' },
+        { id: 'jenkins', label: 'Jenkins', icon: <JenkinsLogoIcon />, state: linked.jenkins === undefined ? 'off' : linked.jenkins ? 'on' : 'todo', color: '#d33833' }
+      ]}
+    >
+      <AccountSection id="github">
       {account ? (
         <div className="account-card">
           <img className="gh-avatar large" src={account.avatarUrl} alt="" />
@@ -1418,7 +1433,9 @@ function AccountsTab() {
         </button>
       )}
       {error && <p className="error-text">{error}</p>}
+      </AccountSection>
 
+      <AccountSection id="jira">
       <div className="field jira-field">
         <span className="field-label">Jira</span>
         <span className="hint">
@@ -1449,11 +1466,223 @@ function AccountsTab() {
 
       <TicketBranchField />
       <NewTicketField />
-      <ClaudeField />
-      <MainLibField />
-      <BuildCommandField />
-    </>
+      </AccountSection>
+      <AccountSection id="claude">
+        <ClaudeField />
+      </AccountSection>
+      <AccountSection id="mainlib">
+        <MainLibField />
+      </AccountSection>
+      <AccountSection id="slack">
+        <BuildCommandField />
+      </AccountSection>
+      <AccountSection id="jenkins">
+        <JenkinsField />
+      </AccountSection>
+    </AccountsIndex>
   )
+}
+
+// ---------- accounts index ----------
+
+type ServiceState = 'on' | 'todo' | 'off'
+interface ServiceEntry {
+  id: string
+  label: string
+  icon: ReactNode
+  /** on: connected or set up; todo: needs signing in; off: turned off or not set. */
+  state: ServiceState
+  /** The brand color for its icon (none: the text color). */
+  color?: string
+}
+const SectionsContext = createContext<ServiceEntry[]>([])
+
+/** Whether Atlassian and Jenkins are connected: their fields announce it when they load or change. */
+function useLinkedAccounts(): { atlassian?: boolean; jenkins?: boolean } {
+  const [linked, setLinked] = useState<{ atlassian?: boolean; jenkins?: boolean }>({})
+  useEffect(() => {
+    const on = (e: Event): void => {
+      const { kind, connected } = (e as CustomEvent<{ kind: 'atlassian' | 'jenkins'; connected: boolean }>).detail
+      setLinked((l) => (l[kind] === connected ? l : { ...l, [kind]: connected }))
+    }
+    window.addEventListener('spoon:linkedAccount', on)
+    return () => window.removeEventListener('spoon:linkedAccount', on)
+  }, [])
+  return linked
+}
+const announceLinked = (kind: 'atlassian' | 'jenkins', connected: boolean): void =>
+  void window.dispatchEvent(new CustomEvent('spoon:linkedAccount', { detail: { kind, connected } }))
+
+/** Accounts: an index of the services down the side (status dot, click to jump), their sections beside it. */
+function AccountsIndex({ sections, children }: { sections: ServiceEntry[]; children: ReactNode }) {
+  const searching = useContext(SearchingContext)
+  const body = useRef<HTMLDivElement>(null)
+  const [current, setCurrent] = useState<string | undefined>(sections[0]?.id)
+  // The index follows the scroll: the last section whose top has passed the top of the page.
+  useEffect(() => {
+    const scroller = body.current?.closest('.settings-page')
+    if (!scroller || searching) return
+    const onScroll = (): void => {
+      const top = scroller.getBoundingClientRect().top + 24
+      let at: string | undefined = sections[0]?.id
+      for (const el of Array.from(scroller.querySelectorAll<HTMLElement>('.acct-section')))
+        if (el.getBoundingClientRect().top <= top) at = el.dataset.id
+      // At the very bottom, the last section counts even if its top never reaches the page's top.
+      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) at = sections[sections.length - 1]?.id
+      setCurrent(at)
+    }
+    onScroll()
+    scroller.addEventListener('scroll', onScroll)
+    return () => scroller.removeEventListener('scroll', onScroll)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searching, sections.map((x) => x.id).join()])
+  if (searching) return <>{children}</>
+  const label: Record<ServiceState, string> = { on: 'Set up', todo: 'Not connected', off: 'Off' }
+  return (
+    <SectionsContext.Provider value={sections}>
+      <div className="acct-layout">
+        <nav className="acct-index">
+          {sections.map((x) => (
+            <button
+              key={x.id}
+              className={current === x.id ? 'on' : ''}
+              onClick={() => {
+                setCurrent(x.id)
+                body.current?.querySelector(`.acct-section[data-id="${x.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+              }}
+            >
+              <span className="acct-icon" style={x.color ? { color: x.color } : undefined}>
+                {x.icon}
+              </span>
+              <span className="acct-name">{x.label}</span>
+              <span className={`acct-dot ${x.state}`} title={label[x.state]} />
+            </button>
+          ))}
+        </nav>
+        <div className="acct-body" ref={body}>
+          {children}
+        </div>
+      </div>
+    </SectionsContext.Provider>
+  )
+}
+
+/** One service's settings under a heading with its logo (just the settings while searching). */
+function AccountSection({ id, children }: { id: string; children: ReactNode }) {
+  const searching = useContext(SearchingContext)
+  const entry = useContext(SectionsContext).find((x) => x.id === id)
+  if (searching || !entry) return <>{children}</>
+  return (
+    <section className="acct-section" data-id={id}>
+      <h4 className="acct-heading">
+        <span className="acct-icon" style={entry.color ? { color: entry.color } : undefined}>
+          {entry.icon}
+        </span>
+        {entry.label}
+      </h4>
+      <div className="acct-fields">{children}</div>
+    </section>
+  )
+}
+
+function JenkinsField() {
+  const [account, setAccount] = useState<JenkinsAccount | null | undefined>(undefined)
+  const [server, setServer] = useState('http://jenkins2:8080')
+  const [user, setUser] = useState('')
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    window.spoon.jenkinsAccount().then(setAccount, () => setAccount(null))
+  }, [])
+  useEffect(() => {
+    if (account !== undefined) announceLinked('jenkins', !!account)
+  }, [account])
+  const connect = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      setAccount(await window.spoon.jenkinsConnect(server, user, token))
+      setToken('')
+    } catch (err) {
+      setError(cleanError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const host = (s: string): string => s.replace(/^https?:\/\//, '')
+  return (
+    <div className="field">
+      <span className="field-label">Jenkins</span>
+      <span className="hint">
+        In Unity projects, right-click a branch → Start Jenkins Build… starts the game’s build job directly, and Spoon follows it
+        until it ends. The token is kept in your Keychain. The server is only reachable on the VPN.
+      </span>
+      {account === null && (
+        <ol className="hint jenkins-steps">
+          <li>Turn on the VPN and log in to Jenkins.</li>
+          <li>
+            Click your name at the top right, then <b>Security</b> in the menu on the left (<b>Configure</b> on older Jenkins), or{' '}
+            <button className="link-btn" onClick={() => window.spoon.jenkinsOpenTokenPage(server).catch((err) => setError(cleanError(err)))}>
+              open that page
+            </button>
+            .
+          </li>
+          <li>
+            Under <b>API Token</b>, click <b>Add new Token</b>, name it “Spoon” and click <b>Generate</b>.
+          </li>
+          <li>Copy the token right away (Jenkins shows it only once) and paste it below, with the username you log in with.</li>
+        </ol>
+      )}
+      {account ? (
+        <div className="form-row">
+          <span>
+            Connected to <b>{host(account.server)}</b> as <b>{account.user}</b>
+          </span>
+          <span className="spacer" />
+          <button className="btn" onClick={() => window.spoon.jenkinsDisconnect().then(() => setAccount(null))}>
+            Disconnect
+          </button>
+        </div>
+      ) : account === null ? (
+        <>
+          <div className="form-row">
+            <input value={server} onChange={(e) => setServer(e.target.value)} spellCheck={false} className="mono" placeholder="http://jenkins2:8080" />
+          </div>
+          <div className="form-row">
+            <input value={user} onChange={(e) => setUser(e.target.value)} spellCheck={false} placeholder="Jenkins username" />
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !busy && user.trim() && token.trim() && connect()}
+              placeholder="API token"
+            />
+            <button className="btn primary" disabled={busy || !user.trim() || !token.trim()} onClick={connect}>
+              {busy ? 'Checking…' : 'Connect'}
+            </button>
+          </div>
+        </>
+      ) : null}
+      {plainHttp(account?.server ?? server) && (
+        <span className="hint">
+          This address is <span className="mono">http://</span>, so your token travels unencrypted with every request (inside
+          the VPN), the same as signing in on the website.
+        </span>
+      )}
+      {error && <span className="error-text">{error}</span>}
+    </div>
+  )
+}
+
+/** An http:// address that isn't this computer. */
+function plainHttp(server: string): boolean {
+  try {
+    const u = new URL(server.trim())
+    return u.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)
+  } catch {
+    return false
+  }
 }
 
 function BuildCommandField() {
@@ -1668,6 +1897,9 @@ function MainLibField() {
   useEffect(() => {
     once('atlassian', () => window.spoon.atlassianAccount()).then(setAccount)
   }, [])
+  useEffect(() => {
+    if (account !== undefined) announceLinked('atlassian', !!account)
+  }, [account])
   const updateToken = async (): Promise<void> => {
     setBusy(true)
     setError(null)

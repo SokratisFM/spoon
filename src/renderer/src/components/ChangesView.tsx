@@ -213,7 +213,7 @@ export function ChangesView({
       { separator: true },
       { id: 'history', label: 'Show File History…', accelerator: 'CmdOrCtrl+Alt+L', enabled: !!one && one.status !== '?' },
       { id: 'compare', label: 'Compare with…', enabled: files.length === 1 && files[0].status !== 'D' },
-      { id: 'reveal', label: revealLabel, enabled: files.length === 1 },
+      { id: 'reveal', label: revealLabel, enabled: files.length === 1, icon: 'reveal' as const },
       { id: 'copy', label: files.length === 1 ? 'Copy Path' : 'Copy Paths' }
     ])
     if (choice === 'edit' && one) openFileEditor({ repo: path, file: one.path })

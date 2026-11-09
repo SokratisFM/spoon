@@ -46,7 +46,7 @@ async function fileMenu(path: string, d: CommitDetails, f: FileChange, ops: Ops)
     { id: 'compare', label: 'Compare with…', enabled: !deleted },
     { id: 'restore', label: deleted ? 'Restore This File…' : 'Restore This Version…', enabled: !!at },
     { separator: true },
-    { id: 'reveal', label: revealLabel, enabled: exists },
+    { id: 'reveal', label: revealLabel, enabled: exists, icon: 'reveal' as const },
     { id: 'copy', label: 'Copy Path' },
     { id: 'copy-hash', label: 'Copy Commit Hash' }
   ])

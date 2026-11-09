@@ -46,10 +46,11 @@ async function readCreds(): Promise<Creds | null> {
         ? (await security(['find-generic-password', '-s', SERVICE, '-a', ACCOUNT, '-w'])).trim()
         : safeStorage.decryptString(readFileSync(secretFile()))
     cache = JSON.parse(raw) as Creds
+    return cache
   } catch {
-    cache = null
+    // Not cached: a locked Keychain or a moment's failure shouldn't hide the account until Spoon restarts.
+    return null
   }
-  return cache
 }
 
 async function writeCreds(c: Creds): Promise<void> {

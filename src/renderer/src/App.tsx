@@ -26,6 +26,7 @@ import { WhatsNewDialog } from './components/WhatsNewDialog'
 import { changelog, newerVersion } from './whatsNew'
 import { CompareView } from './components/CompareView'
 import { CompareDialog } from './components/CompareDialog'
+import { JenkinsBuilds } from './components/JenkinsBuilds'
 import { BranchDiffDialog } from './components/BranchDiffDialog'
 import { SshSetupDialog } from './components/SshSetupDialog'
 import { CloneDialog } from './components/CloneDialog'
@@ -378,8 +379,32 @@ export function App() {
   // Esc closes a Compare or Text compare tab (they fill the window, like a popup would), unless a
   // dialog or menu is open, or the key is meant for a text field (a Text compare side, a search box).
   const escRef = useRef<() => void>(() => undefined)
+  const closeTabRef = useRef(closeTab)
+  closeTabRef.current = closeTab
   escRef.current = () => {
-    if (current && (currentCompare || currentText)) closeTab(current)
+    if (!current || !(currentCompare || currentText)) return
+    // Text you pasted or typed into a Text compare is asked about first (⌘Z would bring it back, but
+    // that's easy to miss).
+    if (currentText) {
+      let sides: { from?: string; to?: string } = {}
+      try {
+        sides = JSON.parse(liveText(currentText) ?? storage.getItem(textKey(currentText)) ?? '{}')
+      } catch {
+        // nothing saved
+      }
+      if (sides.from?.trim() || sides.to?.trim()) {
+        const tab = current
+        void confirm({
+          message: 'Close this text compare?',
+          detail: `What’s in it closes with it (${keys('⌘Z')} reopens the tab).`,
+          confirmLabel: 'Close',
+          risky: true,
+          enterConfirms: true
+        }).then((ok) => ok && closeTabRef.current(tab)) // the tabs as they are by then
+        return
+      }
+    }
+    closeTab(current)
   }
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -569,7 +594,7 @@ export function App() {
       { id: 'others', label: 'Close Other Tabs', enabled: tabs.length > 1 },
       { id: 'right', label: 'Close Tabs to the Right', enabled: after.length > 0 },
       { separator: true },
-      { id: 'reveal', label: revealLabel, enabled: !compareTextId(path) },
+      { id: 'reveal', label: revealLabel, enabled: !compareTextId(path), icon: 'reveal' as const },
       { id: 'copy', label: 'Copy Path', enabled: !compareTextId(path) },
       ...(colorable
         ? [
@@ -727,7 +752,16 @@ export function App() {
         }
         else if (cmd === 'whats-new') setWhatsNew({ since: null })
         else if (cmd === 'welcome-tour') setTour(true)
-        else if (cmd === 'compare-files') setComparing(true)
+        else if (cmd === 'compare-files') {
+          // ⌘D in the file editor is CodeMirror's "select next occurrence", which the menu shortcut would take.
+          const cm = document.activeElement?.closest<HTMLElement>('.cm-editor')
+          if (cm)
+            void Promise.all([import('@codemirror/view'), import('@codemirror/search')]).then(([{ EditorView }, { selectNextOccurrence }]) => {
+              const view = EditorView.findFromDOM(cm)
+              if (view) selectNextOccurrence(view)
+            })
+          else setComparing(true)
+        }
         else if (cmd === 'clone') setCloning(true)
         else if (cmd === 'filter-commits' && settingsOpen.current) window.dispatchEvent(new Event('spoon:settings-search'))
         else if (cmd === 'squish') updateSettings({ squishBranches: !getSettings().squishBranches })
@@ -973,6 +1007,7 @@ export function App() {
       <PinHost />
       <MenuHost />
 
+      <JenkinsBuilds />
       {toast && (
         <div className="toast" role="alert" onClick={() => setToast(null)}>
           {toast}

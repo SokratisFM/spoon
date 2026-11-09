@@ -38,6 +38,7 @@ import { Split } from './Split'
 import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
+import { fileName } from '../compare'
 import { BuildDialog } from './BuildDialog'
 import { NewBranchDialog } from './NewBranchDialog'
 import { FileEditorHost, OPEN_SELECTED_FILE } from './FileEditor'
@@ -97,8 +98,8 @@ export interface Ops {
   pullFor: (branch: string, upstream?: string) => PullSummary | null
   /** Show a pull request in the Pull Requests view. */
   openPull: (number: number) => void
-  /** Open Send Build to Slack for a branch (null outside Unity projects). */
-  sendBuild: ((branch: Ref) => void) | null
+  /** Open Send Build for a branch, through Slack or straight to Jenkins (null outside Unity projects). */
+  sendBuild: ((branch: Ref, via: 'slack' | 'jenkins') => void) | null
 }
 
 type Busy = OpBusy
@@ -167,7 +168,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
   const [prFor, setPrFor] = useState<string | null>(null)
   const [tagging, setTagging] = useState<Commit | null>(null)
-  const [buildFor, setBuildFor] = useState<Ref | null>(null)
+  const [buildFor, setBuildFor] = useState<{ ref: Ref; via: 'slack' | 'jenkins' } | null>(null)
   const [newBranch, setNewBranch] = useState(false)
   // New Tag for a commit: never a stash (its work in progress is private) or a fold row, and with
   // the commit as it really is (squishing rewrites the parents of the rows it shows).
@@ -584,7 +585,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         setSelectedPr(number)
         setView('prs')
       },
-      sendBuild: isUnity ? setBuildFor : null
+      sendBuild: isUnity ? (ref, via) => setBuildFor({ ref, via }) : null
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [run, checkout, rebase, merge, canCreatePull, claudeEnabled, isUnity]
@@ -682,7 +683,9 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
 
   const fetchAll = (): void => {
     // Prune, so branches whose remote was deleted show up as stale.
-    netOp('fetch', 'Fetching…', () => window.spoon.fetch(path, true), 'Fetch failed')
+    // From a submodule's tab the whole project is fetched (the outermost repository and every submodule).
+    const label = repo?.superproject ? `Fetching ${fileName(repo.superproject)} and all its submodules…` : repo?.submodules.length ? 'Fetching (with submodules)…' : 'Fetching…'
+    netOp('fetch', label, () => window.spoon.fetch(path, true), 'Fetch failed')
   }
 
   // A menu command is for the tab that's showing when it's given: never replay one from before this
@@ -1182,7 +1185,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       <FileEditorHost path={path} ops={ops} />
       <FileHistoryHost path={path} ops={ops} onJump={jumpTo} />
       {newBranch && repo && <NewBranchDialog path={path} repo={repo} ops={ops} onClose={() => setNewBranch(false)} />}
-      {buildFor && repo && <BuildDialog path={path} repo={repo} branch={buildFor} onClose={() => setBuildFor(null)} />}
+      {buildFor && repo && <BuildDialog key={buildFor.via} path={path} repo={repo} branch={buildFor.ref} via={buildFor.via} onVia={(via) => setBuildFor({ ...buildFor, via })} onOpenSettings={onOpenSettings} onClose={() => setBuildFor(null)} />}
       {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} github={canCreatePull} onClose={() => setTagging(null)} />}
       {reviewing && repo && (
         <ReviewDialog

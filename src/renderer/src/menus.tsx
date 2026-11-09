@@ -3,10 +3,10 @@
 // draws it. Same items as before: separators, disabled rows, checkbox/radio marks, shortcuts.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MenuItem } from '../../shared/types'
-import { keys } from './platform'
-import { ClaudeIcon, GitHubLogoIcon, JiraLogoIcon, SlackLogoIcon } from './components/Icons'
+import { isMac, keys } from './platform'
+import { ClaudeIcon, ExplorerIcon, FinderIcon, GitHubLogoIcon, JenkinsLogoIcon, JiraLogoIcon, SlackLogoIcon } from './components/Icons'
 
-const ICONS = { jira: JiraLogoIcon, github: GitHubLogoIcon, claude: ClaudeIcon, slack: SlackLogoIcon }
+const ICONS = { jira: JiraLogoIcon, github: GitHubLogoIcon, claude: ClaudeIcon, slack: SlackLogoIcon, jenkins: JenkinsLogoIcon, reveal: isMac ? FinderIcon : ExplorerIcon }
 
 interface Open {
   items: MenuItem[]

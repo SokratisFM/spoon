@@ -11,6 +11,7 @@ import * as ssh from './ssh'
 import * as claude from './claude'
 import * as history from './history'
 import * as atlassian from './atlassian'
+import * as jenkins from './jenkins'
 import * as ide from './ide'
 import * as unityExports from './exports'
 import * as thumbnails from './thumbnails'
@@ -420,6 +421,19 @@ function registerIpc(): void {
   handleRepo('repo:unityBuildInfo', (_e, path: string, ref: string) => git.unityBuildInfo(path, ref))
   handleRepo('repo:compareCandidates', (_e, path: string, file: string) => git.compareCandidates(path, String(file)))
   handleRepo('repo:projectFiles', (_e, path: string) => git.projectFiles(path))
+  ipcMain.handle('compare:repos', (_e, a: string, b: string) => git.compareRepos(String(a), String(b)))
+  ipcMain.handle('compare:apply', (_e, from: string, to: string) => git.applyCompare(String(from), String(to)))
+  ipcMain.handle('jenkins:account', () => jenkins.account())
+  ipcMain.handle('jenkins:connect', (_e, server: string, user: string, token: string) => jenkins.connect(String(server), String(user), String(token)))
+  ipcMain.handle('jenkins:disconnect', () => jenkins.disconnect())
+  ipcMain.handle('jenkins:jobsFor', (_e, code: string) => jenkins.jobsFor(String(code)))
+  ipcMain.handle('jenkins:job', (_e, name: string) => jenkins.job(String(name)))
+  ipcMain.handle('jenkins:build', (_e, name: string, values: Record<string, string | boolean>) => jenkins.build(String(name), values && typeof values === 'object' ? values : {}))
+  ipcMain.handle('jenkins:progress', (_e, name: string, queueId: number, number: number | null) =>
+    jenkins.progress(String(name), Number(queueId), number === null ? null : Number(number))
+  )
+  ipcMain.handle('jenkins:open', (_e, url: string) => jenkins.open(String(url)))
+  ipcMain.handle('jenkins:openTokenPage', (_e, server: string) => jenkins.openTokenPage(String(server)))
   handleRepo('repo:merge', (_e, path: string, from: string, noFastForward: boolean) => git.merge(path, from, !!noFastForward))
   handleRepo('repo:mergeContinue', (_e, path: string, action: 'continue' | 'abort') => git.mergeContinue(path, action))
   ipcMain.handle('ide:schemes', () => ide.detect())

@@ -196,7 +196,7 @@ export function submoduleActions(
         { id: 'open', label: 'Open in New Tab', enabled: s.state !== 'uninitialized' },
         { id: 'update', label: s.state === 'uninitialized' ? 'Initialize' : 'Update to Recorded Commit' },
         { separator: true },
-        { id: 'reveal', label: revealLabel },
+        { id: 'reveal', label: revealLabel, icon: 'reveal' as const },
         { id: 'copy', label: 'Copy Path' }
       ])
       if (choice === 'mainlib') openMainlib(s)

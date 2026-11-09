@@ -6,11 +6,19 @@ What's New popup, and `npm run release` uses a version's section as its release 
 
 ## 0.55.0 — 2026-11-09
 
+- **New:** Start Jenkins Build: in a Unity project, right-click a branch → **Start Jenkins Build…** and Spoon starts the game's build job on Jenkins directly (the job is found by the game code, e.g. JISFI-…-ios). The form comes from the job itself: version (filled from the job's last build), branch, Unity version, the on/off options, and under More the stage to start at and extra changelog lines. A card at the bottom right follows the build stage by stage, and a notification says when it's done. Add your Jenkins username and API token in Settings → Accounts; Jenkins is only reachable on the VPN, and when it can't be reached Spoon offers Slack instead.
 - **New:** Compare finds the other file for you: drop or choose a file and Spoon looks in the open repository (submodules included) for files with the same name, preferring the one whose folders match yours. It goes on the other side, marked **Found in** the repository, with the other matches listed under it, one click away. A file from the repository itself is put beside its last committed version.
 - **New:** Find in repository: each side of Compare can be filled by searching the repository's files by words in their name or folder (↑↓ and Enter to pick). It opens by itself when no file of the same name is found.
 - **Improved:** Compare's Swap button sits between the two files.
-- **Improved:** Compare opens with ⌘D (Ctrl+D on Windows). ⌥⌘D is macOS's own shortcut for hiding the Dock, so it never reached Spoon.
-- **Improved:** Esc closes a Compare or Text compare tab (unless you're typing in a text box).
+- **New:** Apply in a Compare tab: when one side is a file in a repository and the other isn't, **Apply to <file>** replaces the repository's file with the other one (after asking). Its old version stays in git, so Discard can undo it.
+- **Improved:** Reveal in Finder (Show in Explorer on Windows) has the Finder (or folder) icon in right-click menus.
+- **Improved:** When a submodule can't be fetched, Fetch names the right one (also when several are fetched at once), lists any others, and says everything else was fetched. If your git config sets `fetch.recurseSubmodules`, Fetch follows it instead of fetching every submodule.
+- **Improved:** Fetch from a submodule's tab says it's fetching the whole project ("Fetching jigsaw-solitaire and all its submodules…").
+- **Improved:** Start Jenkins Build finds jobs inside Jenkins folders, sends only the parameters you set (the rest keep the job's defaults), notes in Settings when the server address is plain http, and stops following a build Jenkins no longer knows about instead of waiting forever.
+- **Fixed:** If the Keychain couldn't be read once (say, while locked), the Jira and Jenkins accounts looked disconnected until Spoon restarted.
+- **Improved:** Settings → Accounts is split by service (GitHub, Jira, Claude, MainLib, Slack builds, Jenkins), with an index down the side: each service's logo and a dot showing whether it's set up (green), still needs signing in (amber) or is off. Click one to jump to it.
+- **Improved:** Compare opens with ⌘D (Ctrl+D on Windows). ⌥⌘D is macOS's own shortcut for hiding the Dock, so it never reached Spoon. In the file editor, ⌘D still selects the next match.
+- **Improved:** Esc closes a Compare or Text compare tab (unless you're typing in a text box). A Text compare with text in it asks first.
 
 ## 0.54.0 — 2026-11-09
 

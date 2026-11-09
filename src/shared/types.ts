@@ -276,6 +276,43 @@ export interface RebaseStep {
   message?: string
 }
 
+export interface JenkinsAccount {
+  /** The server's origin, e.g. http://jenkins2:8080. */
+  server: string
+  user: string
+}
+
+/** One of a Jenkins job's build parameters. */
+export interface JenkinsParam {
+  name: string
+  type: 'string' | 'text' | 'boolean' | 'choice' | 'other'
+  description: string
+  default: string | boolean
+  choices?: string[]
+}
+
+export interface JenkinsJob {
+  name: string
+  url: string
+  params: JenkinsParam[]
+  /** The last build's number and the parameter values it used. */
+  last: { number: number; values: Record<string, string | boolean> } | null
+}
+
+/** A started build: in the queue, running (stages so far, from Stage View), or done. */
+export interface JenkinsRun {
+  state: 'queued' | 'running' | 'done'
+  number: number | null
+  url: string | null
+  /** Jenkins' status: QUEUED, IN_PROGRESS, SUCCESS, FAILED, ABORTED, UNSTABLE… (CANCELLED: left the queue). */
+  status: string
+  why?: string
+  durationMillis: number
+  stages: { name: string; status: string; durationMillis: number }[]
+  /** Jenkins no longer has its queue item, and the build wasn't found among the job's latest ones. */
+  lost?: boolean
+}
+
 /** A file Compare suggests putting beside the one you chose. */
 export interface CompareCandidate {
   /** The file on disk (for a last committed version: the file it's the version of). */
@@ -615,7 +652,7 @@ export interface MenuItem {
   /** Shortcut shown beside the item (display only; the app menu owns the real shortcut). */
   accelerator?: string
   /** The service the item goes to, drawn on its left. */
-  icon?: 'jira' | 'github' | 'claude' | 'slack'
+  icon?: 'jira' | 'github' | 'claude' | 'slack' | 'jenkins' | 'reveal'
   /** A row of color swatches instead of a label: picking one answers its id (a null color is "none"). */
   swatches?: { id: string; color: string | null; label: string; checked?: boolean }[]
 }
@@ -877,6 +914,19 @@ export interface SpoonApi {
   /** Compare: files in the repository to put beside one you chose, and every file in it for searching. */
   compareCandidates(path: string, file: string): Promise<CompareCandidates>
   projectFiles(path: string): Promise<string[]>
+  /** Jenkins: the account, a game code's jobs, a job's parameters, starting and following builds. */
+  /** Compare tabs: which repository each side is in, and replacing the repository's file with the other side. */
+  compareRepos(a: string, b: string): Promise<[string | null, string | null]>
+  applyCompare(from: string, to: string): Promise<void>
+  jenkinsAccount(): Promise<JenkinsAccount | null>
+  jenkinsConnect(server: string, user: string, token: string): Promise<JenkinsAccount>
+  jenkinsDisconnect(): Promise<void>
+  jenkinsJobsFor(code: string): Promise<string[]>
+  jenkinsJob(name: string): Promise<JenkinsJob>
+  jenkinsBuild(name: string, values: Record<string, string | boolean>): Promise<{ queueId: number }>
+  jenkinsProgress(name: string, queueId: number, number: number | null): Promise<JenkinsRun>
+  jenkinsOpen(url: string): Promise<void>
+  jenkinsOpenTokenPage(server: string): Promise<void>
   /** Merges a ref into the checked-out branch. */
   merge(path: string, from: string, noFastForward: boolean): Promise<MergeResult>
   mergeContinue(path: string, action: 'continue' | 'abort'): Promise<MergeResult>

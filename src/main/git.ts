@@ -1688,7 +1688,11 @@ async function topRepository(cwd: string): Promise<string> {
  */
 export async function fetch(cwd: string, prune: boolean, onProgress: (l: string) => void): Promise<void> {
   const top = await topRepository(cwd)
-  const args = ['fetch', '--all', '--progress', '--recurse-submodules=yes', '--jobs=4', ...(prune ? ['--prune'] : [])]
+  // Every submodule too, unless fetch.recurseSubmodules says otherwise in your git config (then git's
+  // own setting decides).
+  const configured = (await git(top, ['config', '--get', 'fetch.recurseSubmodules'], [0, 1]).catch(() => '')).trim().toLowerCase()
+  const recurse = !configured || configured === 'true' || configured === 'yes' ? ['--recurse-submodules=yes'] : []
+  const args = ['fetch', '--all', '--progress', ...recurse, '--jobs=4', ...(prune ? ['--prune'] : [])]
   // The tab it was started from holds its own lock and Cancel; the outermost one's lock too.
   const now = (): Promise<void> =>
     run(top, args, { onProgress, cancellable: cwd }).then(
@@ -1730,18 +1734,25 @@ async function whichFailed(cwd: string, err: unknown, remote?: string): Promise<
   if (!(err instanceof GitError) || !UNREACHABLE.test(err.message)) return err
   const lines = err.stderr.split(/[\r\n]+/)
   const failed = lines.findIndex((l) => UNREACHABLE.test(l))
-  // git prints "Fetching submodule <path>" before each one; the failure follows the one it's about.
-  const sub = lines
-    .slice(0, failed < 0 ? lines.length : failed)
-    .flatMap((l) => /^Fetching submodule (.+)$/.exec(l.trim())?.[1] ?? [])
-    .pop()
+  // git lists the submodules it couldn't fetch at the end ("Errors during submodule fetch:", then one
+  // tab-indented path each). That holds with --jobs, where the "Fetching submodule" lines interleave.
+  const listed = lines.findIndex((l) => /^Errors during submodule fetch:/.test(l))
+  const failedSubs = listed < 0 ? [] : lines.slice(listed + 1).flatMap((l) => (/^\t/.test(l) && l.trim() ? [l.trim()] : []))
+  // Without that list (older git): the last "Fetching submodule <path>" before the error.
+  const sub =
+    failedSubs[0] ??
+    lines
+      .slice(0, failed < 0 ? lines.length : failed)
+      .flatMap((l) => /^Fetching submodule (.+)$/.exec(l.trim())?.[1] ?? [])
+      .pop()
   // Without a user name or password a URL may carry (error dialogs get screenshotted).
   const urlOf = async (dir: string, name: string): Promise<string> =>
     withoutCredentials((await run(dir, ['remote', 'get-url', '--', name], { okCodes: [0, 2, 128] }).catch(() => '')).trim())
   let where: string
   if (sub) {
     const url = await urlOf(join(cwd, sub), 'origin')
-    where = `the submodule ${sub}${url ? ` (${url})` : ''}`
+    const others = failedSubs.length > 1 ? ` and ${failedSubs.length - 1} other submodule${failedSubs.length > 2 ? 's' : ''} (${failedSubs.slice(1).join(', ')})` : ''
+    where = `the submodule ${sub}${url ? ` (${url})` : ''}${others}`
   } else {
     // With several remotes git says "Fetching <remote>" before each.
     const name =
@@ -1759,7 +1770,9 @@ async function whichFailed(cwd: string, err: unknown, remote?: string): Promise<
     .split('\n')
     .filter((l) => !/^(remote: |From |Fetching submodule |\s+[0-9a-f]{7,}\.\.[0-9a-f]{7,}\s| [*+-] \[)/.test(l))
     .join('\n')
-  return new GitError(`Couldn’t reach ${where}:\n\n${said}`, err.code, err.stderr)
+  // The project itself (and the other submodules) still fetched: only the listed ones didn't.
+  const rest = failedSubs.length ? `\n\nEverything else was fetched.` : ''
+  return new GitError(`Couldn’t reach ${where}:\n\n${said.replace(/\n?Errors during submodule fetch:(\n\t.*)*/, '').trim()}${rest}`, err.code, err.stderr)
 }
 
 /**
@@ -2749,6 +2762,26 @@ export async function compareCandidates(cwd: string, file: string): Promise<Comp
     if (committed) candidates.unshift({ path: real, shown: inside, commit: { repo: top, hash, rel } })
   }
   return { inRepo: !!inside, total: files.length, candidates: candidates.slice(0, 12) }
+}
+
+/** For a Compare tab: the repository each file is in (its working tree), or null (a file elsewhere, or a commit's copy). */
+export async function compareRepos(a: string, b: string): Promise<[string | null, string | null]> {
+  const repoOf = async (file: string): Promise<string | null> => {
+    const real = await realpath(file).catch(() => null)
+    if (!real || (compareRoot && real.startsWith((await realpath(compareRoot).catch(() => compareRoot!)) + sep))) return null
+    const top = (await git(dirname(real), ['rev-parse', '--show-toplevel']).catch(() => '')).trim()
+    return top || null
+  }
+  return Promise.all([repoOf(a), repoOf(b)])
+}
+
+/** Compare's Apply: the file in a repository takes the other file's contents (git can still undo it). */
+export async function applyCompare(from: string, to: string): Promise<void> {
+  const [, repo] = await compareRepos(from, to)
+  if (!repo) throw new Error('Only a file inside a repository can be replaced from Compare.')
+  const [src, dst] = await Promise.all([stat(from), stat(to)])
+  if (!src.isFile() || !dst.isFile()) throw new Error('Both sides have to be files.')
+  await writeFile(to, await readFile(from))
 }
 
 /** The files git tracks in a repository, relative to it. */

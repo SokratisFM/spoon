@@ -71,7 +71,7 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
     const choice = await contextMenu([
       { id: 'add', label: 'Add to the Repository…' },
       { id: 'edit', label: 'Open in Spoon…' },
-      { id: 'reveal', label: revealLabel },
+      { id: 'reveal', label: revealLabel, icon: 'reveal' as const },
       { separator: true },
       { id: 'skip', label: 'Leave Out' }
     ])
@@ -130,8 +130,8 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
       { id: 'ignore', label: 'Leave Source as It Is' },
       { id: 'relink', label: 'Replace Export Copy with a Link…' },
       { separator: true },
-      { id: 'reveal-src', label: `${revealLabel}: Source` },
-      { id: 'reveal-exp', label: `${revealLabel}: Export` }
+      { id: 'reveal-src', label: `${revealLabel}: Source`, icon: 'reveal' as const },
+      { id: 'reveal-exp', label: `${revealLabel}: Export`, icon: 'reveal' as const }
     ])
     if (choice === 'compare') requestCompare(abs(l.source), abs(l.export))
     else if (choice === 'edit-src') openFileEditor({ repo: path, file: l.source })
