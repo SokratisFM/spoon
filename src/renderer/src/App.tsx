@@ -375,6 +375,24 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Esc closes a Compare or Text compare tab (they fill the window, like a popup would), unless a
+  // dialog or menu is open, or the key is meant for a text field (a Text compare side, a search box).
+  const escRef = useRef<() => void>(() => undefined)
+  escRef.current = () => {
+    if (current && (currentCompare || currentText)) closeTab(current)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input, textarea, select, [contenteditable], .cm-editor')) return
+      if (document.querySelector('.modal-backdrop, .palette-backdrop, .popover, .ctx-layer')) return
+      escRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // ⌘W / Ctrl+W: dismiss an open dialog first, then close the current tab; with only one tab (or
   // none) left, close the window instead, as its close button would. The last tab is kept so it
   // reopens next time.
@@ -825,7 +843,7 @@ export function App() {
           )}
           <button className="icon-btn keyed-btn" onClick={() => setComparing(true)} title="Compare files, text or branches">
             <CompareIcon />
-            <kbd className="keyed-key">{keys('⌥⌘D')}</kbd>
+            <kbd className="keyed-key">{keys('⌘D')}</kbd>
           </button>
           <button
             className="icon-btn keyed-btn"

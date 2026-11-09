@@ -8971,3 +8971,181 @@ kbd.setting-key {
   border-color: var(--warn);
   color: #1b1b1b;
 }
+
+/* Compare files: the swap button between the sides, Find in repo, suggestions and search. */
+.compare-slots.files {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+}
+.compare-slots.files > .compare-side:nth-child(2) {
+  grid-column: 3;
+  grid-row: 1;
+}
+.compare-slots.files > .compare-swap {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  margin-top: 2.75rem;
+}
+.compare-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.compare-side > .compare-slot {
+  width: 100%;
+}
+.compare-find {
+  align-self: center;
+  font-size: 0.85em;
+  color: var(--accent);
+}
+.compare-find.on {
+  text-decoration: underline;
+}
+.compare-swap {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.compare-swap:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.compare-swap:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.compare-suggest {
+  margin-top: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.cs-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  background: var(--bg);
+}
+.cs-head .link-btn {
+  color: var(--accent);
+  flex: none;
+}
+.cs-search {
+  display: block;
+  width: calc(100% - 1.2rem);
+  margin: 0.5rem 0.6rem;
+}
+.cs-results {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.cs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.35rem 0.7rem;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cs-row:hover {
+  background: var(--bg-hover);
+}
+.cs-row.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.cs-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  font-family: var(--font-code);
+  text-align: left;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.cs-path mark {
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+}
+.cs-row.on .cs-path {
+  color: var(--text);
+}
+.cs-badge {
+  flex: none;
+  font-size: 0.78em;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.cs-badge.high {
+  border-color: var(--add);
+  color: var(--add);
+}
+.cs-badge.mid {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.cs-empty {
+  padding: 0.5rem 0.7rem;
+  color: var(--text-faint);
+  font-size: 0.85em;
+}
+.compare-slots.files.captioned > .compare-swap {
+  margin-top: 4.1rem;
+}
+.compare-caption {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+.compare-caption.found {
+  color: var(--add);
+}
+.compare-slot.full.found {
+  border-style: dashed;
+  border-color: var(--add);
+  background: color-mix(in srgb, var(--add) 9%, var(--bg));
+}
+.compare-slot.found b {
+  color: var(--add);
+}
+.compare-side > .compare-suggest {
+  margin-top: 0;
+}
+.compare-side .cs-results {
+  max-height: 9.5rem;
+}
+.compare-side .cs-row.on {
+  background: color-mix(in srgb, var(--add) 14%, transparent);
+}
+.compare-side .cs-row.on .cs-path {
+  color: var(--add);
+}
+.compare-side .cs-head > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

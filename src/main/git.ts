@@ -41,6 +41,8 @@ import type {
   RebasePlan,
   MergePlan,
   UnityBuildInfo,
+  CompareCandidate,
+  CompareCandidates,
   MergeResult,
   MergeState,
   RebaseProgress,
@@ -2705,6 +2707,48 @@ export async function cleanTempFolders(keep: string[] = []): Promise<void> {
       if (info && Date.now() - info.mtimeMs > 86_400_000) await rm(join(dir, name), { recursive: true, force: true }).catch(() => undefined)
     }
   }
+}
+
+/** Every file git tracks in a repository and its submodules, relative to it (for Compare's search). */
+export async function projectFiles(cwd: string): Promise<string[]> {
+  const { out } = await exec(cwd, ['ls-files', '-z', '--recurse-submodules'], { maxBytes: 128 * 1024 * 1024 })
+  return out.split('\0').filter(Boolean)
+}
+
+/**
+ * Files to compare a file with, from the open repository: those with the same name (its submodules'
+ * too), the ones whose folders end like the file's first (…/Plugins/Android/AndroidManifest.xml), then
+ * the shortest paths; and, for a file that's in a repository itself, its last committed version.
+ * Contents aren't read.
+ */
+export async function compareCandidates(cwd: string, file: string): Promise<CompareCandidates> {
+  const root = await realpath(cwd)
+  const real = await realpath(file).catch(() => resolve(file))
+  const inside = real.startsWith(root + sep) ? relative(root, real).split(sep).join('/') : null
+  const name = basename(real).toLowerCase()
+  const dirs = (p: string): string[] => p.toLowerCase().split(/[\\/]/).slice(0, -1)
+  const myDirs = dirs(real)
+  const shared = (rel: string): number => {
+    const theirs = dirs(rel)
+    let n = 0
+    while (n < theirs.length && n < myDirs.length && theirs[theirs.length - 1 - n] === myDirs[myDirs.length - 1 - n]) n++
+    return n
+  }
+  const files = (await projectFiles(root)).filter((rel) => basename(rel).toLowerCase() === name && rel !== inside)
+  const candidates: CompareCandidate[] = files
+    .map((rel) => ({ rel, shared: shared(rel) }))
+    .sort((a, b) => b.shared - a.shared || a.rel.length - b.rel.length || a.rel.localeCompare(b.rel))
+    .map(({ rel }) => ({ path: join(root, rel), shown: rel }))
+
+  // A file in a repository (this one or a submodule): its last committed version comes first.
+  if (inside) {
+    const top = (await git(dirname(real), ['rev-parse', '--show-toplevel']).catch(() => '')).trim()
+    const rel = top ? relative(await realpath(top), real).split(sep).join('/') : ''
+    const hash = top ? (await git(top, ['rev-parse', '-q', '--verify', 'HEAD'], [0, 1]).catch(() => '')).trim() : ''
+    const committed = hash && (await exec(top, ['cat-file', '-e', `${hash}:${rel}`], { okCodes: [0, 128] }).then((r) => !r.err, () => false))
+    if (committed) candidates.unshift({ path: real, shown: inside, commit: { repo: top, hash, rel } })
+  }
+  return { inRepo: !!inside, total: files.length, candidates: candidates.slice(0, 12) }
 }
 
 /** The files git tracks in a repository, relative to it. */

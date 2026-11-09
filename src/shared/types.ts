@@ -276,6 +276,24 @@ export interface RebaseStep {
   message?: string
 }
 
+/** A file Compare suggests putting beside the one you chose. */
+export interface CompareCandidate {
+  /** The file on disk (for a last committed version: the file it's the version of). */
+  path: string
+  /** Its path in the open repository. */
+  shown: string
+  /** The file's last committed version, written out by fileAtCommitToTemp(repo, hash, rel). */
+  commit?: { repo: string; hash: string; rel: string }
+}
+
+export interface CompareCandidates {
+  /** The chosen file is in the open repository (so it's the current side). */
+  inRepo: boolean
+  /** Files in the repository with the same name. */
+  total: number
+  candidates: CompareCandidate[]
+}
+
 /** A Unity project's values for a build command, read from one branch. */
 export interface UnityBuildInfo {
   /** ProjectSettings/ProjectVersion.txt's m_EditorVersion, e.g. "6000.0.76f1". */
@@ -856,6 +874,9 @@ export interface SpoonApi {
   rebaseContinue(path: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult>
   mergePlan(path: string, from: string): Promise<MergePlan>
   unityBuildInfo(path: string, ref: string): Promise<UnityBuildInfo>
+  /** Compare: files in the repository to put beside one you chose, and every file in it for searching. */
+  compareCandidates(path: string, file: string): Promise<CompareCandidates>
+  projectFiles(path: string): Promise<string[]>
   /** Merges a ref into the checked-out branch. */
   merge(path: string, from: string, noFastForward: boolean): Promise<MergeResult>
   mergeContinue(path: string, action: 'continue' | 'abort'): Promise<MergeResult>

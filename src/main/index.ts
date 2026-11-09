@@ -85,7 +85,7 @@ function buildMenu(): void {
           { label: 'Open Repository…', accelerator: 'CmdOrCtrl+O', click: () => send('find-project') },
           { label: 'Open Folder…', accelerator: 'CmdOrCtrl+Shift+O', click: () => send('open-repo') },
           { label: 'Clone Repository…', click: () => send('clone') },
-          { label: 'Compare…', accelerator: 'CmdOrCtrl+Alt+D', click: () => send('compare-files') },
+          { label: 'Compare…', accelerator: 'CmdOrCtrl+D', click: () => send('compare-files') },
           { type: 'separator' },
           // ⌘W / Ctrl+W closes the current repository tab; the renderer closes the window when
           // there's no tab left to close (so the window's usual close behavior applies).
@@ -418,6 +418,8 @@ function registerIpc(): void {
   )
   handleRepo('repo:mergePlan', (_e, path: string, from: string) => git.mergePlan(path, from))
   handleRepo('repo:unityBuildInfo', (_e, path: string, ref: string) => git.unityBuildInfo(path, ref))
+  handleRepo('repo:compareCandidates', (_e, path: string, file: string) => git.compareCandidates(path, String(file)))
+  handleRepo('repo:projectFiles', (_e, path: string) => git.projectFiles(path))
   handleRepo('repo:merge', (_e, path: string, from: string, noFastForward: boolean) => git.merge(path, from, !!noFastForward))
   handleRepo('repo:mergeContinue', (_e, path: string, action: 'continue' | 'abort') => git.mergeContinue(path, action))
   ipcMain.handle('ide:schemes', () => ide.detect())

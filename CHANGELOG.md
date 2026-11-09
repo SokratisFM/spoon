@@ -4,6 +4,14 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.55.0 — 2026-11-09
+
+- **New:** Compare finds the other file for you: drop or choose a file and Spoon looks in the open repository (submodules included) for files with the same name, preferring the one whose folders match yours. It goes on the other side, marked **Found in** the repository, with the other matches listed under it, one click away. A file from the repository itself is put beside its last committed version.
+- **New:** Find in repository: each side of Compare can be filled by searching the repository's files by words in their name or folder (↑↓ and Enter to pick). It opens by itself when no file of the same name is found.
+- **Improved:** Compare's Swap button sits between the two files.
+- **Improved:** Compare opens with ⌘D (Ctrl+D on Windows). ⌥⌘D is macOS's own shortcut for hiding the Dock, so it never reached Spoon.
+- **Improved:** Esc closes a Compare or Text compare tab (unless you're typing in a text box).
+
 ## 0.54.0 — 2026-11-09
 
 - **New:** Send Build to Slack: in a Unity project, right-click a branch (in the sidebar or the history) and Spoon writes the build bot's command for it, such as `jisfi 0.0.1 temp/you/build 6000.0.76f1`. The game code comes from CoreConfiguration (pick iOS or Android), and the Unity version from the branch as it is on the remote. The build options (addressables, wipe, skip symbols, skip declination, full history, and remove pod trunk for iOS) are toggles under the fields; hover one to see what it does. Spoon copies the command and opens the team's build channel in Slack, so you paste it and press Enter. Spoon warns you when the branch has commits that aren't pushed yet. A different channel or command format can be set in Settings → Accounts.
