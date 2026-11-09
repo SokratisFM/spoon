@@ -360,6 +360,24 @@ export const CommitList = memo(function CommitList({
               .slice(0, 3)
               .map((b) => ({ id: `pr:${b.label}`, label: `Create Pull Request for ${b.label}…`, icon: 'github' as const }))
           : []),
+        // Send Build: one per branch on this commit (the checked-out one too), local before remote.
+        ...(ops.sendBuild
+          ? (() => {
+              const refs = (badges.get(c.hash) ?? [])
+                .filter((b) => b.kind === 'head' || b.kind === 'remote')
+                .slice(0, 3)
+              return refs.length
+                ? [
+                    { separator: true },
+                    ...refs.map((b) => ({
+                      id: `build:${b.kind === 'head' ? 'refs/heads' : 'refs/remotes'}/${b.label}`,
+                      label: refs.length === 1 ? 'Send Build to Slack…' : `Send Build of ${b.label} to Slack…`,
+                      icon: 'slack' as const
+                    }))
+                  ]
+                : []
+            })()
+          : []),
         ...(repo.refs.some((r) => r.kind === 'head' && r.target === c.hash && r.name !== repo.headBranch)
           ? [{ separator: true }, { id: 'delete-branch', label: 'Delete Branch…' }]
           : []),
@@ -416,6 +434,10 @@ export const CommitList = memo(function CommitList({
       if (choice.startsWith('open-pr:')) return ops.openPull(Number(choice.slice(8)))
       if (choice.startsWith('compare:') && repo.headBranch)
         return requestBranchDiff({ path: repo.path, base: `refs/heads/${repo.headBranch}`, compare: choice.slice(8) })
+      if (choice.startsWith('build:')) {
+        const ref = repo.refs.find((r) => r.fullName === choice.slice(6))
+        return void (ref && ops.sendBuild?.(ref))
+      }
       if (choice.startsWith('merge:')) return ops.merge(choice.slice(6), choice.slice(6).replace(/^refs\/(heads|remotes)\//, ''))
       if (choice.startsWith('rebase:')) return ops.rebase(choice.slice(7), false)
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)

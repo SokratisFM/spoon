@@ -133,6 +133,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       ...(ref.kind === 'head' && ops.createPull && !pull
         ? [{ separator: true }, { id: 'pr', label: `Create Pull Request for ${ref.name}…`, icon: 'github' as const }]
         : []),
+      ...(ref.kind !== 'tag' && ops.sendBuild ? [{ separator: true }, { id: 'build', label: 'Send Build to Slack…', icon: 'slack' as const }] : []),
       { separator: true },
       { id: 'show', label: 'Show in History' },
       { id: 'copy', label: 'Copy Name' },
@@ -148,6 +149,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
     else if (choice === 'pr') ops.createPull?.(ref.name)
     else if (choice === 'open-pr' && pull) ops.openPull(pull.number)
     else if (choice === 'merge') ops.merge(ref.fullName, ref.name)
+    else if (choice === 'build') ops.sendBuild?.(ref)
     else if (choice === 'rebase' || choice === 'irebase') ops.rebase(ref.name, choice === 'irebase')
     else if (choice === 'show') onJump(ref.target)
     else if (choice === 'copy') navigator.clipboard.writeText(ref.name)

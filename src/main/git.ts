@@ -40,6 +40,7 @@ import type {
   RebaseCommit,
   RebasePlan,
   MergePlan,
+  UnityBuildInfo,
   MergeResult,
   MergeState,
   RebaseProgress,
@@ -285,7 +286,8 @@ export async function openRepo(path: string): Promise<RepoState> {
     rebase: readRebaseProgress(gitDir),
     merge: readMergeState(gitDir),
     submodules,
-    superproject: superproject || null
+    superproject: superproject || null,
+    unity: existsSync(join(root, 'ProjectSettings', 'ProjectVersion.txt'))
   }
 }
 
@@ -2237,6 +2239,41 @@ export async function mergePlan(cwd: string, from: string): Promise<MergePlan> {
   const commits = await count(`HEAD..${from}`)
   const ours = await count(`${from}..HEAD`)
   return { commits, fastForward: commits > 0 && ours === 0 }
+}
+
+/**
+ * What a Unity project's build command needs, read from a branch (not the checked-out files, so a
+ * branch that's only on the remote reports its own versions): the editor version, the app version and
+ * each CoreConfiguration's GameShortCode (the active company's first, then iOS before Android).
+ */
+export async function unityBuildInfo(cwd: string, ref: string): Promise<UnityBuildInfo> {
+  assertArg(ref, 'branch')
+  const show = async (file: string): Promise<string> => {
+    const { out, truncated } = await exec(cwd, ['show', `${ref}:${file}`, '--'], { okCodes: [0, 128], maxBytes: 4 * 1024 * 1024 })
+    return truncated ? '' : out
+  }
+  const field = (text: string, name: string): string | null =>
+    text.match(new RegExp(`^\\s*${name}:[ \\t]*(.*?)\\s*$`, 'm'))?.[1].replace(/^(['"])(.*)\1$/, '$2') || null
+  const [version, settings, company, tree] = await Promise.all([
+    show('ProjectSettings/ProjectVersion.txt'),
+    show('ProjectSettings/ProjectSettings.asset'),
+    show('Assets/Configurations/ActiveCompany.asset'),
+    exec(cwd, ['ls-tree', '-r', '-z', '--name-only', ref, '--', 'Assets'], { okCodes: [0, 128], maxBytes: 64 * 1024 * 1024 })
+  ])
+  const active = field(company, 'companyName')
+  const files = tree.out.split('\0').filter((f) => /(^|\/)CoreConfiguration\.asset$/.test(f))
+  const found = await mapLimit(files.slice(0, 20), 4, async (path) => {
+    const code = field(await show(path), 'GameShortCode')
+    const platform = /(^|\/)iOS\//i.test(path) ? 'iOS' : /(^|\/)Android\//i.test(path) ? 'Android' : ''
+    return code ? { code, platform, path } : null
+  })
+  const rank = (c: { platform: string; path: string }): number =>
+    (active && c.path.split('/').includes(active) ? 0 : 4) + (c.platform === 'iOS' ? 0 : c.platform === 'Android' ? 1 : 2)
+  const codes = found
+    .filter((c) => !!c)
+    .sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path))
+    .filter((c, i, all) => all.findIndex((x) => x.code.toLowerCase() === c.code.toLowerCase()) === i)
+  return { unityVersion: field(version, 'm_EditorVersion'), bundleVersion: field(settings, 'bundleVersion'), codes }
 }
 
 /** git's message when putting the autostashed changes back hit conflicts (they stay in the stash). */

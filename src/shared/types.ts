@@ -205,6 +205,8 @@ export interface RepoState {
   submodules: Submodule[]
   /** When this repo is itself a submodule: the parent repo's path. */
   superproject: string | null
+  /** A Unity project (it has ProjectSettings/ProjectVersion.txt). */
+  unity: boolean
 }
 
 export interface ShortCommit {
@@ -272,6 +274,16 @@ export interface RebaseStep {
   action: RebaseAction
   /** New message for "reword". */
   message?: string
+}
+
+/** A Unity project's values for a build command, read from one branch. */
+export interface UnityBuildInfo {
+  /** ProjectSettings/ProjectVersion.txt's m_EditorVersion, e.g. "6000.0.76f1". */
+  unityVersion: string | null
+  /** ProjectSettings.asset's bundleVersion. */
+  bundleVersion: string | null
+  /** Each CoreConfiguration's GameShortCode (one per platform), the most likely first. */
+  codes: { code: string; platform: string; path: string }[]
 }
 
 export interface MergePlan {
@@ -585,7 +597,7 @@ export interface MenuItem {
   /** Shortcut shown beside the item (display only; the app menu owns the real shortcut). */
   accelerator?: string
   /** The service the item goes to, drawn on its left. */
-  icon?: 'jira' | 'github' | 'claude'
+  icon?: 'jira' | 'github' | 'claude' | 'slack'
   /** A row of color swatches instead of a label: picking one answers its id (a null color is "none"). */
   swatches?: { id: string; color: string | null; label: string; checked?: boolean }[]
 }
@@ -843,6 +855,7 @@ export interface SpoonApi {
   rebaseInteractive(path: string, onto: string, steps: RebaseStep[]): Promise<RebaseResult>
   rebaseContinue(path: string, action: 'continue' | 'skip' | 'abort'): Promise<RebaseResult>
   mergePlan(path: string, from: string): Promise<MergePlan>
+  unityBuildInfo(path: string, ref: string): Promise<UnityBuildInfo>
   /** Merges a ref into the checked-out branch. */
   merge(path: string, from: string, noFastForward: boolean): Promise<MergeResult>
   mergeContinue(path: string, action: 'continue' | 'abort'): Promise<MergeResult>

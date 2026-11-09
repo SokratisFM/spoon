@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.54.0 — 2026-11-09
+
+- **New:** Send Build to Slack: in a Unity project, right-click a branch (in the sidebar or the history) and Spoon writes the build bot's command for it, such as `jisfi 0.0.1 temp/you/build 6000.0.76f1`. The game code comes from CoreConfiguration (pick iOS or Android), and the Unity version from the branch as it is on the remote. The build options (addressables, wipe, skip symbols, skip declination, full history, and remove pod trunk for iOS) are toggles under the fields; hover one to see what it does. Spoon copies the command and opens the team's build channel in Slack, so you paste it and press Enter. Spoon warns you when the branch has commits that aren't pushed yet. A different channel or command format can be set in Settings → Accounts.
+
 ## 0.53.1 — 2026-11-06
 
 - **Improved:** Fetch gets the whole project: the main repository and every submodule in it (nested ones too), whichever of them you press Fetch in. Before, a submodule was only fetched when the main repository's new commits pointed it somewhere new.

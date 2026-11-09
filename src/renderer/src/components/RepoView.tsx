@@ -38,6 +38,7 @@ import { Split } from './Split'
 import { Sidebar } from './Sidebar'
 import { CommitList } from './CommitList'
 import { TagDialog } from './TagDialog'
+import { BuildDialog } from './BuildDialog'
 import { NewBranchDialog } from './NewBranchDialog'
 import { FileEditorHost, OPEN_SELECTED_FILE } from './FileEditor'
 import { FileHistoryHost, SELECTED_FILE_HISTORY } from './FileHistoryDialog'
@@ -96,6 +97,8 @@ export interface Ops {
   pullFor: (branch: string, upstream?: string) => PullSummary | null
   /** Show a pull request in the Pull Requests view. */
   openPull: (number: number) => void
+  /** Open Send Build to Slack for a branch (null outside Unity projects). */
+  sendBuild: ((branch: Ref) => void) | null
 }
 
 type Busy = OpBusy
@@ -164,6 +167,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const [subUpdate, setSubUpdate] = useState<Submodule | null>(null)
   const [prFor, setPrFor] = useState<string | null>(null)
   const [tagging, setTagging] = useState<Commit | null>(null)
+  const [buildFor, setBuildFor] = useState<Ref | null>(null)
   const [newBranch, setNewBranch] = useState(false)
   // New Tag for a commit: never a stash (its work in progress is private) or a fold row, and with
   // the commit as it really is (squishing rewrites the parents of the rows it shows).
@@ -558,6 +562,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   const quickPushRef = useRef<() => void>(() => undefined)
   const canCreatePull = !!account && !!ghSlug
   const claudeEnabled = useSettings().claudeEnabled
+  const isUnity = !!repo?.unity
   const ops = useMemo<Ops>(
     () => ({
       run,
@@ -578,10 +583,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       openPull: (number) => {
         setSelectedPr(number)
         setView('prs')
-      }
+      },
+      sendBuild: isUnity ? setBuildFor : null
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run, checkout, rebase, merge, canCreatePull, claudeEnabled]
+    [run, checkout, rebase, merge, canCreatePull, claudeEnabled, isUnity]
   )
   const [mainlibFor, setMainlibFor] = useState<Submodule | null>(null)
   const mainlibName = useSettings().mainlibName
@@ -1176,6 +1182,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       <FileEditorHost path={path} ops={ops} />
       <FileHistoryHost path={path} ops={ops} onJump={jumpTo} />
       {newBranch && repo && <NewBranchDialog path={path} repo={repo} ops={ops} onClose={() => setNewBranch(false)} />}
+      {buildFor && repo && <BuildDialog path={path} repo={repo} branch={buildFor} onClose={() => setBuildFor(null)} />}
       {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} github={canCreatePull} onClose={() => setTagging(null)} />}
       {reviewing && repo && (
         <ReviewDialog

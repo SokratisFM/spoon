@@ -4,9 +4,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MenuItem } from '../../shared/types'
 import { keys } from './platform'
-import { ClaudeIcon, GitHubLogoIcon, JiraLogoIcon } from './components/Icons'
+import { ClaudeIcon, GitHubLogoIcon, JiraLogoIcon, SlackLogoIcon } from './components/Icons'
 
-const ICONS = { jira: JiraLogoIcon, github: GitHubLogoIcon, claude: ClaudeIcon }
+const ICONS = { jira: JiraLogoIcon, github: GitHubLogoIcon, claude: ClaudeIcon, slack: SlackLogoIcon }
 
 interface Open {
   items: MenuItem[]

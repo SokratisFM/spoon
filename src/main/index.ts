@@ -417,6 +417,7 @@ function registerIpc(): void {
     git.rebaseContinue(path, action)
   )
   handleRepo('repo:mergePlan', (_e, path: string, from: string) => git.mergePlan(path, from))
+  handleRepo('repo:unityBuildInfo', (_e, path: string, ref: string) => git.unityBuildInfo(path, ref))
   handleRepo('repo:merge', (_e, path: string, from: string, noFastForward: boolean) => git.merge(path, from, !!noFastForward))
   handleRepo('repo:mergeContinue', (_e, path: string, action: 'continue' | 'abort') => git.mergeContinue(path, action))
   ipcMain.handle('ide:schemes', () => ide.detect())

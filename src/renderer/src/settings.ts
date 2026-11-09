@@ -166,6 +166,9 @@ export interface Settings {
   jiraNewFixVersion: 'next' | 'none'
   jiraNewAssignMe: boolean
   jiraNewTemplate: string
+  /** Send Build: the Slack channel's link (from Copy link; empty: the team's build channel), and the command's pattern. */
+  buildChannel: string
+  buildCommand: string
 }
 
 const BASE_FONT_PX = 13
@@ -227,7 +230,9 @@ const DEFAULTS: Settings = {
   jiraNewType: 'Task',
   jiraNewFixVersion: 'next',
   jiraNewAssignMe: true,
-  jiraNewTemplate: ''
+  jiraNewTemplate: '',
+  buildChannel: '',
+  buildCommand: '{code} {version} {branch} {unity}'
 }
 
 export const SCALE_MIN = 0.8

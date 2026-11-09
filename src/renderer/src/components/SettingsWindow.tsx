@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { BUILD_CHANNEL, slackOpenUrl } from '../buildCommand'
 import { clearFilter, filterOptions, type SearchResult } from '../settingsSearch'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
@@ -1450,7 +1451,43 @@ function AccountsTab() {
       <NewTicketField />
       <ClaudeField />
       <MainLibField />
+      <BuildCommandField />
     </>
+  )
+}
+
+function BuildCommandField() {
+  const s = useSettings()
+  return (
+    <div className="field">
+      <span className="field-label">Build command (Slack)</span>
+      <span className="hint">
+        In Unity projects, right-click a branch → Send Build to Slack… fills in the command, copies it and opens the
+        build channel for you to paste it. The game code comes from CoreConfiguration, the Unity version from
+        ProjectVersion.txt. Leave the channel empty for the team’s build channel.
+      </span>
+      <div className="form-row">
+        <SettingInput
+          placeholder={BUILD_CHANNEL}
+          value={s.buildChannel}
+          onCommit={(v) => updateSettings({ buildChannel: v.trim() })}
+          spellCheck={false}
+          className="mono"
+        />
+      </div>
+      <div className="form-row">
+        <SettingInput
+          placeholder="{code} {version} {branch} {unity}"
+          value={s.buildCommand}
+          onCommit={(v) => updateSettings({ buildCommand: v.trim() || '{code} {version} {branch} {unity}' })}
+          spellCheck={false}
+          className="mono"
+        />
+      </div>
+      {s.buildChannel && !slackOpenUrl(s.buildChannel) && (
+        <span className="error-text">That isn’t a Slack channel link (in Slack: right-click the channel → Copy → Copy link).</span>
+      )}
+    </div>
   )
 }
 

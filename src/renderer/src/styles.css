@@ -8920,3 +8920,54 @@ kbd.setting-key {
 @media (max-width: 760px) {
   .tour-preview, .tour-art { display: none; }
 }
+
+/* Send Build to Slack */
+.build-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.55rem 0.8rem;
+  margin-bottom: 0.9rem;
+}
+.build-grid .form-row input {
+  min-width: 0;
+}
+.build-command {
+  margin: 0 0 0.9rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+.build-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+.build-chip {
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.build-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.build-chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.build-chip.risky.on {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #1b1b1b;
+}

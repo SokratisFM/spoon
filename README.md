@@ -145,6 +145,7 @@ force-quits. Sidebar sections can be reordered or hidden in Settings → Appeara
   **Stage hunk / Unstage hunk** buttons sit on each hunk header in the diff.
 - **Commit**: summary + description, Amend, ⌘Enter. The draft is kept per repository.
 - **Fetch / Pull / Push** in the toolbar (⇧⌘F, ⇧⌘L, ⇧⌘P). Fetch gets the whole project (the main repository and all its submodules), from any of them. Pull can rebase and autostash; Push can set the upstream and push tags.
+- **Send Build to Slack** (Unity projects): right-click a branch → Send Build to Slack… fills in the build bot's command (game code from CoreConfiguration, Unity version from ProjectVersion.txt, both read from the remote branch, plus toggles for the build options), copies it and opens the team's build channel. Another channel link and the command's pattern can be set in Settings → Accounts.
 - **Merge**: right-click a branch (sidebar or history) → Merge into the checked-out branch. A merge that stops on conflicts shows a banner with Commit Merge and Abort.
   Badges show how many commits you are behind/ahead.
 - **Checkout**: double-click a branch, remote branch or tag in the sidebar, or right-click a commit.
