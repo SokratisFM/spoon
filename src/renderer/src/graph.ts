@@ -16,6 +16,8 @@ export interface GraphRow {
   isMerge: boolean
   segments: Segment[]
   width: number // columns used by this row
+  /** Colors by name: what each color number stands for (one array shared by all rows). */
+  palette?: string[]
 }
 
 export interface Graph {
@@ -28,8 +30,11 @@ export interface Graph {
  * takes that color; every other lane cycles through the free colors only.
  */
 export interface ColorRules {
-  colorAt: (hash: string) => number | null
+  /** A lane starting at this commit; `via` is the merge commit that brought it in, for a merged branch's line. */
+  colorAt: (hash: string, via?: Commit) => number | null
   free: number[]
+  /** Colors by name: color numbers index this list instead of the theme's lane colors. */
+  palette?: string[]
 }
 
 export function buildGraph(commits: Commit[], rules?: ColorRules): Graph {
@@ -37,8 +42,8 @@ export function buildGraph(commits: Commit[], rules?: ColorRules): Graph {
   const colors: number[] = []
   let nextColor = 0
   let auto = 0
-  const pick = (hash: string): number =>
-    rules ? (rules.colorAt(hash) ?? rules.free[auto++ % rules.free.length]) : nextColor++
+  const pick = (hash: string, via?: Commit): number =>
+    rules ? (rules.colorAt(hash, via) ?? rules.free[auto++ % rules.free.length]) : nextColor++
   let maxWidth = 1
   const rows: GraphRow[] = []
 
@@ -80,7 +85,7 @@ export function buildGraph(commits: Commit[], rules?: ColorRules): Graph {
           colors[j] = nodeColor
         } else {
           j = freeSlot()
-          colors[j] = pick(p)
+          colors[j] = pick(p, k > 0 ? c : undefined)
         }
         lanes[j] = p
       }
@@ -90,7 +95,7 @@ export function buildGraph(commits: Commit[], rules?: ColorRules): Graph {
     const width = Math.max(widthBefore, lanes.length, col + 1)
     while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop()
     maxWidth = Math.max(maxWidth, width)
-    rows.push({ col, color: nodeColor, isMerge: c.parents.length > 1, segments, width })
+    rows.push({ col, color: nodeColor, isMerge: c.parents.length > 1, segments, width, ...(rules?.palette ? { palette: rules.palette } : {}) })
   }
 
   return { rows, maxWidth }

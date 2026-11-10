@@ -4,6 +4,7 @@ import type { Commit, Ref, RepoState } from '../../../shared/types'
 import { LANE_COLORS, spotlightAt, type Graph, type GraphRow } from '../graph'
 import { hueFor, initials, shortDate } from '../format'
 import { authorColorMap, reservedPrefixes, rowHeight, updateSettings, useSettings } from '../settings'
+import { nameColor } from '../branchColors'
 import { FOLD } from '../squish'
 import { jiraConfig, jiraUrl, splitByTickets, ticketKeys, type JiraConfig } from '../jira'
 import { CheckoutIcon, ChevronIcon, CloseIcon, CloudIcon, CloudOffIcon, CopyIcon, PinIcon, StashIcon, TagIcon } from './Icons'
@@ -129,14 +130,18 @@ export const CommitList = memo(function CommitList({
   const rowH = rowHeight(settings)
   const authorColors = useMemo(() => authorColorMap(settings), [settings])
   const jira = useMemo(() => jiraConfig(settings), [settings])
-  // Reserved branch colors: a label whose name (without "origin/") matches a prefix uses that color.
+  // A label's own color: a reserved prefix's color; with colors by name, its name's color (when labels
+  // are colored, or it's in a reserved family). Names are compared without "origin/".
   const reservedColorOf = useMemo(() => {
     const prefixes = reservedPrefixes(settings)
-    return (label: string, kind: string): number | null => {
-      if (!prefixes.length || kind === 'tag') return null
-      const remote = kind === 'remote' ? repo.remotes.find((r) => label.startsWith(`${r}/`)) : undefined
+    const byName = settings.branchColorMode === 'name'
+    return (label: string, kind: string): string | null => {
+      if (kind === 'tag' || kind === 'stash') return null
+      const remote = kind === 'remote' ? repo.remotes.filter((r) => label.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0] : undefined
       const name = remote ? label.slice(remote.length + 1) : label
-      return prefixes.find(([p]) => name.startsWith(p))?.[1] ?? null
+      const reserved = prefixes.find(([p]) => name.startsWith(p))
+      if (byName) return reserved || settings.laneColoredBranches ? nameColor(name, prefixes) : null
+      return reserved ? `var(--lane-${reserved[1]})` : null
     }
   }, [settings, repo.remotes])
   const [tagPop, setTagPop] = useState<{
@@ -639,7 +644,7 @@ interface RowProps {
   headStyle: 'band' | 'pill' | 'ring'
   showRemoteName: boolean
   laneColors: boolean
-  reservedColorOf: (label: string, kind: string) => number | null
+  reservedColorOf: (label: string, kind: string) => string | null
   jira: JiraConfig | null
   onTagsClick: (hash: string, e: React.MouseEvent) => void
   isHead: boolean
@@ -665,11 +670,12 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
   const tags = p.badges?.filter((b) => b.kind === 'tag') ?? []
   const shown = p.tagMode === 'all' ? p.badges : p.badges?.filter((b) => b.kind !== 'tag')
   // Label color: a reserved prefix color wins; otherwise the graph line's color (when enabled).
-  const badgeLane = (b: Badge): number | null => {
+  const badgeLane = (b: Badge): string | null => {
     if (b.kind === 'tag' || b.kind === 'stash') return null
-    const reserved = p.reservedColorOf(b.label, b.kind)
-    if (reserved !== null) return reserved
-    return p.laneColors && p.row ? p.row.color : null
+    const own = p.reservedColorOf(b.label, b.kind)
+    if (own !== null) return own
+    // By position: the label takes its line's color. (By name, the label's own name decides, above.)
+    return p.laneColors && p.row && !p.row.palette ? `var(--lane-${p.row.color % LANE_COLORS})` : null
   }
   const onTags = (e: React.MouseEvent): void => {
     e.stopPropagation()
@@ -727,7 +733,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
             style={
               badgeLane(b) !== null
                 ? ({
-                    '--lane': `var(--lane-${badgeLane(b)! % LANE_COLORS})`
+                    '--lane': badgeLane(b)!
                   } as React.CSSProperties)
                 : undefined
             }
@@ -899,7 +905,7 @@ function GraphCell({
   const mid = rowH / 2
   const stroke = Math.max(1.5, rowH * 0.06)
   const r = Math.max(3.5, rowH * 0.17)
-  const color = (n: number): string => `var(--lane-${n % LANE_COLORS})`
+  const color = (n: number): string => (row.palette ? (row.palette[n] ?? 'var(--text-faint)') : `var(--lane-${n % LANE_COLORS})`)
 
   // With a spotlight on, the lit branch's straight line and dots stay bright and everything else dims.
   const lit = spotCol >= 0

@@ -132,6 +132,7 @@ you submit. **Check out branch** switches to the PR's branch (forks become `pr-<
   Discord Dark, Claude (follows macOS light/dark) or Custom.
 - **Theme colors**: pick a color for every element. Editing any color switches to Custom, starting from the
   current theme; hover, selection and diff backgrounds are derived from these colors automatically.
+- **Branch colors**: by position (the theme's 8 lane colors, in the order lines appear) or by name (each branch's name gives its color, the same in every repository; any hue). Reserve a prefix for a color, or with colors by name, a color family.
 - **Author colors**: map author names (or emails) to colors; their commits get a colored dot, avatar
   and row tint. "Add all authors from this repository" fills the list in one click.
 

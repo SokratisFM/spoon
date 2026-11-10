@@ -3,6 +3,7 @@
 // Open tabs are also loaded in the background, so even the first switch to a tab isn't cold.
 import type { CheckoutTarget, Commit, CommitDetails, DiffResult, PullSummary, RepoState, WorkingTree } from '../../shared/types'
 import { buildGraph, type ColorRules, type Graph } from './graph'
+import { lineName, mergedBranch, nameColor, UNNAMED_COLOR } from './branchColors'
 import { getSettings, reservedPrefixes, type Settings } from './settings'
 
 export const LOG_LIMIT = 5000
@@ -26,20 +27,54 @@ export const refsSignatureOf = (r: RepoState): string =>
 export function graphKeyOf(repo: RepoState | null, s: Settings): string {
   if (!repo) return ''
   const refs = `${repo.remotes.join(',')}|${repo.refs.map((r) => r.fullName + r.target).join(',')}`
-  return `${refs}|${s.reservedColorsGraph ? JSON.stringify(reservedPrefixes(s)) : ''}`
+  return `${refs}|${s.branchColorMode}|${s.reservedColorsGraph ? JSON.stringify(reservedPrefixes(s)) : ''}`
 }
 
-function graphFor(commits: Commit[], repo: RepoState | null, s: Settings): Graph {
-  const prefixes = reservedPrefixes(s)
-  if (!s.reservedColorsGraph || !prefixes.length || !repo) return buildGraph(commits)
-  // Branch names per commit (remote ones without "origin/"), to match against reserved prefixes.
+/** Branch names per commit (remote ones without "origin/"), each once. */
+function namesByCommit(repo: RepoState): Map<string, string[]> {
   const names = new Map<string, string[]>()
   for (const r of repo.refs) {
     if (r.kind !== 'head' && r.kind !== 'remote') continue
-    const remote = r.kind === 'remote' ? repo.remotes.find((x) => r.name.startsWith(`${x}/`)) : undefined
+    if (r.kind === 'remote' && r.name.endsWith('/HEAD')) continue
+    const remote = r.kind === 'remote' ? repo.remotes.filter((x) => r.name.startsWith(`${x}/`)).sort((a, b) => b.length - a.length)[0] : undefined
     const name = remote ? r.name.slice(remote.length + 1) : r.name
-    names.set(r.target, [...(names.get(r.target) ?? []), name])
+    const list = names.get(r.target) ?? []
+    if (!list.includes(name)) names.set(r.target, [...list, name])
   }
+  return names
+}
+
+/**
+ * Colors by name: a lane takes the color of the branch at its top, or for a merged-in line whose
+ * branch is gone, of the branch the merge message names; with no name anywhere, it's grey.
+ */
+function nameRules(repo: RepoState, s: Settings): ColorRules {
+  const names = namesByCommit(repo)
+  const prefixes = s.reservedColorsGraph ? reservedPrefixes(s) : []
+  const palette: string[] = []
+  const index = new Map<string, number>()
+  const of = (name: string | null): number => {
+    const key = name ?? '\0'
+    let i = index.get(key)
+    if (i === undefined) {
+      i = palette.push(name === null ? UNNAMED_COLOR : nameColor(name, prefixes)) - 1
+      index.set(key, i)
+    }
+    return i
+  }
+  return {
+    free: [],
+    palette,
+    colorAt: (hash, via) => of(lineName(names.get(hash) ?? []) ?? (via ? mergedBranch(via.subject, repo.remotes) : null))
+  }
+}
+
+function graphFor(commits: Commit[], repo: RepoState | null, s: Settings): Graph {
+  if (repo && s.branchColorMode === 'name') return buildGraph(commits, nameRules(repo, s))
+  const prefixes = reservedPrefixes(s)
+  if (!s.reservedColorsGraph || !prefixes.length || !repo) return buildGraph(commits)
+  // Branch names per commit (remote ones without "origin/"), to match against reserved prefixes.
+  const names = namesByCommit(repo)
   const reservedIdx = new Set(prefixes.map(([, i]) => i))
   const free = [0, 1, 2, 3, 4, 5, 6, 7].filter((i) => !reservedIdx.has(i))
   const rules: ColorRules = {

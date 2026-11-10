@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { BUILD_CHANNEL, slackOpenUrl } from '../buildCommand'
+import { nameColor } from '../branchColors'
 import { clearFilter, filterOptions, type SearchResult } from '../settingsSearch'
 import { refreshGitHubAccount, setGitHubAccount, useGitHubAccount } from '../github'
 import { useAppInfo, useMinuteTick, useUpdateState } from '../appinfo'
@@ -34,7 +35,8 @@ import {
   type SquishStyle,
   type DialogPosition,
   type DiffSyntax,
-  MAINLIB_DEFAULTS
+  MAINLIB_DEFAULTS,
+  reservedPrefixes
 } from '../settings'
 import {
   AUTHOR_PALETTE,
@@ -849,13 +851,33 @@ function BranchColorsField() {
     }
   }
 
+  const byName = s.branchColorMode === 'name'
+  const samples = ['main', 'develop', 'feature/ads-pangle', 'fix/ads-crash', 'release/1.6.2', ...Object.values(reserved).flat().map((p) => `${p}example`)]
   return (
     <div className="field">
       <span className="field-label">Branch colors</span>
+      <Segmented<'position' | 'name'>
+        value={s.branchColorMode}
+        options={[
+          ['position', 'By position (8 lane colors)'],
+          ['name', 'By name (same everywhere)']
+        ]}
+        onChange={(branchColorMode) => updateSettings({ branchColorMode })}
+      />
       <span className="hint">
-        Reserve a color for branch prefixes (type one and press Enter). Reserved colors are only used for those
-        branches; other branches share the rest.
+        {byName
+          ? 'Each branch’s name gives it its own color, the same in every repository and submodule (origin/ is ignored). A line whose branch is gone takes the name its merge commit gives, or is grey. Reserve a prefix below to make its branches a family: shades around that color.'
+          : 'Lines take the 8 lane colors in the order they appear in the history. Reserve a color for branch prefixes (type one and press Enter): reserved colors are only used for those branches; other branches share the rest.'}
       </span>
+      {byName && (
+        <div className="name-color-samples">
+          {[...new Set(samples)].slice(0, 9).map((n) => (
+            <span key={n} className="name-color-chip mono" style={{ '--c': nameColor(n, reservedPrefixes(s)) } as React.CSSProperties}>
+              {n}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="color-slots">
         {COLOR_NAMES.map((name, i) => {
           const c = colors[`lane-${i}` as ColorKey]
@@ -871,7 +893,7 @@ function BranchColorsField() {
                 <span className="slot-swatch" />
                 <span>{name}</span>
                 <span className="spacer" />
-                <span className="hint">{list.length ? 'reserved' : 'auto'}</span>
+                <span className="hint">{list.length ? (byName ? 'family' : 'reserved') : byName ? '' : 'auto'}</span>
               </div>
               <div className="slot-chips">
                 {list.map((p) => (

@@ -9414,3 +9414,25 @@ kbd.setting-key {
 .compare-bar .compare-apply {
   margin-left: auto;
 }
+
+/* Branch colors by name: one lightness and chroma per theme, any hue (see branchColors.ts). */
+:root {
+  --name-l: 0.76;
+  --name-c: 0.14;
+}
+[data-scheme='light'] {
+  --name-l: 0.57;
+  --name-c: 0.16;
+}
+.name-color-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.name-color-chip {
+  font-size: 0.8em;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--c);
+  color: var(--c);
+}

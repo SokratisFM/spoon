@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.56.0 — 2026-11-10
+
+- **New:** Branch colors by name (Settings → Appearance → Branch colors → **By name**): each branch's name gives it its own color, so `develop` or `feature/ads-pangle` looks the same in every repository, submodule and computer. Any hue can come up, not just the 8 lane colors. A line whose branch is gone takes the name from its merge message, or is grey. Reserved prefixes become color families: every `feature/…` branch gets its own shade around the color you picked. **By position** (the 8 colors in order) is still there.
+
 ## 0.55.0 — 2026-11-09
 
 - **New:** Start Jenkins Build: in a Unity project, right-click a branch → **Start Jenkins Build…** and Spoon starts the game's build job on Jenkins directly (the job is found by the game code, e.g. JISFI-…-ios). The form comes from the job itself: version (filled from the job's last build), branch, Unity version, the on/off options, and under More the stage to start at and extra changelog lines. A card at the bottom right follows the build stage by stage, and a notification says when it's done. Add your Jenkins username and API token in Settings → Accounts; Jenkins is only reachable on the VPN, and when it can't be reached Spoon offers Slack instead.

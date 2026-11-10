@@ -144,6 +144,9 @@ export interface Settings {
   mainlibInstructionsUrl: string
   /** Branch colors (0–7, the theme's lane colors) reserved for branch-name prefixes. */
   reservedColors: Record<number, string[]>
+  /** position: lanes cycle through the theme's 8 colors in the order they appear; name: each branch's
+   * name gives its color (the same in every repository), and reserved prefixes become color families. */
+  branchColorMode: 'position' | 'name'
   /** Reserved colors also apply to the branch's line in the graph. */
   reservedColorsGraph: boolean
   /** Jira site, e.g. https://acme.atlassian.net — ticket keys in branches and commits link to it. */
@@ -219,6 +222,7 @@ const DEFAULTS: Settings = {
   mainlibChangelogUrl: MAINLIB_DEFAULTS.changelog,
   mainlibInstructionsUrl: MAINLIB_DEFAULTS.instructions,
   reservedColors: {},
+  branchColorMode: 'position',
   reservedColorsGraph: true,
   jiraSite: 'https://fm-games.atlassian.net',
   jiraProjects: '',
