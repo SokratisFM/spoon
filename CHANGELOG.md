@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.56.2 — 2026-11-11
+
+- **Fixed:** Unity exports: an edit made in Xcode or Android Studio within about five minutes of exporting counted as part of Unity's export, so it wasn't brought back into Assets (or MainLib) by itself and stayed in the main repository until you pressed Bring Back. Now only what's saved during the export itself (and a few seconds after) counts as Unity's.
+- **Improved:** Each edit in the Exports list that waits for you says why it wasn't brought back by itself: saved right after the export, both sides changed, the source changed since, Spoon hadn't seen the copy before it was edited, or automatic bring-back is off.
+
 ## 0.56.1 — 2026-11-11
 
 - **Fixed:** A long file path in a popup's title (Discard changes to …, for one) ran out of the popup. It now wraps after a "/".

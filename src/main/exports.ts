@@ -279,8 +279,30 @@ function runTime(saves: number[]): number | null {
   const mode = [...minutes].sort((a, b) => b[1] - a[1])[0][0] * 60_000
   return Math.max(...saves.filter((t) => Math.abs(t - mode) < 300_000))
 }
-/** Saved by Unity's export run (not edited since): within a couple of minutes of it. */
+/** New files: saved by Unity's export run when within a couple of minutes of it. */
 const RUN_SLACK = 120_000
+
+/**
+ * When Unity finished writing an export's copies: it writes them in one burst, so from the busiest
+ * minute the burst runs on while the next save comes within a few seconds. An edit made afterwards
+ * (even a minute later) isn't part of it. (runTime, which takes the last save within five minutes,
+ * would count such an edit as Unity's, and so never bring it back by itself.)
+ */
+function burstEnd(saves: number[]): number | null {
+  if (!saves.length) return null
+  const sorted = [...saves].sort((a, b) => a - b)
+  const minutes = new Map<number, number>()
+  for (const t of sorted) minutes.set(Math.floor(t / 60_000), (minutes.get(Math.floor(t / 60_000)) ?? 0) + 1)
+  const busiest = [...minutes].sort((a, b) => b[1] - a[1])[0][0]
+  let i = sorted.findIndex((t) => Math.floor(t / 60_000) === busiest)
+  let end = sorted[i]
+  while (++i < sorted.length && sorted[i] - end <= BURST_GAP) end = sorted[i]
+  return end
+}
+/** The longest pause between two of Unity's saves within one export. */
+const BURST_GAP = 10_000
+/** Edits: a copy saved this soon after the burst may still be Unity's (a build step finishing). */
+const EDIT_SLACK = 20_000
 
 const hashOf = (data: Buffer): string => createHash('sha1').update(data).digest('hex')
 
@@ -393,8 +415,8 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
     }
     // Copies still as Unity's export run wrote them weren't edited, whatever their save time says.
     const copies = found.filter((l) => l.state !== 'linked' && l.state !== 'dangling')
-    const run = runTime(copies.map((l) => l.exportMtime))
-    for (const l of copies) if (run !== null) l.inRun = l.exportMtime <= run + RUN_SLACK
+    const run = burstEnd(copies.map((l) => l.exportMtime))
+    for (const l of copies) if (run !== null) l.inRun = l.exportMtime <= run + EDIT_SLACK
     links.push(...found)
   }
   return links

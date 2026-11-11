@@ -9439,3 +9439,8 @@ kbd.setting-key {
   border: 1.5px solid var(--c);
   color: var(--c);
 }
+/* Unity exports: why an edit waits for you (exported, unchecked, auto off). */
+.badge.muted {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}

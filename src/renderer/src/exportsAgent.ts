@@ -261,6 +261,29 @@ export const yours = (s: ExportsState, l: ExportLink): boolean =>
 const autoSafe = (s: ExportsState, l: ExportLink): boolean =>
   l.state === 'export-newer' && !l.inRun && !!l.sourceHash && s.base[l.export] === l.sourceHash && !yours(s, l)
 
+/**
+ * Why an edit in an export waits for you instead of being brought back by itself (null: it will be,
+ * at the next scan). `short` labels the row; `why` explains it.
+ */
+export function heldBack(s: ExportsState, l: ExportLink): { short: string; why: string } | null {
+  if (l.state !== 'export-newer') return null
+  if (!s.auto) return { short: 'auto off', why: 'Bringing edits back by themselves is turned off (at the bottom of this list).' }
+  if (l.inRun)
+    return {
+      short: 'export',
+      why: 'It was saved within seconds of Unity’s export, so Spoon takes it for part of the export (a build step), not an edit of yours. If you did change it, bring it back yourself.'
+    }
+  if (yours(s, l)) return { short: 'both', why: `${l.source} has changes of yours too (uncommitted, or not tracked by git), so it isn’t replaced by itself.` }
+  if (!l.sourceHash || s.base[l.export] === undefined)
+    return {
+      short: 'unchecked',
+      why: 'Spoon never saw this copy match its source before it was edited (the export, or the edit, happened while Spoon wasn’t running), so it can’t be sure the source is still what the copy started from.'
+    }
+  if (s.base[l.export] !== l.sourceHash)
+    return { short: 'source changed', why: `${l.source} changed too since the two last matched (a pull, say), so it isn’t replaced by itself: compare them first.` }
+  return null
+}
+
 /** Edits made in an export: newer than the source, and not brought back or set aside yet. */
 export const editedOf = (s: ExportsState): ExportLink[] =>
   (s.links ?? []).filter((l) => l.state === 'export-newer' && s.handled[l.export] !== l.exportMtime)
