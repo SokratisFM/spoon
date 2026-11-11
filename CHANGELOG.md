@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.56.1 — 2026-11-11
+
+- **Fixed:** A long file path in a popup's title (Discard changes to …, for one) ran out of the popup. It now wraps after a "/".
+
 ## 0.56.0 — 2026-11-10
 
 - **New:** Branch colors by name (Settings → Appearance → Branch colors → **By name**): each branch's name gives it its own color, so `develop` or `feature/ads-pangle` looks the same in every repository, submodule and computer. Any hue can come up, not just the 8 lane colors. A line whose branch is gone takes the name from its merge message, or is grey. Reserved prefixes become color families: every `feature/…` branch gets its own shade around the color you picked. **By position** (the 8 colors in order) is still there.

@@ -1675,6 +1675,8 @@ input[type='range'] {
 .modal h3 {
   margin: 0 0 0.9rem;
   font-size: 1.15em;
+  /* A long path or name never runs out of the popup: it wraps after a "/" or, failing that, anywhere. */
+  overflow-wrap: anywhere;
 }
 .modal-body {
   display: flex;
@@ -1685,6 +1687,7 @@ input[type='range'] {
 }
 .modal-body p {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 .modal-footer {
   display: flex;

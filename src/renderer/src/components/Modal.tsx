@@ -126,7 +126,7 @@ export function Modal({ title, titleExtra, children, onClose, onSubmit, footer, 
             if (choice === 'center' || choice === 'top') updateSettings({ dialogPosition: choice })
           }}
         >
-          {title}
+          {breakablePath(title)}
           {titleExtra && <span className="modal-title-extra">{titleExtra}</span>}
         </h3>
         <div className="modal-body">{children}</div>
@@ -134,6 +134,12 @@ export function Modal({ title, titleExtra, children, onClose, onSubmit, footer, 
       </div>
     </div>
   )
+}
+
+/** A title with a long path in it may wrap after any "/" (and anywhere, if a part is still too long). */
+function breakablePath(text: string): ReactNode {
+  if (!text.includes('/')) return text
+  return text.split('/').map((part, i) => (i === 0 ? part : ['/', <wbr key={i} />, part]))
 }
 
 export function ErrorModal({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
