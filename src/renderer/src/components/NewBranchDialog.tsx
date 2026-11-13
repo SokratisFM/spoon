@@ -6,7 +6,9 @@
 // the version file and commit that on it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NewTicketForm, type CreatedTicket } from './NewTicketForm'
-import type { JiraIssue, RepoState } from '../../../shared/types'
+import type { CandidateInfo, JiraIssue, RepoState } from '../../../shared/types'
+import { VersionPicker } from './VersionPicker'
+import { JiraLogoIcon, PlusIcon, TagIcon } from './Icons'
 import { Modal } from './Modal'
 import { BranchPicker } from './BranchPicker'
 import type { Ops } from './RepoView'
@@ -90,12 +92,25 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   const firstEmpty = useRef<HTMLInputElement | null>(null)
   // A ticket to create first (step 1), or one that exists already (pasted, or just created).
   const [savedMode, setMode] = usePersistentState<'existing' | 'create' | 'release'>('spoon.newBranch.mode', 'existing')
-  // The MainLib version, when this repository is MainLib (only then is there a release to make).
-  const [mainlibNow, setMainlibNow] = useState<string | null>(null)
-  const mode = savedMode === 'release' && mainlibNow === null ? 'existing' : savedMode
+  // A release repository (MainLibCore, MainLib, HGT): its kind and version, checked out. New candidates
+  // are offered there, and wherever candidate branches already exist.
+  const [candidate, setCandidate] = useState<CandidateInfo | null>(null)
+  const candidatePrefix = useMemo(() => {
+    const names = repo.refs
+      .filter((r) => r.kind === 'head' || r.kind === 'remote')
+      .map((r) => (r.kind === 'remote' ? r.name.slice(r.name.indexOf('/') + 1) : r.name))
+    const n = (p: string): number => names.filter((x) => x.startsWith(p)).length
+    if (n('candidate/') || n('candidates/')) return n('candidate/') > n('candidates/') ? 'candidate/' : 'candidates/'
+    return candidate?.kind === 'mainlibcore' ? 'candidate/' : s.mainlibPrefix || 'candidates/'
+  }, [repo.refs, candidate?.kind, s.mainlibPrefix])
+  const hasCandidates = repo.refs.some((r) => /(^|\/)candidates?\//.test(r.name))
+  const mode = savedMode === 'release' && !candidate && !hasCandidates ? 'existing' : savedMode
   const release = mode === 'release'
   const [version, setVersion] = useState('')
   const [bump, setBump] = usePersistentState('spoon.newBranch.bump', true)
+  // A new candidate goes to the remote straight away (with its upstream), unless you turn that off.
+  const [pushCandidate, setPushCandidate] = usePersistentState('spoon.newBranch.pushCandidate', true)
+  const pushRemote = repo.remotes.includes('origin') ? 'origin' : repo.remotes[0]
   const [created, setCreated] = useState<CreatedTicket | null>(null)
   const ticketStep = mode === 'create' && !created
   const submitTicket = useRef<() => void>(() => undefined)
@@ -108,9 +123,9 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
       window.spoon.readClipboard().catch(() => ''),
       window.spoon.userName(path).catch(() => ''),
       window.spoon.atlassianAccount().catch(() => null),
-      window.spoon.mainlibVersion(path).catch(() => null)
-    ]).then(([clip, name, account, mainlib]) => {
-      setMainlibNow(mainlib)
+      window.spoon.candidateInfo(path).catch(() => null)
+    ]).then(([clip, name, account, info]) => {
+      setCandidate(info)
       // A Jira link just copied: that's the ticket, so there's none to create.
       if (/jira|atlassian/i.test(clip) && clip.length < 500 && ticketFrom(clip)) {
         setTicketText(clip.trim())
@@ -181,7 +196,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     .join('/')
   const locals = repo.refs.filter((r) => r.kind === 'head')
   const remotes = repo.refs.filter((r) => r.kind === 'remote' && !r.name.endsWith('/HEAD'))
-  const releaseName = `${s.mainlibPrefix}${version.trim()}`
+  const releaseName = `${candidatePrefix}${version.trim()}`
   // A release branch already on a remote counts too: making it here would start a second one.
   const exists = release
     ? locals.some((r) => r.name === releaseName) || remotes.some((r) => r.name.endsWith(`/${releaseName}`))
@@ -198,6 +213,27 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [base, setBase] = useState(defaultBase)
+  // A new candidate starts from the latest one (each is cut from the one before it): its local branch
+  // if that's up to date, else the remote's. Until you pick another base yourself.
+  const [baseTouched, setBaseTouched] = useState(false)
+  const latestCandidate = useMemo(() => {
+    const versionOf = (r: (typeof locals)[number]): string | null => {
+      const n = r.kind === 'remote' ? r.name.slice(r.name.indexOf('/') + 1) : r.name
+      return n.startsWith(candidatePrefix) && /^\d+(\.\d+)+/.test(n.slice(candidatePrefix.length)) ? n.slice(candidatePrefix.length) : null
+    }
+    const all = [...locals, ...remotes].filter((r) => versionOf(r) !== null)
+    const top = all.map((r) => versionOf(r)!).sort((x, y) => compareVersions(y, x))[0]
+    if (!top) return null
+    const local = locals.find((r) => versionOf(r) === top)
+    const remote = remotes.find((r) => versionOf(r) === top && r.name.startsWith('origin/')) ?? remotes.find((r) => versionOf(r) === top)
+    return (local && !local.behind ? local : (remote ?? local))!.name
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo.refs, candidatePrefix])
+  useEffect(() => {
+    if (baseTouched) return
+    setBase(release && latestCandidate ? latestCandidate : defaultBase)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [release, latestCandidate])
   const baseRefs = useMemo(() => [...locals, ...remotes], [locals, remotes])
   const baseRef = baseRefs.find((r) => r.name === base)
   // What git is given: the full name of a listed branch, so a tag with the same name can't win.
@@ -206,12 +242,16 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   // The version the release starts from: what the chosen base has (the bump lands only on the release
   // branch, so the working copy may say something else).
   const [baseVersion, setBaseVersion] = useState<string | null>(null)
+  const [baseInfo, setBaseInfo] = useState<CandidateInfo | null>(null)
+  // What a bump writes: the base's version file (the checked-out one until that's read).
+  const bumpInfo = baseInfo ?? candidate
+  const canBump = !!bumpInfo
   useEffect(() => {
     if (!release || !base) return
     let live = true
-    window.spoon.mainlibVersion(path, baseArg).then(
-      (v) => live && setBaseVersion(v),
-      () => live && setBaseVersion(null)
+    window.spoon.candidateInfo(path, baseArg).then(
+      (info) => live && (setBaseVersion(info?.version ?? null), setBaseInfo(info)),
+      () => live && (setBaseVersion(null), setBaseInfo(null))
     )
     return () => {
       live = false
@@ -219,9 +259,9 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   }, [path, baseArg, release])
 
   const problem = release
-    ? !/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(version.trim())
+    ? !/^\d+(\.\d+){1,3}([-.][0-9A-Za-z.-]+)?$/.test(version.trim())
       ? 'Type the version, like 4.3.0.'
-      : bump && baseVersion === version.trim()
+      : bump && canBump && baseVersion === version.trim()
         ? `${base} is already at ${version.trim()}.`
         : exists
           ? `${releaseName} already exists.`
@@ -257,29 +297,41 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
     if (problem || creating) return
     const v = version.trim()
     setCreating(true)
-    const ok = bump
-      ? await ops.run(`Creating ${releaseName}…`, () => window.spoon.createMainlibRelease(path, releaseName, baseArg, v), 'Couldn’t make the release branch')
-      : await ops.run(`Creating ${releaseName}…`, () => window.spoon.createBranch(path, releaseName, baseArg), 'Couldn’t make the release branch')
+    const bumping = bump && canBump
+    const ok = bumping
+      ? await ops.run(`Creating ${releaseName}…`, () => window.spoon.createCandidate(path, releaseName, baseArg, v), 'Couldn’t make the candidate')
+      : await ops.run(`Creating ${releaseName}…`, () => window.spoon.createBranch(path, releaseName, baseArg), 'Couldn’t make the candidate')
     setCreating(false)
     if (!ok) return
     onClose()
-    if (!bump && checkout) ops.checkout({ kind: 'branch', name: releaseName }, releaseName)
+    if (pushCandidate && pushRemote)
+      await ops.run(
+        `Pushing ${releaseName}…`,
+        () => window.spoon.push(path, { remote: pushRemote, remoteBranch: releaseName, setUpstream: true, tags: false, branch: releaseName }),
+        'Push failed'
+      )
+    if (!bumping && checkout) ops.checkout({ kind: 'branch', name: releaseName }, releaseName)
   }
   // The next patch, minor and major version after the latest one: the base's, or a release branch's
   // (here or on a remote) when that's further on. A pre-release (4.3.0-rc1) is followed by its release.
   const nextVersions = ((): string[] => {
     const made = [...locals, ...remotes]
       .map((r) => (r.kind === 'remote' ? r.name.slice(r.name.indexOf('/') + 1) : r.name))
-      .filter((n) => n.startsWith(s.mainlibPrefix))
-      .map((n) => n.slice(s.mainlibPrefix.length))
+      .filter((n) => n.startsWith(candidatePrefix))
+      .map((n) => n.slice(candidatePrefix.length))
       .filter((v) => /^\d+\.\d+\.\d+/.test(v))
-    const latest = [baseVersion ?? mainlibNow ?? '', ...made].filter(Boolean).sort((x, y) => compareVersions(y, x))[0]
+    const latest = [baseVersion ?? candidate?.version ?? '', ...made].filter(Boolean).sort((x, y) => compareVersions(y, x))[0]
     const m = /^(\d+)\.(\d+)\.(\d+)(.*)$/.exec(latest ?? '')
     if (!m) return []
     const [a, b, c] = [Number(m[1]), Number(m[2]), Number(m[3])]
     const pre = !!m[4] && !made.includes(`${a}.${b}.${c}`)
     return [pre ? `${a}.${b}.${c}` : `${a}.${b}.${c + 1}`, `${a}.${b + 1}.0`, `${a + 1}.0.0`].filter((v) => !made.includes(v))
   })()
+  // The version starts as the next patch after the latest (↑/↓ from there).
+  useEffect(() => {
+    if (release && !version && nextVersions[0]) setVersion(nextVersions[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [release, nextVersions.join()])
 
   // Focus goes to the first part still to fill in (the ticket field when there's no ticket yet).
   const ticketInput = useRef<HTMLInputElement>(null)
@@ -311,7 +363,10 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
         className="nb-base"
         refs={baseRefs}
         value={baseRef?.fullName ?? base}
-        onChange={(v) => setBase(baseRefs.find((r) => r.fullName === v)?.name ?? v)}
+        onChange={(v) => {
+          setBaseTouched(true)
+          setBase(baseRefs.find((r) => r.fullName === v)?.name ?? v)
+        }}
         title="The branch, tag or commit the new branch starts from"
       />
       {baseRef?.kind === 'head' && !!baseRef.behind && (
@@ -329,17 +384,29 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
       <label className="check nb-checkout">
         <input
           type="checkbox"
-          checked={checkout || (release && bump)}
-          disabled={release && bump}
+          checked={checkout || (release && bump && canBump)}
+          disabled={release && bump && canBump}
           title={release && bump ? 'Bumping the version commits on the new branch, so it’s checked out' : undefined}
           onChange={(e) => setCheckout(e.target.checked)}
         />
         Check out after creating
       </label>
-      {release && (
-        <label className="check nb-checkout" title={`Write the version into Version/Resources/mainlib-version.txt and commit it as “bumping version to ${version.trim() || '…'}”`}>
+      {release && canBump && (
+        <label
+          className="check nb-checkout"
+          title={`Write the version into ${bumpInfo!.file} and commit it as “${bumpInfo!.message.replace('{version}', version.trim() || '…')}”`}
+        >
           <input type="checkbox" checked={bump} onChange={(e) => setBump(e.target.checked)} />
           Bump the version and commit
+        </label>
+      )}
+      {release && (
+        <label
+          className="check nb-checkout"
+          title={pushRemote ? `Push ${releaseName} to ${pushRemote} when it’s made, and track it there` : 'This repository has no remote to push to'}
+        >
+          <input type="checkbox" checked={pushCandidate && !!pushRemote} disabled={!pushRemote} onChange={(e) => setPushCandidate(e.target.checked)} />
+          Push when done
         </label>
       )}
     </>
@@ -348,7 +415,7 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
   let firstEmptySet = false
   return (
     <Modal
-      title={release ? 'New MainLib release' : mode === 'create' ? 'New ticket and branch' : 'New branch from ticket'}
+      title={release ? `New ${candidate?.label ?? ''} candidate`.replace(/\s+/g, ' ') : mode === 'create' ? 'New ticket and branch' : 'New branch from ticket'}
       titleExtra={
         mode === 'create' ? (
           <span className="nt-steps">
@@ -389,21 +456,35 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
       }
     >
       {!created && (
-        <div className="segmented nt-mode" role="tablist">
-          <button className={mode === 'existing' ? 'on' : ''} onClick={() => setMode('existing')}>
-            Use an existing ticket
+        <div className="nb-modes" role="tablist">
+          <button role="tab" aria-selected={mode === 'existing'} className={mode === 'existing' ? 'on' : ''} onClick={() => setMode('existing')}>
+            <JiraLogoIcon className="icon nb-mode-icon jira" />
+            <span className="nb-mode-text">
+              <b>Existing ticket</b>
+              <span>Branch for a ticket you paste</span>
+            </span>
           </button>
           <button
+            role="tab"
+            aria-selected={mode === 'create'}
             className={mode === 'create' ? 'on' : ''}
             disabled={!hasAccount}
             title={hasAccount ? undefined : 'Connect your Atlassian account in Settings → Accounts to create tickets'}
             onClick={() => setMode('create')}
           >
-            Create a new ticket
+            <PlusIcon className="icon nb-mode-icon" />
+            <span className="nb-mode-text">
+              <b>New ticket</b>
+              <span>Make the ticket, then its branch</span>
+            </span>
           </button>
-          {mainlibNow !== null && (
-            <button className={release ? 'on' : ''} onClick={() => setMode('release')}>
-              New MainLib release
+          {(candidate || hasCandidates) && (
+            <button role="tab" aria-selected={release} className={release ? 'on' : ''} onClick={() => setMode('release')}>
+              <TagIcon className="icon nb-mode-icon" />
+              <span className="nb-mode-text">
+                <b>New candidate</b>
+                <span>Next {candidatePrefix}… and its version</span>
+              </span>
             </button>
           )}
         </div>
@@ -413,15 +494,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
           <div className="field">
             <span className="field-label">Version</span>
             <div className="form-row nb-release-row">
-              <input
-                className="mono nb-version"
-                value={version}
-                autoFocus
-                placeholder={nextVersions[1] ?? '4.3.0'}
-                spellCheck={false}
-                onChange={(e) => setVersion(e.target.value.replace(/\s/g, ''))}
-              />
-              <span className="hint" title={`Version/Resources/mainlib-version.txt on ${base}`}>
+              <VersionPicker value={version} onChange={setVersion} autoFocus />
+              <span className="hint" title={bumpInfo ? `${bumpInfo.file} on ${base}` : `No version file on ${base}`}>
                 now {baseVersion ?? '—'}
               </span>
               {nextVersions.map((v) => (
@@ -435,8 +509,8 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
             <span className="field-label">Branch</span>
             <div className="nb-segments">
               <div className="nb-seg">
-                <span className="nb-seg-label">version branches</span>
-                <span className="mono nb-fixed">{s.mainlibPrefix}</span>
+                <span className="nb-seg-label">candidates</span>
+                <span className="mono nb-fixed">{candidatePrefix}</span>
               </div>
               <div className="nb-seg-wrap grow">
                 <div className="nb-seg-col">
@@ -450,9 +524,9 @@ export function NewBranchDialog({ path, repo, ops, onClose }: Props) {
             <span className={`hint nb-name ${problem && version ? 'warn' : ''}`}>
               {problem && version
                 ? problem
-                : bump && version.trim()
-                  ? `Then mainlib-version.txt goes ${baseVersion || '?'} → ${version.trim()}, committed as “bumping version to ${version.trim()}”.`
-                  : 'The prefix is Settings → MainLib → Version branches.'}
+                : bump && canBump && version.trim()
+                  ? `Then ${bumpInfo!.file.split('/').pop()} goes ${baseVersion || '?'} → ${version.trim()}, committed as “${bumpInfo!.message.replace('{version}', version.trim())}”${pushCandidate && pushRemote ? `, and it’s pushed to ${pushRemote}` : ''}.`
+                  : `↑/↓ change the picked number (the ones after it go back to 0), ←/→ pick another, digits type one in.`}
             </span>
           </div>
           {basedOn}

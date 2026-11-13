@@ -331,6 +331,17 @@ export interface CompareCandidates {
   candidates: CompareCandidate[]
 }
 
+/** A release repository whose new candidates bump a version file. */
+export interface CandidateInfo {
+  kind: 'mainlibcore' | 'mainlib' | 'hgt'
+  label: string
+  /** The version file, relative to the repository. */
+  file: string
+  version: string | null
+  /** The bump commit's message; {version} is the new version. */
+  message: string
+}
+
 /** A Unity project's values for a build command, read from one branch. */
 export interface UnityBuildInfo {
   /** ProjectSettings/ProjectVersion.txt's m_EditorVersion, e.g. "6000.0.76f1". */
@@ -878,7 +889,9 @@ export interface SpoonApi {
   /** Branches checked out in the repository, newest first (from its reflog). */
   recentCheckouts(path: string): Promise<string[]>
   /** Makes release branch `name` from `base`, switches to it and commits the new version ("bumping version to …"); undone on failure. */
-  createMainlibRelease(path: string, name: string, base: string, version: string): Promise<void>
+  /** New candidate: the release repository kind and its version (at a branch, or checked out); and creating one with the bump. */
+  candidateInfo(path: string, at?: string): Promise<CandidateInfo | null>
+  createCandidate(path: string, name: string, base: string, version: string): Promise<void>
   /** git's user.name, or "". */
   userName(path: string): Promise<string>
   syncInfo(path: string): Promise<SyncInfo>

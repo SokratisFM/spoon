@@ -41,6 +41,7 @@ import type {
   RebasePlan,
   MergePlan,
   UnityBuildInfo,
+  CandidateInfo,
   CompareCandidate,
   CompareCandidates,
   MergeResult,
@@ -799,6 +800,11 @@ export function abandonClones(): void {
 }
 /** Network transports a cloned repository (or its .gitmodules) may not use, whatever the user's config allows. */
 const SAFE_PROTOCOLS = ['-c', 'protocol.ext.allow=never', '-c', 'protocol.file.allow=user']
+/**
+ * Submodules download several at a time: one connection to a far-away server is slow however fast
+ * the line is, and git otherwise brings them in one after another.
+ */
+const SUBMODULE_JOBS = '--jobs=4'
 
 /** Downloads a repository's submodules (all of them, nested ones too); the error, if one failed. */
 export async function cloneSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string | null> {
@@ -806,7 +812,7 @@ export async function cloneSubmodules(cwd: string, onProgress?: (line: string) =
   // Never alongside the automatic download (a tab opened on it): one after the other, by real path.
   await downloadDone(cwd)
   const key = downloadsKey(cwd)
-  const task = exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress'], { onProgress, cancellable: true }).then(() => [] as string[])
+  const task = exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', SUBMODULE_JOBS], { onProgress, cancellable: true }).then(() => [] as string[])
   submoduleDownloads.set(key, task)
   try {
     await task
@@ -957,7 +963,7 @@ export function downloadNewSubmodules(cwd: string, onProgress?: (line: string) =
     const paths = await newSubmodules(cwd)
     if (paths.length)
       try {
-        await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', '--', ...paths], {
+        await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', SUBMODULE_JOBS, '--', ...paths], {
           onProgress,
           cancellable: downloadKey(cwd)
         })
@@ -1607,38 +1613,75 @@ export async function mainlibVersion(cwd: string, at?: string): Promise<string |
 }
 
 /**
- * A MainLib release with its version bumped, as one step under the repository's lock: the release
- * branch made from `base` and switched to, the version file's first line set to `version` (its BOM,
- * line ending and any other lines kept) and committed alone as "bumping version to <version>". If
- * any of it fails, what was done is undone (back on the branch you were on, the new branch gone).
+ * What kind of release repository this is, by the version file it keeps, and so what a new candidate
+ * bumps: MainLibCore's package.json "version", MainLib's mainlib-version.txt or HGT's hgt-version.txt.
+ * Read from `at` (a branch) when given, else from the checked-out commit. Null for any other repository.
  */
-export async function createMainlibRelease(cwd: string, name: string, base: string, version: string): Promise<void> {
-  if (!/^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Not a version: ${version}`)
+export async function candidateInfo(cwd: string, at?: string): Promise<CandidateInfo | null> {
+  if (at) assertArg(at, 'branch')
+  const rev = at ?? 'HEAD'
+  const show = (file: string): Promise<string | null> => git(cwd, ['show', `${rev}:${file}`]).catch(() => null)
+  const pkg = await show('package.json')
+  if (pkg !== null) {
+    const name = /"name"\s*:\s*"([^"]*)"/.exec(pkg)?.[1] ?? ''
+    if (/mainlib\s*core/i.test(name.replace(/[.\-_]/g, ' ')) || /mainlibcore/i.test(name)) {
+      const version = /"version"\s*:\s*"([^"]*)"/.exec(pkg)?.[1] ?? null
+      return { kind: 'mainlibcore', label: 'MainLibCore', file: 'package.json', version, message: 'bumping version to {version}' }
+    }
+  }
+  const ml = await show(MAINLIB_VERSION_FILE)
+  if (ml !== null) return { kind: 'mainlib', label: 'MainLib', file: MAINLIB_VERSION_FILE, version: versionIn(ml), message: 'bumping version to {version}' }
+  // HGT keeps it in Version/Resources too; found by name in case it moves.
+  const files = await git(cwd, ['ls-tree', '-r', '-z', '--name-only', rev]).catch(() => '')
+  const hgt = files.split('\0').find((f) => basename(f).toLowerCase() === 'hgt-version.txt')
+  if (hgt) {
+    const text = await show(hgt)
+    return { kind: 'hgt', label: 'Home Game Toolkit', file: hgt, version: text === null ? null : versionIn(text), message: 'bump version' }
+  }
+  return null
+}
+
+/** The version file's text with its version set to `version` (formatting, BOM, line endings and anything else kept). */
+function withVersion(kind: CandidateInfo['kind'], text: string, version: string): string {
+  if (kind === 'mainlibcore') {
+    if (!/"version"\s*:\s*"[^"]*"/.test(text)) throw new Error('package.json has no "version".')
+    return text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${version}$2`)
+  }
+  const bom = text.startsWith('\uFEFF') ? '\uFEFF' : ''
+  const [first, ...rest] = text.slice(bom.length).split(/(?<=\n)/)
+  const ending = /\r\n$/.test(first) ? '\r\n' : /\n$/.test(first) ? '\n' : ''
+  return bom + version + ending + rest.join('')
+}
+
+/**
+ * A new candidate with its version bumped, as one step under the repository's lock: the branch made
+ * from `base` and switched to, the version file set to `version` and committed alone (MainLibCore and
+ * MainLib: "bumping version to <version>"; HGT: "bump version"). If any of it fails, what was done is
+ * undone (back on the branch you were on, the new branch gone).
+ */
+export async function createCandidate(cwd: string, name: string, base: string, version: string): Promise<void> {
+  if (!/^\d+(\.\d+){1,3}([-.][0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Not a version: ${version}`)
   await assertBranchName(cwd, name)
   assertArg(base, 'base branch')
   await exclusive(cwd, async () => {
-    // Your changes would be carried onto the release branch (or be in the way): it starts clean.
+    // Your changes would be carried onto the candidate (or be in the way): it starts clean.
     if ((await git(cwd, ['status', '--porcelain', '--untracked-files=no'])).trim())
       throw new Error('You have uncommitted changes. Commit or stash them first, or make the branch without bumping the version.')
-    const was = await git(cwd, ['show', `${base}:${MAINLIB_VERSION_FILE}`]).catch(() => null)
+    const info = await candidateInfo(cwd, base)
     const shown = base.replace(/^refs\/(heads|remotes|tags)\//, '')
-    if (was === null) throw new Error(`${shown} has no ${MAINLIB_VERSION_FILE}.`)
-    if (versionIn(was) === version) throw new Error(`${shown} is already at ${version}: there’s nothing to bump.`)
+    if (!info) throw new Error(`${shown} has no version file (package.json, mainlib-version.txt or hgt-version.txt) to bump.`)
+    if (info.version === version) throw new Error(`${shown} is already at ${version}: there’s nothing to bump.`)
     const back = (await git(cwd, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1])).trim() || (await git(cwd, ['rev-parse', 'HEAD'])).trim()
     await git(cwd, ['switch', '--no-track', '-c', name, base])
     try {
       // Written only as a plain file inside the repository (never through a link).
-      const file = await realRepoFile(cwd, MAINLIB_VERSION_FILE)
-      if (!(await lstat(file)).isFile()) throw new Error(`${MAINLIB_VERSION_FILE} isn’t a plain file.`)
-      const old = await readFile(file, 'utf8')
-      const bom = old.startsWith('\uFEFF') ? '\uFEFF' : ''
-      const [first, ...rest] = old.slice(bom.length).split(/(?<=\n)/)
-      const ending = /\r\n$/.test(first) ? '\r\n' : /\n$/.test(first) ? '\n' : ''
-      await writeFile(file, bom + version + ending + rest.join(''))
+      const file = await realRepoFile(cwd, info.file)
+      if (!(await lstat(file)).isFile()) throw new Error(`${info.file} isn’t a plain file.`)
+      await writeFile(file, withVersion(info.kind, await readFile(file, 'utf8'), version))
       // --only: whatever else is staged stays out of this commit.
-      await run(cwd, ['commit', '-F', '-', '--only', '--', MAINLIB_VERSION_FILE], { input: `bumping version to ${version}` })
+      await run(cwd, ['commit', '-F', '-', '--only', '--', info.file], { input: info.message.replace('{version}', version) })
     } catch (err) {
-      await git(cwd, ['checkout', '-f', '--', MAINLIB_VERSION_FILE]).catch(() => undefined)
+      await git(cwd, ['checkout', '-f', '--', info.file]).catch(() => undefined)
       await git(cwd, ['switch', ...(/^[0-9a-f]{40}$/.test(back) ? ['--detach'] : []), back]).catch(() => undefined)
       await git(cwd, ['branch', '-D', name]).catch(() => undefined)
       throw err
@@ -1802,7 +1845,8 @@ async function pullNow(cwd: string, opts: PullOptions, onProgress: (l: string) =
   const args = ['pull', '--progress', opts.rebase ? '--rebase' : '--no-rebase']
   if (!opts.rebase) args.push('--no-edit')
   if (opts.autostash) args.push('--autostash')
-  await run(cwd, [...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true }).catch(async (err) => {
+  // Submodules whose commits the pull brings in are fetched with it: several at a time.
+  await run(cwd, ['-c', 'submodule.fetchJobs=4', ...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true }).catch(async (err) => {
     throw await whichFailed(cwd, err, info.upstreamRemote!)
   })
 }
@@ -1918,7 +1962,7 @@ async function updateSubmoduleNow(cwd: string, submodulePath: string, backupBran
   const recorded = await recordedCommit(cwd, submodulePath)
   const dir = join(cwd, submodulePath)
   const nested = (): Promise<string> =>
-    run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', '--', submodulePath], { cancellable: true })
+    run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', SUBMODULE_JOBS, '--', submodulePath], { cancellable: true })
   if (!existsSync(join(dir, '.git'))) {
     await nested()
     return

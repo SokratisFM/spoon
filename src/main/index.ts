@@ -396,8 +396,9 @@ function registerIpc(): void {
   ipcMain.handle('repo:createBranch', (_e, path: string, name: string, base: string) => git.createBranch(path, name, base))
   handleRepo('mainlib:version', (_e, path: string, at?: string) => git.mainlibVersion(path, at))
   handleRepo('repo:recentCheckouts', (_e, path: string) => git.recentCheckouts(path))
-  handleRepo('mainlib:release', (_e, path: string, name: string, base: string, version: string) =>
-    git.createMainlibRelease(path, name, base, version)
+  handleRepo('candidate:info', (_e, path: string, at?: string) => git.candidateInfo(path, at))
+  handleRepo('candidate:create', (_e, path: string, name: string, base: string, version: string) =>
+    git.createCandidate(path, String(name), String(base), String(version))
   )
   ipcMain.handle('repo:userName', (_e, path: string) => git.userName(path))
   ipcMain.handle('repo:syncInfo', (_e, path: string) => git.syncInfo(path))

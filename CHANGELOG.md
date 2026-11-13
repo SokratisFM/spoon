@@ -4,6 +4,15 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.57.0 — 2026-11-13
+
+- **New:** New candidate (in New Branch, ⌘N): makes the next candidate/… or candidates/… branch, starting from the latest candidate, with the version picked from the keyboard: ←/→ choose a number, ↑/↓ change it (the ones after it go back to 0, so 4.1.2 becomes 4.2.0), or type it. In MainLibCore it also sets package.json's version and commits "bumping version to …"; in MainLib, mainlib-version.txt with the same message; in Home Game Toolkit, hgt-version.txt as "bump version". With **Push when done** (on by default) the new candidate goes to the remote straight away, tracking it. It replaces New MainLib release.
+- **Improved:** New Branch's three kinds (existing ticket, new ticket, new candidate) are separate cards with an icon and a line on what each does, instead of one strip of text.
+
+## 0.56.3 — 2026-11-12
+
+- **Improved:** Submodules download four at a time instead of one after another: after a clone, when a project opens with submodules missing, when updating a submodule (and the ones inside it), and when a pull brings in new submodule commits. Far from GitHub's servers, a single download is slow however fast your line is, so this adds up.
+
 ## 0.56.2 — 2026-11-11
 
 - **Fixed:** Unity exports: an edit made in Xcode or Android Studio within about five minutes of exporting counted as part of Unity's export, so it wasn't brought back into Assets (or MainLib) by itself and stayed in the main repository until you pressed Bring Back. Now only what's saved during the export itself (and a few seconds after) counts as Unity's.

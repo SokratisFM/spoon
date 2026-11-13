@@ -9444,3 +9444,107 @@ kbd.setting-key {
   background: var(--bg-hover);
   color: var(--text-muted);
 }
+
+/* New candidate: the version as separate numbers, picked and changed from the keyboard. */
+.version-picker {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 1.1em;
+  cursor: default;
+  outline: none;
+}
+.version-picker:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.vp-part-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+.vp-dot {
+  padding: 0 0.1rem;
+  color: var(--text-muted);
+}
+.vp-part {
+  min-width: 1.4em;
+  padding: 0.05rem 0.3rem;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  cursor: pointer;
+}
+.version-picker:focus .vp-part.on {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.vp-part.on {
+  background: var(--bg-hover);
+}
+
+/* New Branch: its kinds (existing ticket, new ticket, new candidate) as separate cards. */
+.nb-modes {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.55rem;
+  margin-bottom: 0.5rem;
+}
+.nb-modes button {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.nb-modes button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.nb-modes button.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.nb-modes button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.nb-mode-icon {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.nb-mode-icon.jira {
+  color: #2684ff;
+}
+.nb-modes button.on .nb-mode-icon:not(.jira) {
+  color: var(--accent);
+}
+.nb-mode-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nb-mode-text b {
+  font-weight: 600;
+  font-size: 0.95em;
+}
+.nb-mode-text span {
+  font-size: 0.8em;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
