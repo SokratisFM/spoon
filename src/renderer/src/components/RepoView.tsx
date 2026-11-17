@@ -507,7 +507,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     if (!note) return
     void choose({
       title: 'Your uncommitted changes didn’t go back cleanly',
-      detail: `${note}\n\nThey’re safe in the stash “autostash” (Stashes in the sidebar). Local Changes shows the conflicts.`,
+      detail: `${note}\n\nThey’re safe in the stash “autostash” (Stashes in the sidebar). Local Changes shows the conflicted files (marked !): right-click one to keep the pulled version or your changes, or edit it and stage it.`,
       cancelId: 'ok',
       buttons: [{ id: 'ok', label: 'OK', kind: 'primary' }]
     })
@@ -673,7 +673,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
 
   // Simple Mode's Get latest: the team's saves under yours, with your unsaved changes kept aside meanwhile.
   const getLatest = (): void =>
-    void netOp('pull', 'Pulling…', () => window.spoon.pull(path, { rebase: true, autostash: true }), 'Couldn’t get the team’s saves')
+    void netOp('pull', 'Pulling…', () => window.spoon.pull(path, { rebase: true, autostash: true }).then((r) => reportStashRef.current(r.stashNote)), 'Couldn’t get the team’s saves')
   // Simple Mode looks for the team's new saves by itself, without errors when offline.
   const fetchQuietly = async (): Promise<void> => {
     if (!repoRef.current?.remotes.length || opStateOf(path).busy) return
@@ -1083,6 +1083,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
             onCommitHandled={clearCommitRequest}
             discardRequest={discardRequest}
             onDiscardHandled={clearDiscardRequest}
+            conflictKind={repo?.rebase ? 'rebase' : repo?.merge || repo?.operation ? 'merge' : 'stash'}
+            mergingFrom={repo?.merge?.subject ?? null}
           />
         ) : (
           <Split id="history" direction="column" mode="fraction" initial={0.55} min={0.15} max={0.85}>
@@ -1132,7 +1134,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         <PullDialog
           path={path}
           onClose={() => setDialog(null)}
-          onPull={(opts) => netOp('pull', 'Pulling…', () => window.spoon.pull(path, opts), 'Pull failed')}
+          onPull={(opts) => netOp('pull', 'Pulling…', () => window.spoon.pull(path, opts).then((r) => reportStashRef.current(r.stashNote)), 'Pull failed')}
         />
       )}
       {dialog === 'push' && (

@@ -64,6 +64,8 @@ export interface ExportLink {
   sourceHash?: string
   /** The copy is as Unity's export run wrote it (not edited since, whatever the save times say). */
   inRun?: boolean
+  /** A dependency list (Podfile, deps.*.gradle) rather than code: never replaced by a link. */
+  deps?: boolean
   /** linked: the export is a symlink to the source (dangling: to one that's gone); else a copy, the same or with one side edited. */
   state: 'linked' | 'dangling' | 'same' | 'export-newer' | 'source-newer'
   /** When the export's copy was last saved: an edit already brought back (or set aside) keeps its time. */
@@ -914,7 +916,10 @@ export interface SpoonApi {
   /** Moves branches that are only behind their upstream up to it. */
   fastForwardBranches(path: string, names: string[]): Promise<void>
   deleteRemoteBranch(path: string, remote: string, branch: string): Promise<void>
-  pull(path: string, opts: PullOptions): Promise<void>
+  /** stashNote: with autostash, your changes didn't go back cleanly (they're kept in the stash, conflicts marked). */
+  pull(path: string, opts: PullOptions): Promise<{ stashNote?: string }>
+  /** Resolves conflicted files by taking one side whole (ours: HEAD; theirs: the other side), staged as resolved. */
+  resolveConflict(path: string, paths: string[], side: 'ours' | 'theirs'): Promise<void>
   push(path: string, opts: PushOptions): Promise<void>
   rebasePlan(path: string, onto: string): Promise<RebasePlan>
   /** Plain rebase of the current branch onto a ref. */

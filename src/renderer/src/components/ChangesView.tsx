@@ -37,6 +37,10 @@ interface Props {
   /** Set by ⇧⌘D from the menu; discards the selected files once confirmed. */
   discardRequest: number
   onDiscardHandled: () => void
+  /** What left conflicts behind, for naming the two sides: a merge, a rebase, or a stash that didn't go back. */
+  conflictKind: 'merge' | 'rebase' | 'stash'
+  /** The merge commit's message (names the branch coming in), while a merge is stopped. */
+  mergingFrom: string | null
 }
 
 /** Paths git needs for a set of entries: renames are staged/unstaged as old + new path. */
@@ -51,7 +55,9 @@ export function ChangesView({
   commitRequest,
   onCommitHandled,
   discardRequest,
-  onDiscardHandled
+  onDiscardHandled,
+  conflictKind,
+  mergingFrom
 }: Props) {
   const settings = useSettings()
   const exportMarks = useExportMarks(path)
@@ -142,8 +148,7 @@ export function ChangesView({
     sel?.area === area ? tree[area].filter((f) => sel.paths.has(f.path)) : []
 
   const discard = async (files: FileChange[], area: Area): Promise<void> => {
-    const usable = files.filter((f) => f.status !== 'U')
-    if (!usable.length) return
+    const usable = files
     const name = usable.length === 1 ? usable[0].path : `${usable.length} files`
     const repoName = path.split('/').pop() ?? 'repo'
     const ok = await confirm({
@@ -153,7 +158,7 @@ export function ChangesView({
           ? 'The staged changes are undone. Unstaged edits to the same files stay, unless they overlap.'
           : 'Unstaged changes are thrown away; anything already staged stays. New files are deleted.',
         `Your current versions go to the Trash (in a “${repoName} – discarded …” folder), so you can get them back.`,
-        usable.length < files.length ? 'Files with conflicts are left alone.' : ''
+        files.some((f) => f.status === 'U') ? 'A file with conflicts goes back to how it was in the last commit, and its conflict is gone.' : ''
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -197,6 +202,14 @@ export function ChangesView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discardRequest, onDiscardHandled])
 
+  // The two sides of a conflict, by what made it ("ours" is always HEAD).
+  const incoming = /^Merge (?:remote-tracking )?branch '([^']+)'/.exec(mergingFrom ?? '')?.[1]
+  const sides =
+    conflictKind === 'rebase'
+      ? { ours: 'the Upstream Version', theirs: 'Your Commit’s Version' }
+      : conflictKind === 'merge'
+        ? { ours: 'Your Branch’s Version', theirs: incoming ? `${incoming}’s Version` : 'the Incoming Version' }
+        : { ours: 'the Pulled Version', theirs: 'Your Changes' }
   const contextMenu = (area: Area) => async (files: FileChange[]) => {
     const n = files.length === 1 ? '' : ` ${files.length} files`
     const one = files.length === 1 ? files[0] : null
@@ -208,8 +221,14 @@ export function ChangesView({
         id: 'discard',
         label: `Discard Changes${n ? ` to${n}` : ''}…`,
         accelerator: 'CmdOrCtrl+Shift+D',
-        enabled: files.some((f) => f.status !== 'U')
       },
+      ...(files.some((f) => f.status === 'U')
+        ? [
+            { separator: true },
+            { id: 'ours', label: `Resolve: Keep ${sides.ours}` },
+            { id: 'theirs', label: `Resolve: Keep ${sides.theirs}` }
+          ]
+        : []),
       { separator: true },
       { id: 'history', label: 'Show File History…', accelerator: 'CmdOrCtrl+Alt+L', enabled: !!one && one.status !== '?' },
       { id: 'compare', label: 'Compare with…', enabled: files.length === 1 && files[0].status !== 'D' },
@@ -220,6 +239,17 @@ export function ChangesView({
     else if (choice === 'history' && one) requestFileHistory({ repo: path, file: one.path })
     else if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
     else if (choice === 'discard') discard(files, area)
+    else if (choice === 'ours' || choice === 'theirs') {
+      const conflicted = files.filter((f) => f.status === 'U')
+      const what = conflicted.length === 1 ? conflicted[0].path : `${conflicted.length} files`
+      const ok = await confirm({
+        message: `Keep ${choice === 'ours' ? sides.ours : sides.theirs} of ${what}?`,
+        detail: `The other side’s changes to ${conflicted.length === 1 ? 'it' : 'them'} are dropped, and the conflict is marked resolved (staged).${conflictKind === 'stash' ? ' Your changes stay in the stash either way, until you drop it.' : ''}`,
+        confirmLabel: 'Keep',
+        enterConfirms: true
+      })
+      if (ok) ops.run('Resolving…', () => window.spoon.resolveConflict(path, conflicted.map((f) => f.path), choice), 'Couldn’t resolve the conflict')
+    }
     else if (choice === 'compare') {
       const other = await window.spoon.pickFile(`Compare ${files[0].path} with…`)
       if (other) requestCompare(other, `${path}/${files[0].path}`)

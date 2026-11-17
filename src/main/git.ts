@@ -639,6 +639,10 @@ async function rawDiff(cwd: string, target: DiffTarget, maxBytes?: number, encod
   }
   if (target.kind === 'staged') return diffOf(['--cached', '--', ...paths])
   if (file.status === '?') return diffOf(['--no-index', '--', '/dev/null', file.path], [0, 1])
+  // A conflicted file: git's own diff of it is a two-sided "combined" one (diff --cc). Against HEAD it's
+  // a plain diff, with the conflict markers and both sides as added lines.
+  if (file.status === 'U')
+    return (await hasHead(cwd)) ? diffOf(['HEAD', '--', file.path]) : diffOf(['--no-index', '--', '/dev/null', file.path], [0, 1])
   return diffOf(['--', ...paths])
 }
 
@@ -1113,10 +1117,19 @@ export async function discard(
     const fromIndex: string[] = [] // working tree back to the index
     const fromHead: string[] = [] // index and working tree back to HEAD
     const unindex: string[] = [] // dropped from the index
+    const conflicts: string[] = [] // in conflict: index and working tree back to HEAD (conflict gone)
     for (const f of files) {
       inside(f.path)
       if (f.oldPath) inside(f.oldPath)
-      if (f.status === 'U') continue
+      if (f.status === 'U') {
+        const inHead = head && (await git(cwd, ['cat-file', '-e', `HEAD:${f.path}`]).then(() => true, () => false))
+        if (inHead) conflicts.push(f.path)
+        else {
+          unindex.push(f.path)
+          remove.push(f.path)
+        }
+        continue
+      }
       if (!f.staged) {
         if (f.status === '?') remove.push(f.path)
         else fromIndex.push(f.path)
@@ -1161,7 +1174,7 @@ export async function discard(
       }
       kept++
     }
-    for (const p of new Set([...fromIndex, ...fromHead])) await keep(p, false)
+    for (const p of new Set([...fromIndex, ...fromHead, ...conflicts])) await keep(p, false)
     for (const p of new Set(remove)) await keep(p, true)
 
     // 2. Discard.
@@ -1176,6 +1189,7 @@ export async function discard(
       if (reversed) await git(cwd, ['restore', '--source=HEAD', '--staged', '--', p])
       else await git(cwd, ['restore', '--source=HEAD', '--staged', '--worktree', '--', p])
     }
+    if (conflicts.length) await withPaths(cwd, ['checkout', 'HEAD'], conflicts)
     if (unindex.length) await withPaths(cwd, ['rm', '--cached', '-r', '-q', '--ignore-unmatch'], unindex)
 
     // Folders the deleted files leave empty go too, as `git clean` would.
@@ -1833,11 +1847,11 @@ export async function fetchQuietly(cwd: string): Promise<void> {
   ])
 }
 
-export function pull(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<void> {
+export function pull(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<{ stashNote?: string }> {
   return exclusive(cwd, () => pullNow(cwd, opts, onProgress))
 }
 
-async function pullNow(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<void> {
+async function pullNow(cwd: string, opts: PullOptions, onProgress: (l: string) => void): Promise<{ stashNote?: string }> {
   const info = await syncInfo(cwd)
   if (!info.branch) throw new Error('HEAD is detached. Check out a branch to pull.')
   if (!info.upstreamRemote || !info.upstreamBranch)
@@ -1846,9 +1860,14 @@ async function pullNow(cwd: string, opts: PullOptions, onProgress: (l: string) =
   if (!opts.rebase) args.push('--no-edit')
   if (opts.autostash) args.push('--autostash')
   // Submodules whose commits the pull brings in are fetched with it: several at a time.
-  await run(cwd, ['-c', 'submodule.fetchJobs=4', ...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true }).catch(async (err) => {
-    throw await whichFailed(cwd, err, info.upstreamRemote!)
-  })
+  const { err } = await exec(cwd, ['-c', 'submodule.fetchJobs=4', ...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true }).catch(
+    async (e) => {
+      throw await whichFailed(cwd, e, info.upstreamRemote!)
+    }
+  )
+  // With --autostash, your changes going back after the pull can conflict: git keeps them in the
+  // stash and marks the conflicts, but the pull itself worked.
+  return { stashNote: opts.autostash ? autostashNote(err) : undefined }
 }
 
 export function push(cwd: string, opts: PushOptions, onProgress: (l: string) => void): Promise<void> {
@@ -2333,6 +2352,30 @@ export async function unityBuildInfo(cwd: string, ref: string): Promise<UnityBui
     .sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path))
     .filter((c, i, all) => all.findIndex((x) => x.code.toLowerCase() === c.code.toLowerCase()) === i)
   return { unityVersion: field(version, 'm_EditorVersion'), bundleVersion: field(settings, 'bundleVersion'), codes }
+}
+
+/**
+ * Resolves conflicted files by taking one side whole: `ours` is HEAD (the branch you're on; when a stash
+ * didn't go back, the version you pulled), `theirs` the other side (what's being merged, the stash's
+ * changes, or during a rebase your commit). A side that deleted the file deletes it. Then it's staged
+ * as resolved.
+ */
+export async function resolveConflict(cwd: string, paths: string[], side: 'ours' | 'theirs'): Promise<void> {
+  if (side !== 'ours' && side !== 'theirs') throw new Error(`Not a side: ${side}`)
+  for (const p of paths) assertArg(p, 'path')
+  await exclusive(cwd, async () => {
+    const stage = side === 'ours' ? 2 : 3
+    for (const p of paths) {
+      repoFile(cwd, p)
+      const stages = await git(cwd, ['ls-files', '-u', '-z', '--', p]).catch(() => '')
+      if (!stages) continue // not in conflict (any more)
+      const has = stages.split('\0').some((l) => new RegExp(`^\\d+ [0-9a-f]+ ${stage}\t`).test(l))
+      if (has) {
+        await git(cwd, ['checkout', `--${side}`, '--', p])
+        await git(cwd, ['add', '--', p])
+      } else await git(cwd, ['rm', '-q', '--', p]) // that side deleted it
+    }
+  })
 }
 
 /** git's message when putting the autostashed changes back hit conflicts (they stay in the stash). */

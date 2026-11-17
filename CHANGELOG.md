@@ -4,6 +4,12 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.57.1 — 2026-11-17
+
+- **Fixed:** When a Pull set your changes aside and they conflicted coming back (say, a file you changed was renamed upstream), the conflicted files showed no changes, couldn't be discarded, and the Pull didn't say anything. Now the Pull tells you, the diff shows the conflict markers with both sides, and Discard puts the file back to the pulled version.
+- **New:** Right-click a conflicted file (marked !) to resolve it by keeping one side whole: the pulled version or your changes (in a merge, your branch's or the incoming branch's; in a rebase, the upstream's or your commit's). It's then staged as resolved.
+- **New:** Exports also track the Podfile (from a Plugins/iOS folder) and the Gradle dependency files such as deps.admob.gradle (from a Plugins/Android folder), where the ad networks are listed. An edit made to them in Xcode or Android Studio shows under Exports and can be brought back to Assets like native code. They stay copies, never links: the build copies over them on every export, which through a link would overwrite the source.
+
 ## 0.57.0 — 2026-11-13
 
 - **New:** New candidate (in New Branch, ⌘N): makes the next candidate/… or candidates/… branch, starting from the latest candidate, with the version picked from the keyboard: ←/→ choose a number, ↑/↓ change it (the ones after it go back to 0, so 4.1.2 becomes 4.2.0), or type it. In MainLibCore it also sets package.json's version and commits "bumping version to …"; in MainLib, mainlib-version.txt with the same message; in Home Game Toolkit, hgt-version.txt as "bump version". With **Push when done** (on by default) the new candidate goes to the remote straight away, tracking it. It replaces New MainLib release.

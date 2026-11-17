@@ -474,6 +474,9 @@ function registerIpc(): void {
   handleRepo('repo:cancelSubmoduleDownload', (_e, path: string) => git.cancelSubmoduleDownload(path))
   ipcMain.handle('repo:fetchQuietly', (_e, path: string) => git.fetchQuietly(path))
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
+  handleRepo('repo:resolveConflict', (_e, path: string, paths: string[], side: 'ours' | 'theirs') =>
+    git.resolveConflict(path, Array.isArray(paths) ? paths.map(String) : [], side)
+  )
   ipcMain.handle('repo:push', (e, path: string, opts: PushOptions) => git.push(path, opts, progress(e, path)))
 
   // Menu items the renderer can hide (e.g. Review with Claude when Claude is turned off in Settings).

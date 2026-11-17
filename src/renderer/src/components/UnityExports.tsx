@@ -82,6 +82,7 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
     else if (choice === 'skip') skipNew(path, n.export)
   }
   const copies = (links ?? []).filter((l) => l.state === 'same')
+  const linkable = copies.filter((l) => !l.deps)
   const outdated = (links ?? []).filter((l) => l.state === 'source-newer').length
   const linkedCount = (links ?? []).filter((l) => l.state === 'linked').length
   const broken = (links ?? []).filter((l) => l.state === 'dangling').length
@@ -129,7 +130,7 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
       { separator: true },
       { id: 'back', label: 'Bring Back to Source' },
       { id: 'ignore', label: 'Leave Source as It Is' },
-      { id: 'relink', label: 'Replace Export Copy with a Link…' },
+      ...(l.deps ? [] : [{ id: 'relink', label: 'Replace Export Copy with a Link…' }]),
       { separator: true },
       { id: 'reveal-src', label: `${revealLabel}: Source`, icon: 'reveal' as const },
       { id: 'reveal-exp', label: `${revealLabel}: Export`, icon: 'reveal' as const }
@@ -149,7 +150,7 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
   if (!dirs) {
     body = (
       <div className="side-empty">
-        Bring edits made in Android Studio or Xcode back into Assets: Spoon pairs the native files in exported projects
+        Bring edits made in Android Studio or Xcode back into Assets: Spoon pairs the native files (and the Podfile and Gradle dependency lists) in exported projects
         with their sources.{' '}
         <button className="link-btn" onClick={() => setLinking(true)}>
           Link exports…
@@ -244,22 +245,22 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
                 </span>
               )}
             </span>
-            {copies.length > 0 && (
+            {linkable.length > 0 && (
               <button
                 className="link-btn"
                 title="Replace the copies that match their source with links to it"
                 onClick={async () => {
                   const ok = await confirm({
-                    message: `Link ${copies.length} exported file${copies.length === 1 ? '' : 's'} to their sources?`,
+                    message: `Link ${linkable.length} exported file${linkable.length === 1 ? '' : 's'} to their sources?`,
                     detail:
                       'Each copy that matches its source becomes a link to it, so edits in Android Studio or Xcode go straight into the repository. A new export from Unity replaces them again unless Symlink Sources is on.',
                     confirmLabel: 'Relink',
                     enterConfirms: true
                   })
-                  if (ok) relink(copies)
+                  if (ok) relink(linkable)
                 }}
               >
-                Relink {copies.length}…
+                Relink {linkable.length}…
               </button>
             )}{' '}
             <button className="link-btn" onClick={() => setLinking(true)}>

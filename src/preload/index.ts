@@ -53,6 +53,7 @@ const api: SpoonApi = {
   stashDrop: (path, name, hash) => ipcRenderer.invoke('repo:stashDrop', path, name, hash),
   fastForwardBranches: (path, names) => ipcRenderer.invoke('repo:fastForwardBranches', path, names),
   pull: (path, opts) => ipcRenderer.invoke('repo:pull', path, opts),
+  resolveConflict: (path, paths, side) => ipcRenderer.invoke('repo:resolveConflict', path, paths, side),
   push: (path, opts) => ipcRenderer.invoke('repo:push', path, opts),
   rebasePlan: (path, onto) => ipcRenderer.invoke('repo:rebasePlan', path, onto),
   rebase: (path, onto) => ipcRenderer.invoke('repo:rebase', path, onto),

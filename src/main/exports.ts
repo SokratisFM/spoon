@@ -17,6 +17,23 @@ import type { ExportCandidate, ExportFolder, ExportLink, ExportNew, ExportPlatfo
 // exports (its own steps and plug-ins' build scripts fill in app ids, package lists…), so their
 // copies differ from Assets without anyone having edited them.
 const NATIVE = new Set(['.java', '.kt', '.m', '.mm', '.h', '.hpp', '.c', '.cc', '.cpp', '.swift', '.xib'])
+const isNative = (file: string): boolean => NATIVE.has(extname(file).toLowerCase())
+// Dependency lists are the exception: a Podfile in a Plugins/iOS folder is copied as is to the iOS
+// export's root, and Gradle files in a Plugins/Android folder (deps.admob.gradle…, where the ad
+// networks are listed) to unityLibrary/. Unity's templates (mainTemplate.gradle…) become other
+// files (build.gradle…), so they never pair.
+const TEMPLATES = new Set(['maintemplate.gradle', 'launchertemplate.gradle', 'baseprojecttemplate.gradle', 'settingstemplate.gradle'])
+const UNITY_GRADLE = new Set(['build.gradle', 'settings.gradle'])
+const isDepsName = (name: string): boolean => name === 'Podfile' || (name.toLowerCase().endsWith('.gradle') && !TEMPLATES.has(name.toLowerCase()))
+/** Which export (and under what name) a source dependency list is copied to; null for any other file. */
+function depsSlot(id: string): { platform: ExportPlatform; name: string } | null {
+  const m = /(?:^|\/)Plugins\/(iOS|Android)\/([^/]+)$/i.exec(id)
+  if (!m || !isDepsName(m[2])) return null
+  if (m[1].toLowerCase() === 'ios') return m[2] === 'Podfile' ? { platform: 'ios', name: 'Podfile' } : null
+  return m[2] !== 'Podfile' && !UNITY_GRADLE.has(m[2].toLowerCase()) ? { platform: 'android', name: m[2] } : null
+}
+/** The files an export is watched for: native code and dependency lists. */
+const watched = (file: string): boolean => isNative(file) || isDepsName(basename(file))
 // Never searched for exports: Unity's own folders and build caches.
 const SKIP = new Set(['Assets', 'Library', 'Temp', 'Logs', 'Packages', 'ProjectSettings', 'UserSettings', 'obj', 'node_modules', '.git', '.gradle', 'build', 'Pods', 'DerivedData', 'Il2CppOutputProject', 'Data'])
 const MAX_FILES = 50_000
@@ -152,7 +169,7 @@ async function walkSources(root: string): Promise<Source[]> {
   const out: Source[] = []
   // A file reached by two paths (a linked folder in Assets) is kept under both: Unity exports both.
   for (const r of await sourceRoots(root)) {
-    for (const rel of await walk(r.abs, (x) => NATIVE.has(extname(x).toLowerCase()), SOURCE_SKIP)) {
+    for (const rel of await walk(r.abs, (x) => isNative(x) || !!depsSlot(x), SOURCE_SKIP)) {
       const abs = join(r.abs, rel)
       const inRepo = toSlash(relative(root, abs))
       out.push({
@@ -193,13 +210,25 @@ async function pairs(root: string, dir: string, platform: ExportPlatform, index:
   const byId = new Map(index.map((s) => [s.id, s]))
   const found: { exp: string; src: Source }[] = []
   const abs = join(root, dir)
+  // Dependency lists: by name, when exactly one source (one real file) has it.
+  const deps = new Map<string, Source | null>()
+  for (const s of index) {
+    const slot = depsSlot(s.id)
+    if (slot?.platform !== platform) continue
+    const known = deps.get(slot.name)
+    deps.set(slot.name, known === undefined || known?.real === s.real ? (known ?? s) : null)
+  }
+  const depsDir = platform === 'ios' ? dir : `${dir}/unityLibrary`
+  for (const [name, src] of deps) {
+    if (src && (await lstat(join(root, depsDir, name)).catch(() => null))) found.push({ exp: `${depsDir}/${name}`, src })
+  }
   if (platform === 'ios') {
     // Assets/Plugins/iOS/Foo.mm is exported as Libraries/Plugins/iOS/Foo.mm, and a package's
     // Runtime/Plugins/iOS/Foo.mm as Libraries/<package name>/Runtime/Plugins/iOS/Foo.mm.
     // A path two sources would both export to is ambiguous: neither is paired.
     const byIos = new Map<string, Source | null>()
     for (const s of index) byIos.set(s.ios, byIos.has(s.ios) ? null : s)
-    for (const r of await walk(join(abs, 'Libraries'), (x) => NATIVE.has(extname(x).toLowerCase()), EXPORT_SKIP)) {
+    for (const r of await walk(join(abs, 'Libraries'), isNative, EXPORT_SKIP)) {
       const src = byIos.get(r)
       if (src) found.push({ exp: `${dir}/Libraries/${r}`, src })
     }
@@ -242,7 +271,7 @@ async function pairs(root: string, dir: string, platform: ExportPlatform, index:
       for (const name of await readdir(join(root, parent)).catch(() => [] as string[])) {
         const lib = libs.get(name)
         if (!lib) continue
-        for (const r of await walk(join(root, parent, name), (x) => NATIVE.has(extname(x).toLowerCase()), LIB_SKIP)) {
+        for (const r of await walk(join(root, parent, name), isNative, LIB_SKIP)) {
           const src = byId.get(`${lib}/${r}`)
           if (src) found.push({ exp: `${parent}/${name}/${r}`, src })
         }
@@ -313,7 +342,7 @@ function subtreeFiles(root: string, sub: string): Promise<string[]> {
   const key = join(root, sub)
   const hit = subtreeCache.get(key)
   if (hit && Date.now() - hit.at < 3000) return hit.files
-  const files = walk(key, (x) => NATIVE.has(extname(x).toLowerCase()), sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)
+  const files = walk(key, isNative, sub.endsWith('.androidlib') ? LIB_SKIP : EXPORT_SKIP)
   subtreeCache.set(key, { at: Date.now(), files })
   files.catch(() => subtreeCache.delete(key))
   return files
@@ -363,7 +392,7 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
       const e = join(root, exp)
       const s = src.abs
       const repo = repoOf(s)
-      const where = { platform, export: exp, source: src.id, sourcePath: toSlash(s), sourceRepo: toSlash(repo), sourceTracked: await isTracked(repo, s) }
+      const where = { platform, export: exp, source: src.id, sourcePath: toSlash(s), sourceRepo: toSlash(repo), sourceTracked: await isTracked(repo, s), ...(depsSlot(src.id) ? { deps: true } : {}) }
       try {
         const info = await lstat(e)
         const [to, want] = await Promise.all([realpath(e).catch(() => null), realpath(s).catch(() => null)])
@@ -443,7 +472,7 @@ export function watchExports(owner: number, root: string, dirs: string[], change
     try {
       const w = watch(inside(root, dir), { recursive: true }, (_event, file) => {
         const f = String(file ?? '')
-        if (f && !NATIVE.has(extname(f).toLowerCase())) return
+        if (f && !watched(f)) return
         clearTimeout(entry.timer)
         entry.timer = setTimeout(changed, 500)
       })
@@ -589,6 +618,10 @@ export async function relink(root: string, items: { exp: string; src: string }[]
   for (const it of items) if (!(await lstat(inside(root, it.exp)).catch(() => null))?.isSymbolicLink()) todo.push(it)
   if (!todo.length) return
   const verified = await verifiedPairs(root, todo)
+  // A Podfile or Gradle dependency list is copied over the export's file by a build script (File.Copy),
+  // which through a link would write into the source itself: those stay copies.
+  const deps = todo.filter((t) => depsSlot(verified.get(t.exp)!.id))
+  if (deps.length) throw new Error(`${deps.map((t) => basename(t.exp)).join(', ')} can’t be linked: the build copies over ${deps.length === 1 ? 'it' : 'them'} on every export, which through a link would overwrite the source.`)
   const roots = await realRoots(root)
   // Every file is checked before any is linked: one that differs stops the batch untouched; one that's
   // gone or already is its source is skipped (and said so at the end).
