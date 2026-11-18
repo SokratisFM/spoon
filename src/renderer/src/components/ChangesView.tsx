@@ -38,7 +38,7 @@ interface Props {
   discardRequest: number
   onDiscardHandled: () => void
   /** What left conflicts behind, for naming the two sides: a merge, a rebase, or a stash that didn't go back. */
-  conflictKind: 'merge' | 'rebase' | 'stash'
+  conflictKind: 'merge' | 'rebase' | 'cherry-pick' | 'stash'
   /** The merge commit's message (names the branch coming in), while a merge is stopped. */
   mergingFrom: string | null
 }
@@ -207,6 +207,8 @@ export function ChangesView({
   const sides =
     conflictKind === 'rebase'
       ? { ours: 'the Upstream Version', theirs: 'Your Commit’s Version' }
+      : conflictKind === 'cherry-pick'
+        ? { ours: 'Your Branch’s Version', theirs: 'the Picked Commit’s Version' }
       : conflictKind === 'merge'
         ? { ours: 'Your Branch’s Version', theirs: incoming ? `${incoming}’s Version` : 'the Incoming Version' }
         : { ours: 'the Pulled Version', theirs: 'Your Changes' }

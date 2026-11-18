@@ -9548,3 +9548,26 @@ kbd.setting-key {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Reset to Here */
+.reset-subject {
+  margin: 0 0 0.6rem;
+  overflow-wrap: anywhere;
+}
+.reset-modes button.hard.on {
+  border-color: var(--warn, #d97706);
+  background: color-mix(in srgb, var(--warn, #d97706) 12%, var(--bg));
+  box-shadow: 0 0 0 1px var(--warn, #d97706);
+}
+.reset-effect {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+.reset-effect li + li {
+  margin-top: 0.2rem;
+}
+.reset-effect.hard {
+  color: var(--text);
+}

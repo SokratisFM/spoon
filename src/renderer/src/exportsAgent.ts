@@ -259,7 +259,7 @@ export const yours = (s: ExportsState, l: ExportLink): boolean =>
  * export run, the source is still what it was when the two last matched, and it has no changes of yours.
  */
 const autoSafe = (s: ExportsState, l: ExportLink): boolean =>
-  l.state === 'export-newer' && !l.inRun && !!l.sourceHash && s.base[l.export] === l.sourceHash && !yours(s, l)
+  l.state === 'export-newer' && !l.deps && !l.inRun && !!l.sourceHash && s.base[l.export] === l.sourceHash && !yours(s, l)
 
 /**
  * Why an edit in an export waits for you instead of being brought back by itself (null: it will be,
@@ -268,10 +268,16 @@ const autoSafe = (s: ExportsState, l: ExportLink): boolean =>
 export function heldBack(s: ExportsState, l: ExportLink): { short: string; why: string } | null {
   if (l.state !== 'export-newer') return null
   if (!s.auto) return { short: 'auto off', why: 'Bringing edits back by themselves is turned off (at the bottom of this list).' }
+  // Build steps (External Dependency Manager, plug-ins' post-processors) write these too.
+  if (l.deps)
+    return {
+      short: 'dependencies',
+      why: 'Podfiles and Gradle dependency files can be rewritten by build steps, so an edit to one is never brought back by itself. Compare it, then bring it back if it’s yours.'
+    }
   if (l.inRun)
     return {
       short: 'export',
-      why: 'It was saved within seconds of Unity’s export, so Spoon takes it for part of the export (a build step), not an edit of yours. If you did change it, bring it back yourself.'
+      why: 'It was saved before Unity’s export finished (its build steps were still writing the project), so Spoon takes it for part of the export, not an edit of yours. If you did change it, bring it back yourself.'
     }
   if (yours(s, l)) return { short: 'both', why: `${l.source} has changes of yours too (uncommitted, or not tracked by git), so it isn’t replaced by itself.` }
   if (!l.sourceHash || s.base[l.export] === undefined)

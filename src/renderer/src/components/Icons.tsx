@@ -263,6 +263,16 @@ export const SlackLogoIcon = (p: P) => (
     <path fill="#ECB22E" d="M77.6 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97h12.9zm0-6.5c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H77.6z" />
   </Icon>
 )
+/** Two cherries on a stem, in colour: cherry-picking a commit. */
+export const CherryIcon = (p: P) => (
+  <Icon viewBox="0 0 24 24" {...p}>
+    <path d="M7.2 13.4C8.4 9 10.9 5.6 14.6 3.2M16.6 14.2c-.6-4.2-1-7.6-2-11" stroke="#5f8f3a" strokeWidth="1.5" fill="none" />
+    <path d="M14.6 3.2c2.2-.9 4.6-.5 6.4 1.2-2.3 1.2-4.6 1.1-6.4-1.2z" fill="#6aa84f" stroke="#5f8f3a" strokeWidth="1" />
+    <circle cx="7" cy="17.2" r="4.3" fill="#d7263d" stroke="#a51d2f" strokeWidth="1" />
+    <circle cx="17" cy="18" r="4" fill="#e23a50" stroke="#a51d2f" strokeWidth="1" />
+    <path d="M5.3 15.6c.4-.8 1-1.2 1.8-1.3M15.5 16.5c.4-.7.9-1 1.6-1.1" stroke="#fff" strokeOpacity=".7" strokeWidth="1.1" fill="none" />
+  </Icon>
+)
 /** GitHub's mark, filled: for menu rows about pull requests. */
 export const GitHubLogoIcon = (p: P) => (
   <Icon fill="currentColor" stroke="none" {...p}>

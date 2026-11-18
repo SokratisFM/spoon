@@ -4,9 +4,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MenuItem } from '../../shared/types'
 import { isMac, keys } from './platform'
-import { ClaudeIcon, ExplorerIcon, FinderIcon, GitHubLogoIcon, JenkinsLogoIcon, JiraLogoIcon, SlackLogoIcon } from './components/Icons'
+import { CherryIcon, ClaudeIcon, ExplorerIcon, FinderIcon, GitHubLogoIcon, JenkinsLogoIcon, JiraLogoIcon, SlackLogoIcon } from './components/Icons'
 
-const ICONS = { jira: JiraLogoIcon, github: GitHubLogoIcon, claude: ClaudeIcon, slack: SlackLogoIcon, jenkins: JenkinsLogoIcon, reveal: isMac ? FinderIcon : ExplorerIcon }
+const ICONS = { jira: JiraLogoIcon, github: GitHubLogoIcon, claude: ClaudeIcon, slack: SlackLogoIcon, jenkins: JenkinsLogoIcon, cherry: CherryIcon, reveal: isMac ? FinderIcon : ExplorerIcon }
 
 interface Open {
   items: MenuItem[]

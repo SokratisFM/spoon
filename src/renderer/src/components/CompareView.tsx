@@ -70,7 +70,7 @@ export function CompareView({ a, b, onChange }: Props) {
     const repo = (existing === 'a' ? repos![0] : repos![1])!
     const ok = await confirm({
       message: `Replace ${fileName(to)} with the other file?`,
-      detail: `${tildify(to, home)} (in ${fileName(repo)}) takes the contents of ${tildify(from, home)}. Its old version stays in git, so Discard in Local Changes can undo it.`,
+      detail: `${tildify(to, home)} (in ${fileName(repo)}) takes the contents of ${tildify(from, home)}. If git has it unchanged, Discard in Local Changes undoes this; otherwise (uncommitted edits, an untracked or ignored file) its current version goes to the Trash first.`,
       confirmLabel: 'Replace',
       risky: true
     })

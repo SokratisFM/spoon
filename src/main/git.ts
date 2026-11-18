@@ -46,6 +46,9 @@ import type {
   CompareCandidates,
   MergeResult,
   MergeState,
+  CherryPickResult,
+  CherryPickState,
+  ResetPlan,
   RebaseProgress,
   RebaseResult,
   RebaseStep,
@@ -262,11 +265,15 @@ async function assertRemote(cwd: string, remote: string): Promise<void> {
   if (!remotes.includes(remote)) throw new Error(`Unknown remote: ${remote}`)
 }
 
+/** Repositories Spoon has opened (where they really are): the only ones Compare's Apply may write into. */
+const openedRepos = new Set<string>()
+
 export async function openRepo(path: string): Promise<RepoState> {
   // One rev-parse for all three; the superproject line is only there for a submodule.
   const [root, gitDir, superproject] = (
     await git(path, ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--show-superproject-working-tree'])
   ).split('\n')
+  openedRepos.add(await realpath(root).catch(() => root))
 
   const [branchOut, headOut, refs, stashes, remotesOut, submodules] = await Promise.all([
     git(root, ['symbolic-ref', '-q', '--short', 'HEAD'], [0, 1]),
@@ -288,6 +295,7 @@ export async function openRepo(path: string): Promise<RepoState> {
     operation: detectOperation(gitDir),
     rebase: readRebaseProgress(gitDir),
     merge: readMergeState(gitDir),
+    cherryPick: readCherryPickState(gitDir),
     submodules,
     superproject: superproject || null,
     unity: existsSync(join(root, 'ProjectSettings', 'ProjectVersion.txt'))
@@ -808,7 +816,11 @@ const SAFE_PROTOCOLS = ['-c', 'protocol.ext.allow=never', '-c', 'protocol.file.a
  * Submodules download several at a time: one connection to a far-away server is slow however fast
  * the line is, and git otherwise brings them in one after another.
  */
-const SUBMODULE_JOBS = '--jobs=4'
+async function submoduleJobs(cwd: string): Promise<string[]> {
+  // Your own submodule.fetchJobs (1 on a slow VPN, say) wins: git uses it when no --jobs is given.
+  const set = (await git(cwd, ['config', '--get', 'submodule.fetchJobs'], [0, 1]).catch(() => '')).trim()
+  return set ? [] : ['--jobs=4']
+}
 
 /** Downloads a repository's submodules (all of them, nested ones too); the error, if one failed. */
 export async function cloneSubmodules(cwd: string, onProgress?: (line: string) => void): Promise<string | null> {
@@ -816,7 +828,7 @@ export async function cloneSubmodules(cwd: string, onProgress?: (line: string) =
   // Never alongside the automatic download (a tab opened on it): one after the other, by real path.
   await downloadDone(cwd)
   const key = downloadsKey(cwd)
-  const task = exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', SUBMODULE_JOBS], { onProgress, cancellable: true }).then(() => [] as string[])
+  const task = exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', ...(await submoduleJobs(cwd))], { onProgress, cancellable: true }).then(() => [] as string[])
   submoduleDownloads.set(key, task)
   try {
     await task
@@ -967,7 +979,7 @@ export function downloadNewSubmodules(cwd: string, onProgress?: (line: string) =
     const paths = await newSubmodules(cwd)
     if (paths.length)
       try {
-        await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', SUBMODULE_JOBS, '--', ...paths], {
+        await exec(cwd, [...SAFE_PROTOCOLS, 'submodule', 'update', '--init', '--recursive', '--progress', ...(await submoduleJobs(cwd)), '--', ...paths], {
           onProgress,
           cancellable: downloadKey(cwd)
         })
@@ -1655,11 +1667,45 @@ export async function candidateInfo(cwd: string, at?: string): Promise<Candidate
   return null
 }
 
+/**
+ * Where package.json's own "version" value is (the characters inside its quotes), not one nested in
+ * another object ("publishConfig", "unity"…): the text is walked as JSON, counting depth.
+ */
+export function topLevelVersion(text: string): [number, number] | null {
+  let depth = 0
+  let i = 0
+  const str = (): [number, number] => {
+    const start = ++i
+    while (i < text.length && text[i] !== '"') i += text[i] === '\\' ? 2 : 1
+    return [start, i++]
+  }
+  let key: string | null = null
+  while (i < text.length) {
+    const ch = text[i]
+    if (ch === '"') {
+      const [a, b] = str()
+      let j = i
+      while (/\s/.test(text[j] ?? '')) j++
+      if (depth === 1 && text[j] === ':') key = text.slice(a, b)
+      else if (depth === 1 && key === 'version') return [a, b]
+      else key = null
+      continue
+    }
+    if (ch === '{' || ch === '[') depth++
+    else if (ch === '}' || ch === ']') depth--
+    else if (ch === ',' ) key = null
+    else if (!/[\s:]/.test(ch) && depth === 1) key = null
+    i++
+  }
+  return null
+}
+
 /** The version file's text with its version set to `version` (formatting, BOM, line endings and anything else kept). */
 function withVersion(kind: CandidateInfo['kind'], text: string, version: string): string {
   if (kind === 'mainlibcore') {
-    if (!/"version"\s*:\s*"[^"]*"/.test(text)) throw new Error('package.json has no "version".')
-    return text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${version}$2`)
+    const at = topLevelVersion(text)
+    if (!at) throw new Error('package.json has no top-level "version".')
+    return text.slice(0, at[0]) + version + text.slice(at[1])
   }
   const bom = text.startsWith('\uFEFF') ? '\uFEFF' : ''
   const [first, ...rest] = text.slice(bom.length).split(/(?<=\n)/)
@@ -1860,7 +1906,7 @@ async function pullNow(cwd: string, opts: PullOptions, onProgress: (l: string) =
   if (!opts.rebase) args.push('--no-edit')
   if (opts.autostash) args.push('--autostash')
   // Submodules whose commits the pull brings in are fetched with it: several at a time.
-  const { err } = await exec(cwd, ['-c', 'submodule.fetchJobs=4', ...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true }).catch(
+  const { err } = await exec(cwd, [...((await submoduleJobs(cwd)).length ? ['-c', 'submodule.fetchJobs=4'] : []), ...args, '--', info.upstreamRemote, info.upstreamBranch], { onProgress, cancellable: true }).catch(
     async (e) => {
       throw await whichFailed(cwd, e, info.upstreamRemote!)
     }
@@ -1980,8 +2026,8 @@ async function updateSubmoduleNow(cwd: string, submodulePath: string, backupBran
   // Also proves the path is a submodule of this repo before any git runs inside it.
   const recorded = await recordedCommit(cwd, submodulePath)
   const dir = join(cwd, submodulePath)
-  const nested = (): Promise<string> =>
-    run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', SUBMODULE_JOBS, '--', submodulePath], { cancellable: true })
+  const nested = async (): Promise<string> =>
+    run(cwd, ['submodule', 'update', '--init', '--recursive', '--progress', ...(await submoduleJobs(cwd)), '--', submodulePath], { cancellable: true })
   if (!existsSync(join(dir, '.git'))) {
     await nested()
     return
@@ -2365,6 +2411,11 @@ export async function resolveConflict(cwd: string, paths: string[], side: 'ours'
   for (const p of paths) assertArg(p, 'path')
   await exclusive(cwd, async () => {
     const stage = side === 'ours' ? 2 : 3
+    // No merge, rebase or pick going on: the conflict came from a stash going back (a pull's
+    // autostash). Your changes were unstaged before, so they're left unstaged once resolved.
+    const gitDir = await gitDirOf(cwd)
+    const fromStash =
+      !['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply'].some((f) => existsSync(join(gitDir, f))) && (await hasHead(cwd))
     for (const p of paths) {
       repoFile(cwd, p)
       const stages = await git(cwd, ['ls-files', '-u', '-z', '--', p]).catch(() => '')
@@ -2374,6 +2425,7 @@ export async function resolveConflict(cwd: string, paths: string[], side: 'ours'
         await git(cwd, ['checkout', `--${side}`, '--', p])
         await git(cwd, ['add', '--', p])
       } else await git(cwd, ['rm', '-q', '--', p]) // that side deleted it
+      if (fromStash) await git(cwd, ['restore', '--staged', '--', p]).catch(() => undefined) // not in HEAD nor staged: nothing to unstage
     }
   })
 }
@@ -2449,6 +2501,128 @@ function readMergeState(gitDir: string): MergeState | null {
     // keep the plain name
   }
   return { subject, autostash: existsSync(join(gitDir, 'MERGE_AUTOSTASH')) }
+}
+
+// ---------- cherry-pick and reset ----------
+
+const EMPTY_PICK = /previous cherry-pick is now empty|nothing to commit|nothing added to commit/i
+
+/**
+ * Runs a cherry-pick step. Stopping on conflicts leaves it in progress (not an error). A pick whose
+ * changes the branch already has is skipped (empty: true) instead of leaving an empty pick behind.
+ */
+async function pickOutcome(cwd: string, args: string[], stopsOnConflicts: boolean): Promise<CherryPickResult> {
+  const gitDir = await gitDirOf(cwd)
+  const inProgress = (): boolean => existsSync(join(gitDir, 'CHERRY_PICK_HEAD'))
+  try {
+    await exec(cwd, args, { env: { GIT_EDITOR: 'true' } })
+  } catch (err) {
+    const stderr = err instanceof GitError ? `${err.stderr}\n${err.message}` : String(err)
+    if (inProgress() && EMPTY_PICK.test(stderr)) {
+      await git(cwd, ['cherry-pick', '--skip'])
+      return { done: true, empty: true }
+    }
+    const unmerged = stopsOnConflicts && inProgress() && !!(await git(cwd, ['diff', '--name-only', '--diff-filter=U'])).trim()
+    if (!unmerged) throw err
+  }
+  return { done: !inProgress() }
+}
+
+/** Applies one commit's changes onto the checked-out branch as a new commit (a merge commit: as against its first parent). */
+export async function cherryPick(cwd: string, hash: string): Promise<CherryPickResult> {
+  assertArg(hash, 'commit')
+  return exclusive(cwd, async () => {
+    const parents = (await git(cwd, ['rev-list', '--parents', '-n', '1', hash, '--'])).trim().split(' ').length - 1
+    return pickOutcome(cwd, ['cherry-pick', ...(parents > 1 ? ['-m', '1'] : []), hash], true)
+  })
+}
+
+/** Finishes a cherry-pick that stopped on conflicts (with the picked commit's message), or puts everything back. */
+export async function cherryPickContinue(cwd: string, action: 'continue' | 'abort'): Promise<CherryPickResult> {
+  if (!['continue', 'abort'].includes(action)) throw new Error(`Unknown cherry-pick action: ${action}`)
+  return exclusive(cwd, () => pickOutcome(cwd, ['cherry-pick', `--${action}`], false))
+}
+
+/** While a cherry-pick is stopped: the commit being picked and the first line of its message. */
+function readCherryPickState(gitDir: string): CherryPickState | null {
+  let hash = ''
+  try {
+    hash = readFileSync(join(gitDir, 'CHERRY_PICK_HEAD'), 'utf8').trim()
+  } catch {
+    return null
+  }
+  let subject = hash.slice(0, 7)
+  try {
+    subject = readFileSync(join(gitDir, 'MERGE_MSG'), 'utf8').split('\n')[0].trim() || subject
+  } catch {
+    // keep the short hash
+  }
+  return { hash, subject }
+}
+
+/** What resetting the checked-out branch to `hash` would do: commits it leaves behind, and uncommitted changes. */
+export async function resetPlan(cwd: string, hash: string): Promise<ResetPlan> {
+  assertArg(hash, 'commit')
+  const count = async (range: string): Promise<number> => Number((await git(cwd, ['rev-list', '--count', range, '--'])).trim()) || 0
+  const [leaves, gains, status, overwrites] = await Promise.all([
+    count(`${hash}..HEAD`),
+    count(`HEAD..${hash}`),
+    git(cwd, ['status', '--porcelain', '--untracked-files=no', '--ignore-submodules=dirty']),
+    untrackedInTarget(cwd, hash)
+  ])
+  return { leaves, gains, dirty: !!status.trim(), overwrites: overwrites.length }
+}
+
+/**
+ * Files on disk that `hash` has but HEAD doesn't track (untracked or ignored: a file made again by hand,
+ * one Unity regenerated): a hard reset replaces them with the commit's, and no stash includes them.
+ */
+async function untrackedInTarget(cwd: string, hash: string): Promise<string[]> {
+  const added = (await git(cwd, ['diff', '--name-only', '-z', '--no-renames', '--diff-filter=A', 'HEAD', hash, '--'])).split('\0').filter(Boolean)
+  const out: string[] = []
+  for (const rel of added) {
+    if (!insideRel(rel)) continue
+    const st = await lstat(join(cwd, rel)).catch(() => null)
+    if (st?.isFile() || st?.isSymbolicLink()) out.push(rel)
+  }
+  return out
+}
+
+/**
+ * Moves the checked-out branch (or a detached HEAD) to `hash`. soft keeps every change staged, mixed
+ * keeps them unstaged, hard makes the files match `hash`: uncommitted changes are put in a stash first,
+ * so nothing is lost (untracked files are left alone, as git does).
+ */
+export async function reset(cwd: string, hash: string, mode: 'soft' | 'mixed' | 'hard', trash: (abs: string) => Promise<void>): Promise<{ stashed: boolean; from: string; trashed: number }> {
+  assertArg(hash, 'commit')
+  if (!['soft', 'mixed', 'hard'].includes(mode)) throw new Error(`Unknown reset mode: ${mode}`)
+  return exclusive(cwd, async () => {
+    const gitDir = await gitDirOf(cwd)
+    if (['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply'].some((f) => existsSync(join(gitDir, f))))
+      throw new Error('Finish or abort the merge, rebase or cherry-pick in progress first.')
+    let stashed = false
+    let trashed = 0
+    const from = (await git(cwd, ['rev-parse', '--verify', 'HEAD'])).trim()
+    if (mode === 'hard') {
+      // Untracked and ignored files the commit has are replaced by it: copied to the Trash first.
+      const overwritten = await untrackedInTarget(cwd, hash)
+      if (overwritten.length) {
+        await backupToTrash(
+          overwritten.map((rel) => ({ abs: join(cwd, rel), rel })),
+          `${basename(resolve(cwd))} – before resetting to ${hash.slice(0, 7)} ${backupStamp()}`,
+          trash
+        )
+        trashed = overwritten.length
+      }
+      const made = (await git(cwd, ['stash', 'create', `Before resetting to ${hash.slice(0, 7)}`])).trim()
+      if (made) {
+        await git(cwd, ['stash', 'store', '-m', `Before resetting to ${hash.slice(0, 7)}`, made])
+        stashed = true
+      }
+    }
+    await git(cwd, ['reset', `--${mode}`, hash, '--'])
+    return { stashed, from, trashed }
+  })
 }
 
 // ---------- pull requests ----------
@@ -2862,13 +3036,37 @@ export async function compareRepos(a: string, b: string): Promise<[string | null
   return Promise.all([repoOf(a), repoOf(b)])
 }
 
-/** Compare's Apply: the file in a repository takes the other file's contents (git can still undo it). */
-export async function applyCompare(from: string, to: string): Promise<void> {
+/**
+ * Compare's Apply: the file in a repository takes the other file's contents. Only in a repository
+ * Spoon has open (or one inside it, a submodule). Unless the file is tracked and unchanged (git has
+ * it), its current version goes to the Trash first: an ignored or untracked file, or uncommitted edits.
+ * A link is refused, never written through; the file is replaced in one step (temp file, rename).
+ */
+export async function applyCompare(from: string, to: string, trash: (abs: string) => Promise<void>): Promise<void> {
   const [, repo] = await compareRepos(from, to)
   if (!repo) throw new Error('Only a file inside a repository can be replaced from Compare.')
-  const [src, dst] = await Promise.all([stat(from), stat(to)])
+  const top = await realpath(repo).catch(() => repo)
+  if (![...openedRepos].some((r) => top === r || top.startsWith(r + sep))) throw new Error('Only a file in a repository open in Spoon can be replaced from Compare.')
+  const [src, dst] = await Promise.all([stat(from), lstat(to)])
+  if (dst.isSymbolicLink()) throw new Error(`${basename(to)} is a link; Spoon won’t write through it to the file it points to.`)
   if (!src.isFile() || !dst.isFile()) throw new Error('Both sides have to be files.')
-  await writeFile(to, await readFile(from))
+  const abs = join(await realpath(dirname(to)), basename(to))
+  const rel = relative(top, abs).split(sep).join('/')
+  if (!insideRel(rel)) throw new Error(`Not inside the repository: ${to}`)
+  const data = await readFile(from)
+  await exclusive(top, async () => {
+    const st = await git(top, ['status', '--porcelain', '--ignored', '-z', '--', rel]).catch(() => 'unknown')
+    if (st) await backupToTrash([{ abs, rel: basename(rel) }], `${basename(top)} – before applying ${basename(rel)} from Compare ${backupStamp()}`, trash)
+    const tmp = join(dirname(abs), `.${basename(abs)}.spoon-apply-${process.pid}-${Date.now()}`)
+    try {
+      await writeFile(tmp, data, { flag: 'wx' })
+      await chmod(tmp, dst.mode & 0o7777)
+      await rename(tmp, abs)
+    } catch (err) {
+      await rm(tmp, { force: true })
+      throw err
+    }
+  })
 }
 
 /** The files git tracks in a repository, relative to it. */

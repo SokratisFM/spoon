@@ -76,6 +76,10 @@ const api: SpoonApi = {
   jenkinsOpenTokenPage: (server) => ipcRenderer.invoke('jenkins:openTokenPage', server),
   merge: (path, from, noFastForward) => ipcRenderer.invoke('repo:merge', path, from, noFastForward),
   mergeContinue: (path, action) => ipcRenderer.invoke('repo:mergeContinue', path, action),
+  cherryPick: (path, hash) => ipcRenderer.invoke('repo:cherryPick', path, hash),
+  cherryPickContinue: (path, action) => ipcRenderer.invoke('repo:cherryPickContinue', path, action),
+  resetPlan: (path, hash) => ipcRenderer.invoke('repo:resetPlan', path, hash),
+  reset: (path, hash, mode) => ipcRenderer.invoke('repo:reset', path, hash, mode),
   cancel: (path) => ipcRenderer.invoke('repo:cancel', path),
   onProgress: (handler) => {
     const listener = (_e: unknown, repo: string, line: string): void => handler(repo, line)

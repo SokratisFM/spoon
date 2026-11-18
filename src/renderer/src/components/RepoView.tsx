@@ -63,6 +63,7 @@ import { CheckoutBlockedDialog, overwrittenFiles } from './CheckoutBlockedDialog
 import { RebaseEditor } from './RebaseEditor'
 import { RebaseBanner } from './RebaseBanner'
 import { MergeBanner } from './MergeBanner'
+import { ResetDialog } from './ResetDialog'
 import { SubmoduleUpdateDialog } from './SubmoduleUpdateDialog'
 import { MainLibDialog } from './MainLibDialog'
 import { CreatePullDialog } from './CreatePullDialog'
@@ -83,6 +84,10 @@ export interface Ops {
   rebase: (onto: string, interactive: boolean) => void
   /** Merge a ref (its full name, refs/heads/…) into the current branch, asking first; name is how it's shown. */
   merge: (ref: string, name: string) => void
+  /** Copy a commit's changes onto the checked-out branch, asking first. */
+  cherryPick: (commit: Commit) => void
+  /** Move the checked-out branch to a commit (soft, mixed or hard), asking how. */
+  reset: (commit: Commit) => void
   /** Push the current branch to its upstream (or origin) without the Push dialog. */
   push: () => void
   /** Open the Create Pull Request dialog for a local branch (null when GitHub isn't set up here). */
@@ -559,6 +564,32 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     [path, run]
   )
 
+  const cherryPick = useCallback<Ops['cherryPick']>(
+    async (c) => {
+      const onto = repoRef.current?.headBranch ?? 'HEAD'
+      const isMerge = c.parents.length > 1
+      const ok = await confirm({
+        message: `Cherry-pick “${c.subject}” onto ${onto}?`,
+        detail: `${c.hash.slice(0, 7)}’s changes are applied to ${onto} as a new commit with the same message and author.${isMerge ? ' It’s a merge commit: what it brought into its first parent is picked.' : ''} If they conflict with ${onto}, it stops so you can resolve them, then continue or abort.`,
+        confirmLabel: 'Cherry-pick',
+        enterConfirms: true
+      })
+      if (!ok) return
+      run(
+        `Cherry-picking ${c.hash.slice(0, 7)} onto ${onto}…`,
+        async () => {
+          const res = await window.spoon.cherryPick(path, c.hash)
+          if (res.empty) setOpError({ title: 'Nothing to cherry-pick', message: `${onto} already has the changes from “${c.subject}”, so nothing was committed.` })
+          else if (!res.done) setView('changes')
+        },
+        'Cherry-pick failed'
+      )
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [path, run]
+  )
+  const [resetTo, setResetTo] = useState<Commit | null>(null)
+
   // Defined further down (it uses the Push button's animation); read through a ref so ops stays stable.
   const quickPushRef = useRef<() => void>(() => undefined)
   const canCreatePull = !!account && !!ghSlug
@@ -570,6 +601,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       checkout,
       rebase,
       merge,
+      cherryPick,
+      reset: (commit) => setResetTo(commit),
       push: () => quickPushRef.current(),
       createPull: canCreatePull ? setPrFor : null,
       tag: openTag,
@@ -588,7 +621,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       sendBuild: isUnity ? (ref, via) => setBuildFor({ ref, via }) : null
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run, checkout, rebase, merge, canCreatePull, claudeEnabled, isUnity]
+    [run, checkout, rebase, merge, cherryPick, canCreatePull, claudeEnabled, isUnity]
   )
   const [mainlibFor, setMainlibFor] = useState<Submodule | null>(null)
   const mainlibName = useSettings().mainlibName
@@ -1010,6 +1043,26 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       </div>
 
       {error && <div className="banner error">{error}</div>}
+      {repo.cherryPick && !repo.rebase && !repo.merge && (
+        <MergeBanner
+          kind="cherry-pick"
+          subject={repo.cherryPick.subject}
+          autostash={false}
+          conflicts={tree.unstaged.filter((f) => f.status === 'U').length}
+          busy={!!busy}
+          onShowChanges={() => setView('changes')}
+          onAction={(action) =>
+            run(
+              action === 'abort' ? 'Aborting cherry-pick…' : 'Committing cherry-pick…',
+              async () => {
+                const res = await window.spoon.cherryPickContinue(path, action)
+                if (res.empty) setOpError({ title: 'Nothing to commit', message: 'Resolving the conflicts left no changes, so the cherry-pick was skipped.' })
+              },
+              'Cherry-pick failed'
+            )
+          }
+        />
+      )}
       {repo.merge && !repo.rebase && (
         <MergeBanner
           subject={repo.merge.subject}
@@ -1083,7 +1136,7 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
             onCommitHandled={clearCommitRequest}
             discardRequest={discardRequest}
             onDiscardHandled={clearDiscardRequest}
-            conflictKind={repo?.rebase ? 'rebase' : repo?.merge || repo?.operation ? 'merge' : 'stash'}
+            conflictKind={repo?.rebase ? 'rebase' : repo?.cherryPick ? 'cherry-pick' : repo?.merge || repo?.operation ? 'merge' : 'stash'}
             mergingFrom={repo?.merge?.subject ?? null}
           />
         ) : (
@@ -1187,6 +1240,48 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
       <FileEditorHost path={path} ops={ops} />
       <FileHistoryHost path={path} ops={ops} onJump={jumpTo} />
       {newBranch && repo && <NewBranchDialog path={path} repo={repo} ops={ops} onClose={() => setNewBranch(false)} />}
+      {resetTo && repo && (
+        <ResetDialog
+          path={path}
+          commit={resetTo}
+          branch={repo.headBranch}
+          onClose={() => setResetTo(null)}
+          onReset={(mode, plan) => {
+            const c = resetTo
+            const name = repo.headBranch ?? 'HEAD'
+            setResetTo(null)
+            const resetNow = (to: string, how: typeof mode, label: string): Promise<boolean> =>
+              run(
+                label,
+                async () => {
+                  const res = await window.spoon.reset(path, to, how)
+                  const saved = [
+                    res.stashed && `Your uncommitted changes were saved as the stash “Before resetting to ${to.slice(0, 7)}” (Stashes in the sidebar): apply it to get them back.`,
+                    res.trashed > 0 && `${res.trashed} untracked or ignored ${res.trashed === 1 ? 'file the commit has was' : 'files the commit has were'} copied to the Trash before being replaced.`
+                  ].filter(Boolean)
+                  // Commits left the branch: the way back is the commit it was on, so say which, and offer it.
+                  if (to === c.hash && plan.leaves) {
+                    const undo = await choose({
+                      title: `${name} was reset to ${to.slice(0, 7)}`,
+                      detail: [`It was on ${res.from.slice(0, 7)} before; ${plan.leaves === 1 ? 'that commit is' : `those ${plan.leaves} commits are`} no longer on ${name}. Undo moves it back there.`, ...saved].join('\n\n'),
+                      cancelId: 'ok',
+                      buttons: [
+                        { id: 'copy', label: 'Copy Old Hash' },
+                        { id: 'undo', label: 'Undo Reset' },
+                        { id: 'ok', label: 'OK', kind: 'primary' }
+                      ]
+                    })
+                    if (undo === 'copy') void navigator.clipboard.writeText(res.from)
+                    if (undo === 'undo') void resetNow(res.from, how, `Moving ${name} back to ${res.from.slice(0, 7)}…`)
+                  } else if (saved.length)
+                    void choose({ title: 'Nothing was lost', detail: saved.join('\n\n'), cancelId: 'ok', buttons: [{ id: 'ok', label: 'OK', kind: 'primary' }] })
+                },
+                'Reset failed'
+              )
+            void resetNow(c.hash, mode, `Resetting ${name} to ${c.hash.slice(0, 7)} (${mode})…`)
+          }}
+        />
+      )}
       {buildFor && repo && <BuildDialog key={buildFor.via} path={path} repo={repo} branch={buildFor.ref} via={buildFor.via} onVia={(via) => setBuildFor({ ...buildFor, via })} onOpenSettings={onOpenSettings} onClose={() => setBuildFor(null)} />}
       {tagging && repo && <TagDialog path={path} repo={repo} commit={tagging} commits={commits} ops={ops} github={canCreatePull} onClose={() => setTagging(null)} />}
       {reviewing && repo && (

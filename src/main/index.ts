@@ -423,7 +423,7 @@ function registerIpc(): void {
   handleRepo('repo:compareCandidates', (_e, path: string, file: string) => git.compareCandidates(path, String(file)))
   handleRepo('repo:projectFiles', (_e, path: string) => git.projectFiles(path))
   ipcMain.handle('compare:repos', (_e, a: string, b: string) => git.compareRepos(String(a), String(b)))
-  ipcMain.handle('compare:apply', (_e, from: string, to: string) => git.applyCompare(String(from), String(to)))
+  ipcMain.handle('compare:apply', (_e, from: string, to: string) => git.applyCompare(String(from), String(to), (p) => shell.trashItem(p)))
   ipcMain.handle('jenkins:account', () => jenkins.account())
   ipcMain.handle('jenkins:connect', (_e, server: string, user: string, token: string) => jenkins.connect(String(server), String(user), String(token)))
   ipcMain.handle('jenkins:disconnect', () => jenkins.disconnect())
@@ -437,6 +437,10 @@ function registerIpc(): void {
   ipcMain.handle('jenkins:openTokenPage', (_e, server: string) => jenkins.openTokenPage(String(server)))
   handleRepo('repo:merge', (_e, path: string, from: string, noFastForward: boolean) => git.merge(path, from, !!noFastForward))
   handleRepo('repo:mergeContinue', (_e, path: string, action: 'continue' | 'abort') => git.mergeContinue(path, action))
+  handleRepo('repo:cherryPick', (_e, path: string, hash: string) => git.cherryPick(path, String(hash)))
+  handleRepo('repo:cherryPickContinue', (_e, path: string, action: 'continue' | 'abort') => git.cherryPickContinue(path, action))
+  handleRepo('repo:resetPlan', (_e, path: string, hash: string) => git.resetPlan(path, String(hash)))
+  handleRepo('repo:reset', (_e, path: string, hash: string, mode: 'soft' | 'mixed' | 'hard') => git.reset(path, String(hash), mode, (p) => shell.trashItem(p)))
   ipcMain.handle('ide:schemes', () => ide.detect())
   ipcMain.handle('ide:import', async () => {
     const res = await dialog.showOpenDialog(win!, {

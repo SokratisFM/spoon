@@ -4,6 +4,16 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.58.1 — 2026-11-18
+
+- **New:** Cherry-pick (right-click a commit → Cherry-pick onto your branch, with a cherry 🍒): copies that commit's changes onto the checked-out branch as a new commit. If they conflict, a banner lets you resolve them and Commit Cherry-pick, or Abort to put everything back; right-click a conflicted file to keep your branch's version or the picked commit's. A commit whose changes the branch already has is skipped with a note. Merge commits are picked as against their first parent.
+- **New:** Reset to Here (right-click a commit): moves the checked-out branch to that commit, choosing **Soft** (keep every change, staged), **Mixed** (keep them, unstaged) or **Hard** (the files become that commit). The dialog says how many commits leave the branch and whether pushing again will need Force Push. Before a hard reset, your uncommitted changes are saved in a stash, and untracked or ignored files the commit would replace are copied to the Trash, so nothing is lost. When commits leave the branch, Spoon shows the commit it was on afterwards, with Undo Reset.
+- **Fixed:** Compare's Apply could overwrite a file with nothing to go back to: an ignored or untracked file, or uncommitted edits to a tracked one. Now those are copied to the Trash first, a link is refused instead of written through to the file it points to, and Apply only writes into repositories open in Spoon.
+- **Fixed:** Export edits to a Podfile or Gradle dependency file are never brought back by themselves (build steps such as External Dependency Manager rewrite them); they wait for you, marked "dependencies". And a native file a build step patches minutes after Unity copied it is no longer taken for your edit: the export counts as finished when Unity last wrote the Xcode project or the Gradle files.
+- **Fixed:** Keeping one side of a file that conflicted when a Pull put your changes back no longer stages it: your changes stay unstaged, as they were.
+- **Fixed:** New candidate in MainLibCore set the first "version" in package.json, which could be one nested inside another setting; now it's always the package's own.
+- **Fixed:** Downloading submodules several at a time no longer overrides your own submodule.fetchJobs setting.
+
 ## 0.57.1 — 2026-11-17
 
 - **Fixed:** When a Pull set your changes aside and they conflicted coming back (say, a file you changed was renamed upstream), the conflicted files showed no changes, couldn't be discarded, and the Pull didn't say anything. Now the Pull tells you, the diff shows the conflict markers with both sides, and Discard puts the file back to the pulled version.

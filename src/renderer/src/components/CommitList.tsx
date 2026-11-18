@@ -336,6 +336,19 @@ export const CommitList = memo(function CommitList({
           label: 'Checkout Commit (Detached)…',
           enabled: c.hash !== repo.headHash || !!repo.headBranch
         },
+        // Onto the checked-out branch: a copy of this commit's changes, or the branch moved here.
+        { separator: true },
+        ...(c.hash !== repo.headHash
+          ? [
+              {
+                id: 'cherry-pick',
+                label: `Cherry-pick onto ${repo.headBranch ?? 'HEAD'}…`,
+                icon: 'cherry' as const,
+                enabled: !repo.operation && !!repo.headHash
+              }
+            ]
+          : []),
+        { id: 'reset', label: `Reset ${repo.headBranch ?? 'HEAD'} to Here…`, enabled: !repo.operation && !!repo.headHash },
         // Rebase the checked-out branch onto a branch on this commit (never onto itself).
         ...(repo.headBranch && c.hash !== repo.headHash && branches.length
           ? [
@@ -445,6 +458,8 @@ export const CommitList = memo(function CommitList({
       if (!choice) return
       if (choice === 'review') return ops.review?.({ hash: c.hash, subject: c.subject })
       if (choice === 'tag') return ops.tag(c)
+      if (choice === 'cherry-pick') return ops.cherryPick(c)
+      if (choice === 'reset') return ops.reset(c)
       if (choice.startsWith('pr:')) return ops.createPull?.(choice.slice(3))
       if (choice.startsWith('open-pr:')) return ops.openPull(Number(choice.slice(8)))
       if (choice.startsWith('compare:') && repo.headBranch)

@@ -204,6 +204,8 @@ export interface RepoState {
   rebase: RebaseProgress | null
   /** While a merge is stopped on conflicts. */
   merge: MergeState | null
+  /** While a cherry-pick is stopped on conflicts. */
+  cherryPick: CherryPickState | null
   submodules: Submodule[]
   /** When this repo is itself a submodule: the parent repo's path. */
   superproject: string | null
@@ -366,6 +368,31 @@ export interface MergeState {
   subject: string
   /** Uncommitted changes were set aside for the merge; they come back when it's committed or aborted. */
   autostash: boolean
+}
+
+export interface CherryPickState {
+  hash: string
+  /** The picked commit's message, first line. */
+  subject: string
+}
+
+/** done: the pick was committed (or skipped as empty). Otherwise it stopped on conflicts. */
+export interface CherryPickResult {
+  done: boolean
+  /** The branch already had those changes: nothing was committed. */
+  empty?: boolean
+}
+
+/** What resetting the checked-out branch to a commit would do. */
+export interface ResetPlan {
+  /** Commits after it that the branch no longer has. */
+  leaves: number
+  /** Commits the branch gains (resetting forward, or onto another line). */
+  gains: number
+  /** There are uncommitted changes to tracked files. */
+  dirty: boolean
+  /** Untracked or ignored files the commit has: a hard reset replaces them (copied to the Trash first). */
+  overwrites: number
 }
 
 /** done: the merge finished. Otherwise it stopped on conflicts and is still in progress. */
@@ -665,7 +692,7 @@ export interface MenuItem {
   /** Shortcut shown beside the item (display only; the app menu owns the real shortcut). */
   accelerator?: string
   /** The service the item goes to, drawn on its left. */
-  icon?: 'jira' | 'github' | 'claude' | 'slack' | 'jenkins' | 'reveal'
+  icon?: 'jira' | 'github' | 'claude' | 'slack' | 'jenkins' | 'reveal' | 'cherry'
   /** A row of color swatches instead of a label: picking one answers its id (a null color is "none"). */
   swatches?: { id: string; color: string | null; label: string; checked?: boolean }[]
 }
@@ -948,6 +975,10 @@ export interface SpoonApi {
   /** Merges a ref into the checked-out branch. */
   merge(path: string, from: string, noFastForward: boolean): Promise<MergeResult>
   mergeContinue(path: string, action: 'continue' | 'abort'): Promise<MergeResult>
+  cherryPick(path: string, hash: string): Promise<CherryPickResult>
+  cherryPickContinue(path: string, action: 'continue' | 'abort'): Promise<CherryPickResult>
+  resetPlan(path: string, hash: string): Promise<ResetPlan>
+  reset(path: string, hash: string, mode: 'soft' | 'mixed' | 'hard'): Promise<{ stashed: boolean; from: string; trashed: number }>
   /** Ends the running fetch/pull/push/submodule update in this repo; it then fails with "Cancelled.". */
   cancel(path: string): Promise<void>
   /** Progress lines from the running fetch/pull/push of a repo. */

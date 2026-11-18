@@ -328,6 +328,29 @@ function burstEnd(saves: number[]): number | null {
   while (++i < sorted.length && sorted[i] - end <= BURST_GAP) end = sorted[i]
   return end
 }
+/** How long after the copies Unity's build steps may still be writing the export (IL2CPP, post-processors). */
+const BUILD_TAIL = 15 * 60_000
+
+/**
+ * When the export run really ended: post-processors run after the copies (minutes later after IL2CPP)
+ * and may patch a copy then. The files they write last (the Xcode project, Info.plist, the Gradle
+ * files and manifests) tell when, if saved within BUILD_TAIL of the copies; a later save is you
+ * (Xcode saving its project, pod install), not the build.
+ */
+async function exportEnd(root: string, dir: string, platform: ExportPlatform, burst: number): Promise<number> {
+  const abs = join(root, dir)
+  const markers =
+    platform === 'ios'
+      ? ['Info.plist', ...(await readdir(abs).catch(() => [] as string[])).filter((n) => n.endsWith('.xcodeproj')).map((n) => `${n}/project.pbxproj`)]
+      : ['build.gradle', 'settings.gradle', 'gradle.properties', 'unityLibrary/build.gradle', 'launcher/build.gradle', 'unityLibrary/src/main/AndroidManifest.xml', 'launcher/src/main/AndroidManifest.xml']
+  let end = burst
+  for (const m of markers) {
+    const t = (await stat(join(abs, m)).catch(() => null))?.mtimeMs
+    if (t !== undefined && t > end && t <= burst + BUILD_TAIL) end = t
+  }
+  return end
+}
+
 /** The longest pause between two of Unity's saves within one export. */
 const BURST_GAP = 10_000
 /** Edits: a copy saved this soon after the burst may still be Unity's (a build step finishing). */
@@ -444,7 +467,9 @@ export async function scanExports(root: string, dirs: string[]): Promise<ExportL
     }
     // Copies still as Unity's export run wrote them weren't edited, whatever their save time says.
     const copies = found.filter((l) => l.state !== 'linked' && l.state !== 'dangling')
-    const run = burstEnd(copies.map((l) => l.exportMtime))
+    // Dependency lists keep their source's save time when copied: no help in telling when Unity wrote.
+    const burst = burstEnd(copies.filter((l) => !l.deps).map((l) => l.exportMtime))
+    const run = burst === null ? null : await exportEnd(root, dir, platform, burst)
     for (const l of copies) if (run !== null) l.inRun = l.exportMtime <= run + EDIT_SLACK
     links.push(...found)
   }
