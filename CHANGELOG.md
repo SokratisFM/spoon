@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.59.0 — 2026-11-18
+
+- **New:** Resolve conflicts in Spoon. Click a conflicted file (marked !) in Local Changes, after a merge, rebase, cherry-pick or a Pull whose changes didn't go back cleanly: each conflict shows both versions side by side. Use one, both (either one first), or edit the text yourself; All Left / All Right settle every conflict at once. **Save and Mark Resolved** writes the file and marks it resolved, then Continue or Commit as usual. Every line keeps its own line ending, so a file with mixed endings only changes where you chose. Diff switches back to the plain diff; a binary file, or one where a line of ======= in the text makes the sides ambiguous, offers keeping one side whole or the editor. A file whose text really contains marker-like lines can still be marked resolved.
+- **New:** ⌥-click Push (Alt-click on Windows) to open the Push dialog with Force push already ticked.
+
 ## 0.58.1 — 2026-11-18
 
 - **New:** Cherry-pick (right-click a commit → Cherry-pick onto your branch, with a cherry 🍒): copies that commit's changes onto the checked-out branch as a new commit. If they conflict, a banner lets you resolve them and Commit Cherry-pick, or Abort to put everything back; right-click a conflicted file to keep your branch's version or the picked commit's. A commit whose changes the branch already has is skipped with a note. Merge commits are picked as against their first parent.

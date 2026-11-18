@@ -12,6 +12,7 @@ import { requestFileHistory, SELECTED_FILE_HISTORY } from './FileHistoryDialog'
 import { DragIcon, ListViewIcon, TreeViewIcon } from './Icons'
 import { updateSettings, useSettings } from '../settings'
 import { DiffView, type HunkAction } from './DiffView'
+import { ConflictResolver } from './ConflictResolver'
 import { keys, mod, revealLabel } from '../platform'
 import { contextMenu as showMenu } from '../menus'
 
@@ -212,6 +213,19 @@ export function ChangesView({
       : conflictKind === 'merge'
         ? { ours: 'Your Branch’s Version', theirs: incoming ? `${incoming}’s Version` : 'the Incoming Version' }
         : { ours: 'the Pulled Version', theirs: 'Your Changes' }
+  const keepSide = async (conflicted: string[], choice: 'ours' | 'theirs'): Promise<void> => {
+    const what = conflicted.length === 1 ? conflicted[0] : `${conflicted.length} files`
+    const ok = await confirm({
+      message: `Keep ${choice === 'ours' ? sides.ours : sides.theirs} of ${what}?`,
+      detail: `The other side’s changes to ${conflicted.length === 1 ? 'it' : 'them'} are dropped, and the conflict is marked resolved${conflictKind === 'stash' ? ' (left unstaged, as your changes were). Your changes stay in the stash either way, until you drop it.' : ' (staged).'}`,
+      confirmLabel: 'Keep',
+      enterConfirms: true
+    })
+    if (ok) ops.run('Resolving…', () => window.spoon.resolveConflict(path, conflicted, choice), 'Couldn’t resolve the conflict')
+  }
+  // A conflicted file shows the resolver; "Diff" switches that file to the plain diff.
+  const [diffFor, setDiffFor] = useState<string | null>(null)
+
   const contextMenu = (area: Area) => async (files: FileChange[]) => {
     const n = files.length === 1 ? '' : ` ${files.length} files`
     const one = files.length === 1 ? files[0] : null
@@ -241,17 +255,7 @@ export function ChangesView({
     else if (choice === 'history' && one) requestFileHistory({ repo: path, file: one.path })
     else if (choice === 'toggle') (area === 'unstaged' ? stage : unstage)(files)
     else if (choice === 'discard') discard(files, area)
-    else if (choice === 'ours' || choice === 'theirs') {
-      const conflicted = files.filter((f) => f.status === 'U')
-      const what = conflicted.length === 1 ? conflicted[0].path : `${conflicted.length} files`
-      const ok = await confirm({
-        message: `Keep ${choice === 'ours' ? sides.ours : sides.theirs} of ${what}?`,
-        detail: `The other side’s changes to ${conflicted.length === 1 ? 'it' : 'them'} are dropped, and the conflict is marked resolved (staged).${conflictKind === 'stash' ? ' Your changes stay in the stash either way, until you drop it.' : ''}`,
-        confirmLabel: 'Keep',
-        enterConfirms: true
-      })
-      if (ok) ops.run('Resolving…', () => window.spoon.resolveConflict(path, conflicted.map((f) => f.path), choice), 'Couldn’t resolve the conflict')
-    }
+    else if (choice === 'ours' || choice === 'theirs') keepSide(files.filter((f) => f.status === 'U').map((f) => f.path), choice)
     else if (choice === 'compare') {
       const other = await window.spoon.pickFile(`Compare ${files[0].path} with…`)
       if (other) requestCompare(other, `${path}/${files[0].path}`)
@@ -405,7 +409,27 @@ export function ChangesView({
           onCommitHandled={onCommitHandled}
         />
       </div>
-      <DiffView path={path} target={target} nonce={refreshN} hunkAction={hunkAction} />
+      {focusedFile?.status === 'U' && sel?.area === 'unstaged' && diffFor !== focusedFile.path ? (
+        <ConflictResolver
+          key={focusedFile.path}
+          path={path}
+          file={focusedFile.path}
+          sides={sides}
+          nonce={refreshN}
+          onShowDiff={() => setDiffFor(focusedFile.path)}
+          onKeepSide={(side) => keepSide([focusedFile.path], side)}
+          run={ops.run}
+        />
+      ) : (
+        <div className="diff-with-switch">
+          {focusedFile?.status === 'U' && sel?.area === 'unstaged' && (
+            <button className="btn small resolver-back" onClick={() => setDiffFor(null)}>
+              Resolve Conflicts…
+            </button>
+          )}
+          <DiffView path={path} target={target} nonce={refreshN} hunkAction={hunkAction} />
+        </div>
+      )}
     </Split>
   )
 }

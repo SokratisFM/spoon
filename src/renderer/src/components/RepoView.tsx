@@ -69,7 +69,7 @@ import { MainLibDialog } from './MainLibDialog'
 import { CreatePullDialog } from './CreatePullDialog'
 import { ReviewDialog } from './ReviewDialog'
 import { ClaudeIcon, CloseIcon, FetchIcon, JiraIcon, PullIcon, PullRequestIcon, PushIcon, SearchIcon } from './Icons'
-import { keys } from '../platform'
+import { isMac, keys } from '../platform'
 
 const PullRequestIconLarge = () => <PullRequestIcon className="icon big-icon" />
 
@@ -151,6 +151,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
   )
   const setOpError = useCallback((error: { title: string; message: string } | null) => setOpState(path, { error }), [path])
   const [dialog, setDialog] = useState<'pull' | 'push' | null>(null)
+  // Push was clicked with ⌥: the dialog opens with Force push ticked.
+  const [pushForce, setPushForce] = useState(false)
   // A checkout that local changes are in the way of: offers to discard them.
   const blocked = ops$.blocked ?? null
   const setBlocked = useCallback((b: OpState['blocked']) => setOpState(path, { blocked: b }), [path])
@@ -980,12 +982,15 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
             kind="push"
             label="Push"
             shortcut={keys('⇧⌘P')}
-            title={`Push (${keys('⇧⌘P')})`}
+            title={`Push (${keys('⇧⌘P')}) · ${isMac ? '⌥' : 'Alt'}-click to force push`}
             Icon={PushIcon}
             net={net}
             badge={head?.ahead}
             disabled={networkBusy}
-            onClick={() => setDialog('push')}
+            onClick={(e) => {
+              setPushForce(e.altKey)
+              setDialog('push')
+            }}
           />
           {settings.claudeEnabled && (
             <button
@@ -1194,7 +1199,11 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
         <PushDialog
           path={path}
           remoteOnly={remoteOnly}
-          onClose={() => setDialog(null)}
+          force={pushForce}
+          onClose={() => {
+            setDialog(null)
+            setPushForce(false)
+          }}
           onPush={(opts) => netOp('push', 'Pushing…', () => window.spoon.push(path, opts), 'Push failed')}
         />
       )}

@@ -947,6 +947,7 @@ export interface SpoonApi {
   pull(path: string, opts: PullOptions): Promise<{ stashNote?: string }>
   /** Resolves conflicted files by taking one side whole (ours: HEAD; theirs: the other side), staged as resolved. */
   resolveConflict(path: string, paths: string[], side: 'ours' | 'theirs'): Promise<void>
+  markResolved(path: string, paths: string[], force?: boolean): Promise<void>
   push(path: string, opts: PushOptions): Promise<void>
   rebasePlan(path: string, onto: string): Promise<RebasePlan>
   /** Plain rebase of the current branch onto a ref. */

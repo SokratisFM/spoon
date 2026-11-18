@@ -478,6 +478,9 @@ function registerIpc(): void {
   handleRepo('repo:cancelSubmoduleDownload', (_e, path: string) => git.cancelSubmoduleDownload(path))
   ipcMain.handle('repo:fetchQuietly', (_e, path: string) => git.fetchQuietly(path))
   ipcMain.handle('repo:pull', (e, path: string, opts: PullOptions) => git.pull(path, opts, progress(e, path)))
+  handleRepo('repo:markResolved', (_e, path: string, paths: string[], force?: boolean) =>
+    git.markResolved(path, Array.isArray(paths) ? paths.map(String) : [], force === true)
+  )
   handleRepo('repo:resolveConflict', (_e, path: string, paths: string[], side: 'ours' | 'theirs') =>
     git.resolveConflict(path, Array.isArray(paths) ? paths.map(String) : [], side)
   )

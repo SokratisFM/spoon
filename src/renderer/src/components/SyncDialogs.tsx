@@ -74,15 +74,18 @@ interface PushProps {
   remoteOnly: (remoteBranch: string) => Commit[]
   onClose: () => void
   onPush: (opts: PushOptions) => void
+  /** Opened with ⌥ held on Push: Force push starts ticked. */
+  force?: boolean
 }
 
-export function PushDialog({ path, remoteOnly, onClose, onPush }: PushProps) {
+export function PushDialog({ path, remoteOnly, onClose, onPush, force: forceAtStart = false }: PushProps) {
   const { data: info, error } = useAsync(() => window.spoon.syncInfo(path), [path])
   const [remote, setRemote] = useState<string | null>(null)
   const [remoteBranch, setRemoteBranch] = useState<string | null>(null)
   const [tags, setTags] = useState(false)
-  // Never on by default: the remote also gets ahead when a teammate pushes, not only after a rebase.
-  const [force, setForce] = useState(false)
+  // Never on by default (only when asked for with ⌥): the remote also gets ahead when a teammate
+  // pushes, not only after a rebase.
+  const [force, setForce] = useState(forceAtStart)
 
   // Defaults: the branch's upstream if it has one, otherwise origin (or the first remote) with the same name.
   const effRemote = remote ?? info?.upstreamRemote ?? (info?.remotes.includes('origin') ? 'origin' : info?.remotes[0]) ?? ''

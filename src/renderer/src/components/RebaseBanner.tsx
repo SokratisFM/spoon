@@ -14,7 +14,7 @@ export function RebaseBanner({ progress: p, conflicts, busy, onShowChanges, onAc
   const step = p.total ? ` (${p.step}/${p.total})` : ''
   const subject = p.stoppedSubject ? `“${p.stoppedSubject}”` : 'this commit'
   const text = conflicts
-    ? `Applying ${subject} hit conflicts in ${conflicts} ${conflicts === 1 ? 'file' : 'files'}. Resolve them, stage the files, then continue.`
+    ? `Applying ${subject} hit conflicts in ${conflicts} ${conflicts === 1 ? 'file' : 'files'}. Resolve each in Local Changes (pick a side per conflict, then Save and Mark Resolved), then continue.`
     : p.stoppedAction === 'edit'
       ? `Stopped to edit ${subject}. Change files and amend the commit in Local Changes, then continue.`
       : `Stopped at ${subject}. Stage the resolved files, then continue.`

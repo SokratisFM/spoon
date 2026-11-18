@@ -54,6 +54,7 @@ const api: SpoonApi = {
   fastForwardBranches: (path, names) => ipcRenderer.invoke('repo:fastForwardBranches', path, names),
   pull: (path, opts) => ipcRenderer.invoke('repo:pull', path, opts),
   resolveConflict: (path, paths, side) => ipcRenderer.invoke('repo:resolveConflict', path, paths, side),
+  markResolved: (path, paths, force) => ipcRenderer.invoke('repo:markResolved', path, paths, force),
   push: (path, opts) => ipcRenderer.invoke('repo:push', path, opts),
   rebasePlan: (path, onto) => ipcRenderer.invoke('repo:rebasePlan', path, onto),
   rebase: (path, onto) => ipcRenderer.invoke('repo:rebase', path, onto),

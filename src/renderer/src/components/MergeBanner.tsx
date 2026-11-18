@@ -16,7 +16,7 @@ export function MergeBanner({ kind = 'merge', subject, autostash, conflicts, bus
   const pick = kind === 'cherry-pick'
   const what = pick ? 'cherry-pick' : 'merge'
   const text = conflicts
-    ? `Conflicts in ${conflicts} ${conflicts === 1 ? 'file' : 'files'}. Resolve them and stage the files, then commit the ${what}.`
+    ? `Conflicts in ${conflicts} ${conflicts === 1 ? 'file' : 'files'}. Resolve each in Local Changes (pick a side per conflict, then Save and Mark Resolved), then commit the ${what}.`
     : `Every conflict is resolved. Commit the ${what} to finish it.`
   return (
     <div className={`banner rebase-banner ${conflicts ? 'conflict' : ''}`}>

@@ -2411,11 +2411,7 @@ export async function resolveConflict(cwd: string, paths: string[], side: 'ours'
   for (const p of paths) assertArg(p, 'path')
   await exclusive(cwd, async () => {
     const stage = side === 'ours' ? 2 : 3
-    // No merge, rebase or pick going on: the conflict came from a stash going back (a pull's
-    // autostash). Your changes were unstaged before, so they're left unstaged once resolved.
-    const gitDir = await gitDirOf(cwd)
-    const fromStash =
-      !['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply'].some((f) => existsSync(join(gitDir, f))) && (await hasHead(cwd))
+    const fromStash = await conflictFromStash(cwd)
     for (const p of paths) {
       repoFile(cwd, p)
       const stages = await git(cwd, ['ls-files', '-u', '-z', '--', p]).catch(() => '')
@@ -2426,6 +2422,39 @@ export async function resolveConflict(cwd: string, paths: string[], side: 'ours'
         await git(cwd, ['add', '--', p])
       } else await git(cwd, ['rm', '-q', '--', p]) // that side deleted it
       if (fromStash) await git(cwd, ['restore', '--staged', '--', p]).catch(() => undefined) // not in HEAD nor staged: nothing to unstage
+    }
+  })
+}
+
+/**
+ * No merge, rebase or pick going on: a conflict came from a stash going back (a pull's autostash).
+ * Your changes were unstaged before, so they're left unstaged once resolved.
+ */
+async function conflictFromStash(cwd: string): Promise<boolean> {
+  const gitDir = await gitDirOf(cwd)
+  return !['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply'].some((f) => existsSync(join(gitDir, f))) && (await hasHead(cwd))
+}
+
+/**
+ * Marks conflicted files resolved as they are now on disk (after resolving them in Spoon or by hand):
+ * staged, or left unstaged when the conflict came from a stash. Refused while one still has markers.
+ */
+export async function markResolved(cwd: string, paths: string[], force = false): Promise<void> {
+  for (const p of paths) assertArg(p, 'path')
+  await exclusive(cwd, async () => {
+    const fromStash = await conflictFromStash(cwd)
+    for (const p of paths) {
+      const abs = repoFile(cwd, p)
+      // Checked only in text of a size worth reading (a big or binary file is yours to judge), and
+      // skipped when you said the marker-like lines belong there.
+      const info = await stat(abs).catch(() => null)
+      if (!force && info?.isFile() && info.size <= MAX_EDIT_BYTES) {
+        const data = await readFile(abs)
+        if (!data.subarray(0, 8000).includes(0) && /^(<{7}|>{7})( |\r?$)/m.test(data.toString('utf8')))
+          throw new Error(`${p} still has conflict markers.`)
+      }
+      await git(cwd, ['add', '-A', '--', p])
+      if (fromStash) await git(cwd, ['restore', '--staged', '--', p]).catch(() => undefined)
     }
   })
 }

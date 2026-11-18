@@ -81,7 +81,7 @@ interface Props {
   /** Waiting commits (behind/ahead) shown as the usual badge. */
   badge?: number
   disabled: boolean
-  onClick: () => void
+  onClick: (e: React.MouseEvent) => void
 }
 
 export function NetButton({ kind, label, shortcut, title, Icon, net, badge, disabled, onClick }: Props) {
