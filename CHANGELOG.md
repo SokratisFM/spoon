@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.59.1 — 2026-11-19
+
+- **Fixed:** Discard on a submodule whose commit changed (Assets/MainLib, say) did nothing. Now it moves the submodule back to the commit this repository records, unstaging a staged one first; its branches stay. If commits inside would end up on no branch, or it has uncommitted changes, the submodule update dialog explains what happens and offers a backup branch first. A submodule with only changes inside it says to open it to discard them.
+
 ## 0.59.0 — 2026-11-18
 
 - **New:** Resolve conflicts in Spoon. Click a conflicted file (marked !) in Local Changes, after a merge, rebase, cherry-pick or a Pull whose changes didn't go back cleanly: each conflict shows both versions side by side. Use one, both (either one first), or edit the text yourself; All Left / All Right settle every conflict at once. **Save and Mark Resolved** writes the file and marks it resolved, then Continue or Commit as usual. Every line keeps its own line ending, so a file with mixed endings only changes where you chose. Diff switches back to the plain diff; a binary file, or one where a line of ======= in the text makes the sides ambiguous, offers keeping one side whole or the editor. A file whose text really contains marker-like lines can still be marked resolved.

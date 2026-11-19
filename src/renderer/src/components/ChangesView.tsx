@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { DiffTarget, FileChange, WorkingTree } from '../../../shared/types'
+import type { DiffTarget, FileChange, Submodule, SubmoduleUpdatePreview, WorkingTree } from '../../../shared/types'
 import { usePersistentState } from '../hooks'
-import { confirm } from '../dialogs'
+import { choose, confirm } from '../dialogs'
 import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FILES_DRAG, FILES_ORIGIN, FileList } from './FileList'
@@ -42,6 +42,10 @@ interface Props {
   conflictKind: 'merge' | 'rebase' | 'cherry-pick' | 'stash'
   /** The merge commit's message (names the branch coming in), while a merge is stopped. */
   mergingFrom: string | null
+  /** This repository's submodules: discarding one's change moves it back to the commit recorded here. */
+  submodules: Submodule[]
+  /** Opens the submodule update dialog (commits that would end up on no branch, or changes inside it). */
+  onAskSubmodule: (s: Submodule) => void
 }
 
 /** Paths git needs for a set of entries: renames are staged/unstaged as old + new path. */
@@ -58,7 +62,9 @@ export function ChangesView({
   discardRequest,
   onDiscardHandled,
   conflictKind,
-  mergingFrom
+  mergingFrom,
+  submodules,
+  onAskSubmodule
 }: Props) {
   const settings = useSettings()
   const exportMarks = useExportMarks(path)
@@ -149,8 +155,13 @@ export function ChangesView({
     sel?.area === area ? tree[area].filter((f) => sel.paths.has(f.path)) : []
 
   const discard = async (files: FileChange[], area: Area): Promise<void> => {
-    const usable = files
-    const name = usable.length === 1 ? usable[0].path : `${usable.length} files`
+    // A submodule's pointer change: the submodule goes back to the commit this repository records
+    // (git restore leaves a submodule's folder as it is). An added or deleted one is a plain entry.
+    const subOf = (f: FileChange): Submodule | undefined =>
+      f.status === 'M' || f.status === 'T' ? submodules.find((s) => s.path === f.path) : undefined
+    const subs = files.map(subOf).filter((s): s is Submodule => !!s)
+    const usable = files.filter((f) => !subOf(f))
+    const name = files.length === 1 ? files[0].path : `${files.length} ${subs.length === files.length ? 'submodules' : 'files'}`
     const repoName = path.split('/').pop() ?? 'repo'
     const ok = await confirm({
       message: `Discard changes to ${name}?`,
@@ -159,7 +170,10 @@ export function ChangesView({
           ? 'The staged changes are undone. Unstaged edits to the same files stay, unless they overlap.'
           : 'Unstaged changes are thrown away; anything already staged stays. New files are deleted.',
         `Your current versions go to the Trash (in a “${repoName} – discarded …” folder), so you can get them back.`,
-        files.some((f) => f.status === 'U') ? 'A file with conflicts goes back to how it was in the last commit, and its conflict is gone.' : ''
+        files.some((f) => f.status === 'U') ? 'A file with conflicts goes back to how it was in the last commit, and its conflict is gone.' : '',
+        subs.length
+          ? `${subs.length === 1 ? `Submodule ${subs[0].name} goes` : `${subs.length} submodules go`} back to the commit this repository records${area === 'staged' ? ' in its last commit' : ''}. Their branches stay; if commits would end up on no branch, or there are uncommitted changes inside, Spoon shows what happens first.`
+          : ''
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -168,11 +182,43 @@ export function ChangesView({
       enterConfirms: true
     })
     if (!ok) return
-    ops.run(
-      'Discarding…',
-      () => window.spoon.discard(path, usable.map((f) => ({ path: f.path, oldPath: f.oldPath, status: f.status, staged: area === 'staged' }))),
-      'Discard failed'
-    )
+    if (usable.length)
+      await ops.run(
+        'Discarding…',
+        () => window.spoon.discard(path, usable.map((f) => ({ path: f.path, oldPath: f.oldPath, status: f.status, staged: area === 'staged' }))),
+        'Discard failed'
+      )
+    for (const s of subs) await discardSubmodule(s, area)
+  }
+
+  const discardSubmodule = async (s: Submodule, area: Area): Promise<void> => {
+    // A staged pointer goes back to the last commit's first, so that's the commit it returns to.
+    if (area === 'staged' && !(await ops.run(`Unstaging ${s.name}…`, () => window.spoon.unstage(path, [s.path]), 'Discard failed'))) return
+    let preview: SubmoduleUpdatePreview
+    try {
+      preview = await window.spoon.submoduleUpdatePreview(path, s.path)
+    } catch (err) {
+      return void choose({
+        title: `Couldn’t discard ${s.name}`,
+        detail: err instanceof Error ? err.message : String(err),
+        cancelId: 'ok',
+        buttons: [{ id: 'ok', label: 'OK', kind: 'primary' }]
+      })
+    }
+    if (preview.head === preview.recorded) {
+      // Already there: what's left is changes inside it, which are that repository's to discard.
+      if (preview.dirtyFiles)
+        await choose({
+          title: `${s.name} has uncommitted changes inside`,
+          detail: `It’s at the commit this repository records, but ${preview.dirtyFiles} ${preview.dirtyFiles === 1 ? 'file' : 'files'} inside it changed. Open ${s.name} (Submodules in the sidebar) to see and discard them.`,
+          cancelId: 'ok',
+          buttons: [{ id: 'ok', label: 'OK', kind: 'primary' }]
+        })
+      return
+    }
+    // Commits that would be left on no branch, or changes inside: the update dialog explains and offers a backup branch.
+    if (preview.orphaned.length || preview.dirtyFiles) return onAskSubmodule({ ...s, recorded: preview.recorded })
+    await ops.run(`Moving ${s.name} back to ${preview.recorded.slice(0, 7)}…`, () => window.spoon.updateSubmodule(path, s.path), 'Discard failed')
   }
 
   // ⌘E: the focused file in the popup (not a deleted one: there's nothing to open).

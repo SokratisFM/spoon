@@ -1143,6 +1143,8 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
             onDiscardHandled={clearDiscardRequest}
             conflictKind={repo?.rebase ? 'rebase' : repo?.cherryPick ? 'cherry-pick' : repo?.merge || repo?.operation ? 'merge' : 'stash'}
             mergingFrom={repo?.merge?.subject ?? null}
+            submodules={repo?.submodules ?? []}
+            onAskSubmodule={setSubUpdate}
           />
         ) : (
           <Split id="history" direction="column" mode="fraction" initial={0.55} min={0.15} max={0.85}>
