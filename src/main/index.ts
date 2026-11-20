@@ -428,6 +428,9 @@ function registerIpc(): void {
     git.updateSubmodule(path, sub, backup)
   )
   ipcMain.handle('repo:submoduleUpdatePreview', (_e, path: string, sub: string) => git.submoduleUpdatePreview(path, sub))
+  ipcMain.handle('repo:deleteTag', (_e, path: string, name: string, remotes: string[]) =>
+    git.deleteTag(path, name, Array.isArray(remotes) ? remotes.map(String) : [])
+  )
   ipcMain.handle('repo:deleteRemoteBranch', (_e, path: string, remote: string, branch: string) =>
     git.deleteRemoteBranch(path, remote, branch)
   )

@@ -59,6 +59,7 @@ import { PullDialog, PushDialog } from './SyncDialogs'
 import { ParentChip, SubmoduleChip, SubmoduleDownloadStatus, clearSubmoduleDownload, startSubmoduleDownload, submoduleActions, triedSubmodules, useSubmoduleDownload } from './Submodules'
 import { NetButton, type NetKind, type NetState } from './NetButton'
 import { DeleteBranchDialog } from './DeleteBranchDialog'
+import { DeleteTagDialog } from './DeleteTagDialog'
 import { CheckoutBlockedDialog, overwrittenFiles } from './CheckoutBlockedDialog'
 import { RebaseEditor } from './RebaseEditor'
 import { RebaseBanner } from './RebaseBanner'
@@ -1233,7 +1234,18 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           onCarry={(files) => checkoutCarrying(blocked.target, blocked.description, files)}
         />
       )}
-      {deleting && repo && (
+      {deleting?.kind === 'tag' && repo && (
+        <DeleteTagDialog
+          tag={deleting}
+          repo={repo}
+          onClose={() => setDeleting(null)}
+          onDelete={(remotes) => {
+            const name = deleting.name
+            run(`Deleting tag ${name}…`, () => window.spoon.deleteTag(path, name, remotes), 'Couldn’t delete the tag')
+          }}
+        />
+      )}
+      {deleting?.kind === 'head' && repo && (
         <DeleteBranchDialog
           branch={deleting}
           repo={repo}

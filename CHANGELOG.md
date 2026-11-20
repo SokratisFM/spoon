@@ -4,6 +4,10 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.59.5 — 2026-11-20
+
+- **New:** Tags can be deleted: right-click a commit (next to Delete Branch) or a tag in the sidebar, and choose **Delete Tag…**. Tick a remote to delete it there too.
+
 ## 0.59.4 — 2026-11-20
 
 - **Improved:** Changes made outside Spoon (saving in your editor, Unity writing a file, git in a terminal) now show up right away, without switching back to Spoon first. Files git ignores, like Unity's Library folder, don't trigger a refresh.

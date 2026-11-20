@@ -30,6 +30,7 @@ interface Props {
   /** Commits that just arrived from a fetch/pull: they slide in and flash once. */
   fresh?: { hashes: Set<string>; n: number } | null
   /** Backspace/Delete on a commit that carries a local branch asks to delete that branch (on a stash, the stash). */
+  /** A local branch or a tag to delete (its dialog asks first). */
   onDeleteBranch: (ref: Ref) => void
   /** Squish branches: shows a squished group's commits again. */
   onExpand: (key: string) => void
@@ -410,10 +411,12 @@ export const CommitList = memo(function CommitList({
         // away first): a second menu to pick from would be closed by the click that opened it.
         ...(() => {
           const locals = repo.refs.filter((r) => r.kind === 'head' && r.target === c.hash)
-          return locals.length
+          const tags = repo.refs.filter((r) => r.kind === 'tag' && r.target === c.hash)
+          return locals.length || tags.length
             ? [
                 { separator: true },
-                ...locals.slice(0, 6).map((r) => ({ id: `delete:${r.fullName}`, label: locals.length === 1 ? 'Delete Branch…' : `Delete ${r.name}…` }))
+                ...locals.slice(0, 6).map((r) => ({ id: `delete:${r.fullName}`, label: locals.length === 1 ? 'Delete Branch…' : `Delete ${r.name}…` })),
+                ...tags.slice(0, 6).map((r) => ({ id: `delete:${r.fullName}`, label: `Delete Tag ${r.name}…` }))
               ]
             : []
         })(),

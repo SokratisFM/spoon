@@ -42,6 +42,7 @@ const api: SpoonApi = {
   fetch: (path, prune) => ipcRenderer.invoke('repo:fetch', path, prune),
   updateSubmodule: (path, sub, backup) => ipcRenderer.invoke('repo:updateSubmodule', path, sub, backup),
   submoduleUpdatePreview: (path, sub) => ipcRenderer.invoke('repo:submoduleUpdatePreview', path, sub),
+  deleteTag: (path, name, remotes) => ipcRenderer.invoke('repo:deleteTag', path, name, remotes),
   deleteRemoteBranch: (path, remote, branch) => ipcRenderer.invoke('repo:deleteRemoteBranch', path, remote, branch),
   deleteBranches: (path, names, force) => ipcRenderer.invoke('repo:deleteBranches', path, names, force),
   diffFile: (path, target) => ipcRenderer.invoke('repo:diffFile', path, target),

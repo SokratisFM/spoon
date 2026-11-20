@@ -2293,6 +2293,29 @@ export function createTag(cwd: string, opts: NewTagOptions): Promise<void> {
   })
 }
 
+/**
+ * Deletes a tag: first from these remotes (one that doesn't have it is fine), then here. When a
+ * remote refuses, the tag stays here, so trying again finds it.
+ */
+export function deleteTag(cwd: string, name: string, remotes: string[]): Promise<void> {
+  return exclusive(cwd, async () => {
+    assertArg(name, 'tag name')
+    const ref = `refs/tags/${name}`
+    await git(cwd, ['show-ref', '--verify', '--quiet', ref]).catch(() => {
+      throw new Error(`There’s no tag “${name}” here any more.`)
+    })
+    for (const remote of remotes) {
+      await assertRemote(cwd, remote)
+      try {
+        await run(cwd, ['push', remote, '--delete', ref], { cancellable: true })
+      } catch (err) {
+        if (!(err instanceof GitError && /remote ref does not exist/i.test(err.stderr))) throw err
+      }
+    }
+    await git(cwd, ['update-ref', '-d', ref])
+  })
+}
+
 export function deleteRemoteBranch(cwd: string, remote: string, branch: string): Promise<void> {
   return exclusive(cwd, async () => {
     await assertRemote(cwd, remote)

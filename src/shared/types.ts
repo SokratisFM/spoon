@@ -944,6 +944,8 @@ export interface SpoonApi {
   stashDrop(path: string, name: string, hash?: string): Promise<void>
   /** Moves branches that are only behind their upstream up to it. */
   fastForwardBranches(path: string, names: string[]): Promise<void>
+  /** Deletes a tag here, after deleting it from these remotes (where it isn't is fine). */
+  deleteTag(path: string, name: string, remotes: string[]): Promise<void>
   deleteRemoteBranch(path: string, remote: string, branch: string): Promise<void>
   /** stashNote: with autostash, your changes didn't go back cleanly (they're kept in the stash, conflicts marked). */
   pull(path: string, opts: PullOptions): Promise<{ stashNote?: string }>

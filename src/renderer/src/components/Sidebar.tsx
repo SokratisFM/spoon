@@ -44,6 +44,7 @@ interface Props {
   selectedPr: number | null
   onSelectPr: (n: number) => void
   /** Asks to delete a local branch (Backspace on a selected branch, or its menu). */
+  /** A local branch or a tag to delete (its dialog asks first). */
   onDeleteBranch: (ref: Ref) => void
   /** Opens another repository in a tab (a submodule or a package the Unity exports use). */
   onOpenRepo: (path: string) => void
@@ -139,7 +140,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       { id: 'copy', label: 'Copy Name' },
       ...ticketKeys(ref.name, jiraConfig(settings)).map((k) => ({ id: `jira:${k}`, label: `Open ${k} in Jira`, icon: 'jira' as const })),
       ...(pull ? [{ id: 'open-pr', label: `Open Pull Request #${pull.number}${pull.draft ? ' (Draft)' : ''}`, icon: 'github' as const }] : []),
-      ...(ref.kind === 'head' ? [{ separator: true }, { id: 'delete', label: `Delete ${ref.name}…` }] : [])
+      ...(ref.kind === 'head' || ref.kind === 'tag' ? [{ separator: true }, { id: 'delete', label: ref.kind === 'tag' ? `Delete Tag ${ref.name}…` : `Delete ${ref.name}…` }] : [])
     ])
     const jira = jiraConfig(settings)
     if (choice?.startsWith('jira:') && jira) window.spoon.openExternal(jiraUrl(jira, choice.slice(5)))
@@ -470,7 +471,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       onKeyDown={(e) => {
         if (e.key !== 'Backspace' && e.key !== 'Delete') return
         if ((e.target as HTMLElement).closest('input, textarea')) return
-        const ref = repo.refs.find((r) => r.fullName === picked && r.kind === 'head')
+        const ref = repo.refs.find((r) => r.fullName === picked && (r.kind === 'head' || r.kind === 'tag'))
         if (!ref) return
         e.preventDefault()
         onDeleteBranch(ref)
