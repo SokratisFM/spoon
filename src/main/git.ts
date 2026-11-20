@@ -100,6 +100,8 @@ interface RunOptions {
   maxBytes?: number
   /** Network commands: cancel(cwd) ends them; a path instead says whose Cancel (a submodule's fetch is the parent's). */
   cancellable?: boolean | string
+  /** Not listed in the Git Command History (background checks that run on every file save). */
+  quiet?: boolean
 }
 
 const CANCELLED = 'Cancelled.'
@@ -118,7 +120,7 @@ function exec(cwd: string, args: string[], opts: RunOptions = {}): Promise<{ out
       env: opts.env ? { ...env, ...opts.env } : env,
       detached: !!opts.cancellable && process.platform !== 'win32'
     })
-    const finish = history.recordStart(cwd, args)
+    const finish = opts.quiet ? () => undefined : history.recordStart(cwd, args)
     const out: Buffer[] = []
     let size = 0
     let truncated = false
@@ -210,6 +212,31 @@ export function cancel(cwd: string): void {
 // One write at a time per repository, whichever tab or window asked: two writers would collide on
 // index.lock (or worse, interleave a checkout with a commit).
 const locks = new Map<string, Promise<unknown>>()
+
+/** A write (checkout, commit, rebase…) is running in the repository. */
+export function busy(cwd: string): boolean {
+  return locks.has(repoKey(cwd))
+}
+
+/**
+ * Which of these paths (relative to the work tree) git ignores; a tracked file never is. Throws when
+ * git can't say (a path inside a submodule, say).
+ */
+export async function ignoredOf(cwd: string, paths: string[]): Promise<Set<string>> {
+  const out = await run(cwd, ['check-ignore', '-z', '--stdin'], {
+    okCodes: [0, 1],
+    input: paths.map((p) => p + '\0').join(''),
+    quiet: true,
+    // check-ignore refuses the literal setting; it reads each line as a path anyway (no globs).
+    env: { GIT_LITERAL_PATHSPECS: '0' }
+  })
+  return new Set(out.split('\0').filter(Boolean))
+}
+
+/** The repository's git folder, absolute (outside the work tree for a linked worktree or a submodule). */
+export async function gitDirOf(cwd: string): Promise<string> {
+  return (await run(cwd, ['rev-parse', '--absolute-git-dir'])).trim()
+}
 
 export function exclusive<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
   const key = repoKey(cwd)
@@ -2298,10 +2325,6 @@ function readRebaseProgress(gitDir: string): RebaseProgress | null {
     stoppedAction: m?.[1] ?? null,
     stoppedSubject: m?.[2] || null
   }
-}
-
-async function gitDirOf(cwd: string): Promise<string> {
-  return (await git(cwd, ['rev-parse', '--absolute-git-dir'])).trim()
 }
 
 /** Messages for reworded commits live in the git dir while the rebase runs (it can stop and resume). */

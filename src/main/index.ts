@@ -14,6 +14,7 @@ import * as atlassian from './atlassian'
 import * as jenkins from './jenkins'
 import * as ide from './ide'
 import * as unityExports from './exports'
+import { stopWatchingRepos, watchRepo } from './repoWatch'
 import * as thumbnails from './thumbnails'
 import { initStore } from './store'
 import { loadWindowState, trackWindowState } from './window-state'
@@ -330,6 +331,22 @@ function registerIpc(): void {
     }
     return unityExports.watchExports(owner, path, dirs, () => {
       if (!e.sender.isDestroyed()) e.sender.send('unity:exportsChanged', path)
+    })
+  })
+  // Live refresh of an open repository (Local Changes, branches) while Spoon isn't in front.
+  const repoWatchOwners = new Set<number>()
+  ipcMain.handle('repo:watch', (e, path: string, on: boolean) => {
+    if (on) git.assertRepoRoot(path)
+    const owner = e.sender.id
+    if (!repoWatchOwners.has(owner)) {
+      repoWatchOwners.add(owner)
+      e.sender.once('destroyed', () => {
+        repoWatchOwners.delete(owner)
+        stopWatchingRepos(owner)
+      })
+    }
+    return watchRepo(owner, path, !!on, () => {
+      if (!e.sender.isDestroyed()) e.sender.send('repo:filesChanged', path)
     })
   })
   handleRepo('unity:bringBack', (_e, path: string, items: unityExports.BringBackItem[]) => unityExports.bringBack(path, items))

@@ -279,6 +279,19 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
     return () => window.removeEventListener('spoon:repo-changed', on)
   }, [load, path])
 
+  // Files edited in another app (or git run in a terminal) show up without coming back to Spoon;
+  // not while the window is minimized or hidden, which refreshes when it comes back.
+  useEffect(() => {
+    void window.spoon.watchRepo(path, true).catch(() => undefined)
+    const off = window.spoon.onRepoFilesChanged((repo) => {
+      if (repo === path && !document.hidden) void load()
+    })
+    return () => {
+      off()
+      void window.spoon.watchRepo(path, false).catch(() => undefined)
+    }
+  }, [load, path])
+
   useEffect(() => {
     // Refocusing right after a refresh (e.g. closing a dialog) doesn't need another one.
     const onFocus = (): void => {

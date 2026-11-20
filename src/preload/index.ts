@@ -163,6 +163,12 @@ const api: SpoonApi = {
   forgetExportRuns: (path) => ipcRenderer.invoke('unity:forget', path),
   findExports: (path) => ipcRenderer.invoke('unity:findExports', path),
   scanExports: (path, dirs) => ipcRenderer.invoke('unity:scanExports', path, dirs),
+  watchRepo: (path, on) => ipcRenderer.invoke('repo:watch', path, on),
+  onRepoFilesChanged: (handler) => {
+    const listener = (_e: unknown, repo: string): void => handler(repo)
+    ipcRenderer.on('repo:filesChanged', listener)
+    return () => ipcRenderer.removeListener('repo:filesChanged', listener)
+  },
   watchExports: (path, dirs) => ipcRenderer.invoke('unity:watchExports', path, dirs),
   onExportsChanged: (handler) => {
     const listener = (_e: unknown, repo: string): void => handler(repo)

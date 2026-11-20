@@ -1092,6 +1092,9 @@ export interface SpoonApi {
   forgetExportRuns(path: string): Promise<void>
   findExports(path: string): Promise<ExportCandidate[]>
   scanExports(path: string, dirs: string[]): Promise<ExportLink[]>
+  /** Watches an open repository's files and git state (false stops); onRepoFilesChanged hears about changes that matter. */
+  watchRepo(path: string, on: boolean): Promise<void>
+  onRepoFilesChanged(handler: (repo: string) => void): () => void
   /** Watches the linked exports (an empty list stops); onExportsChanged hears about edits in them. */
   watchExports(path: string, dirs: string[]): Promise<string[]>
   onExportsChanged(handler: (repo: string) => void): () => void
