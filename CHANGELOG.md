@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.59.3 — 2026-11-20
+
+- **Fixed:** Right-clicking a commit with several local branches on it now lists **Delete <branch>…** for each, the checked-out one included, instead of a Delete Branch… that never asked which one.
+- **Improved:** The checked-out branch can be deleted too (from a commit's menu or the sidebar): Spoon switches to another branch on the same commit, or to the commit itself, then deletes it. Your files and uncommitted changes stay as they are.
+
 ## 0.59.2 — 2026-11-20
 
 - **New:** **Make copies…** in the Exports section turns linked files in the exports (Spoon's links, or those Unity's Symlink Sources makes) back into plain copies. For when Xcode or Android Studio shows linked files but won't open them. Nothing is lost: the copies match their sources, and edits in them are brought back to Assets as usual. Broken links are left as they are, named.

@@ -1225,11 +1225,13 @@ export function RepoView({ path, command, onOpenRepo, onOpenSettings }: Props) {
           branch={deleting}
           repo={repo}
           onClose={() => setDeleting(null)}
-          onDelete={(remote) => {
+          onDelete={(remote, switchTo) => {
             const name = deleting.name
             run(
               `Deleting ${name}…`,
               async () => {
+                // The checked-out branch: switch away first (same commit, so nothing in the files changes).
+                if (switchTo) await window.spoon.checkout(path, switchTo)
                 const res = await window.spoon.deleteBranches(path, [name], false)
                 if (res.unmerged.length) {
                   const force = await confirm({

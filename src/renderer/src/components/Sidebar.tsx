@@ -139,7 +139,7 @@ export const Sidebar = memo(function Sidebar(props: Props) {
       { id: 'copy', label: 'Copy Name' },
       ...ticketKeys(ref.name, jiraConfig(settings)).map((k) => ({ id: `jira:${k}`, label: `Open ${k} in Jira`, icon: 'jira' as const })),
       ...(pull ? [{ id: 'open-pr', label: `Open Pull Request #${pull.number}${pull.draft ? ' (Draft)' : ''}`, icon: 'github' as const }] : []),
-      ...(ref.kind === 'head' ? [{ separator: true }, { id: 'delete', label: `Delete ${ref.name}…`, enabled: !isCurrent }] : [])
+      ...(ref.kind === 'head' ? [{ separator: true }, { id: 'delete', label: `Delete ${ref.name}…` }] : [])
     ])
     const jira = jiraConfig(settings)
     if (choice?.startsWith('jira:') && jira) window.spoon.openExternal(jiraUrl(jira, choice.slice(5)))

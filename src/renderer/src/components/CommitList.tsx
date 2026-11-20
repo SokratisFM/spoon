@@ -213,9 +213,9 @@ export const CommitList = memo(function CommitList({
   // A local branch's upstream ("origin/feature/x"), for finding its pull request.
   const upstreamOf = (name: string): string | undefined => repo.refs.find((r) => r.kind === 'head' && r.name === name)?.upstream
 
-  // The local branches on a commit (other than the checked-out one); if several, ask which.
+  // The local branches on a commit (the checked-out one too); if several, ask which.
   const pickLocalBranch = async (hash: string, verb: string): Promise<Ref | null> => {
-    const locals = repo.refs.filter((r) => r.kind === 'head' && r.target === hash && r.name !== repo.headBranch)
+    const locals = repo.refs.filter((r) => r.kind === 'head' && r.target === hash)
     if (locals.length <= 1) return locals[0] ?? null
     const choice = await contextMenu(locals.map((r) => ({ id: r.fullName, label: `${verb} ${r.name}…` })))
     return locals.find((r) => r.fullName === choice) ?? null
@@ -406,9 +406,17 @@ export const CommitList = memo(function CommitList({
                 : []
             })()
           : []),
-        ...(repo.refs.some((r) => r.kind === 'head' && r.target === c.hash && r.name !== repo.headBranch)
-          ? [{ separator: true }, { id: 'delete-branch', label: 'Delete Branch…' }]
-          : []),
+        // One row per local branch on this commit, the checked-out one too (its dialog offers to switch
+        // away first): a second menu to pick from would be closed by the click that opened it.
+        ...(() => {
+          const locals = repo.refs.filter((r) => r.kind === 'head' && r.target === c.hash)
+          return locals.length
+            ? [
+                { separator: true },
+                ...locals.slice(0, 6).map((r) => ({ id: `delete:${r.fullName}`, label: locals.length === 1 ? 'Delete Branch…' : `Delete ${r.name}…` }))
+              ]
+            : []
+        })(),
         { separator: true },
         { id: 'tag', label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+G' },
         { separator: true },
@@ -474,8 +482,8 @@ export const CommitList = memo(function CommitList({
       if (choice.startsWith('irebase:')) return ops.rebase(choice.slice(8), true)
       if (choice.startsWith('copy:')) return void navigator.clipboard.writeText(choice.slice(5))
       if (choice.startsWith('jira:') && jira) return void window.spoon.openExternal(jiraUrl(jira, choice.slice(5)))
-      if (choice === 'delete-branch') {
-        const ref = await pickLocalBranch(c.hash, 'Delete')
+      if (choice.startsWith('delete:')) {
+        const ref = repo.refs.find((r) => r.fullName === choice.slice(7))
         if (ref) onDeleteBranch(ref)
         return
       }

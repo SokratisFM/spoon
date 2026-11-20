@@ -9771,3 +9771,14 @@ kbd.setting-key {
   resize: vertical;
   outline: none;
 }
+
+/* Delete branch: switching away from the checked-out one */
+.delete-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.6rem;
+}
+.delete-switch .hint {
+  margin: 0 0 0.2rem;
+}
