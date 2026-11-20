@@ -171,6 +171,7 @@ const api: SpoonApi = {
   },
   exportBringBack: (path, items) => ipcRenderer.invoke('unity:bringBack', path, items),
   exportRelink: (path, items, force) => ipcRenderer.invoke('unity:relink', path, items, force),
+  exportUnlink: (path, exps) => ipcRenderer.invoke('unity:unlink', path, exps),
   exportNewFiles: (path, dirs) => ipcRenderer.invoke('unity:newFiles', path, dirs),
   exportAdd: (path, exp, folder) => ipcRenderer.invoke('unity:add', path, exp, folder),
   jiraIssue: (site, key) => ipcRenderer.invoke('atlassian:jiraIssue', site, key),

@@ -6,12 +6,12 @@
 // source (what Unity's "Symlink Sources" build setting does at export time).
 import { existsSync, readFileSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { constants as fsConstants } from 'node:fs'
-import { access, chmod, copyFile, lstat, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { access, chmod, copyFile, lstat, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { createHash, randomBytes } from 'node:crypto'
 import { app, shell } from 'electron'
 import * as git from './git'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { ExportCandidate, ExportFolder, ExportLink, ExportNew, ExportPlatform } from '../shared/types'
+import type { DiscardEntry, ExportCandidate, ExportFolder, ExportLink, ExportNew, ExportPlatform } from '../shared/types'
 
 // Only code is paired. Manifests, Gradle files, properties and resources are rewritten while Unity
 // exports (its own steps and plug-ins' build scripts fill in app ids, package lists…), so their
@@ -704,6 +704,83 @@ export async function relink(root: string, items: { exp: string; src: string }[]
     }
   }
   if (skipped.length) throw new Error(`Linked ${ready.length} of ${ready.length + skipped.length}. Skipped ${skipped.join('; ')}.`)
+}
+
+/**
+ * Before a discard in `root`: the export copies (not links) that hold exactly what their source holds
+ * now, i.e. the edits being discarded. Once the discard is done, followDiscard gives them the source's
+ * restored contents, so those edits don't stay in the export (to be built, or brought back later).
+ */
+export async function copiesToFollow(root: string, entries: DiscardEntry[]): Promise<{ e: string; s: string; was: Buffer }[]> {
+  const out: { e: string; s: string; was: Buffer }[] = []
+  for (const entry of entries) {
+    if (!entry.exports?.length) continue
+    const s = inside(root, entry.path)
+    const now = await readFile(s).catch(() => null)
+    if (!now) continue
+    for (const { unity, exp } of entry.exports) {
+      try {
+        git.assertRepoRoot(unity)
+        const e = inside(unity, exp)
+        await exportOf(unity, exp)
+        if (!watched(e) || (await lstat(e)).isSymbolicLink()) continue // a link already shows the source
+        if ((await readFile(e)).equals(now)) out.push({ e, s, was: now })
+      } catch {
+        // not an export file (any more): left alone
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * After a discard: the copies copiesToFollow found take their source's restored contents (written in
+ * place). Each is checked again first: one changed meanwhile (a new export, an edit) is left alone.
+ */
+export async function followDiscard(copies: { e: string; s: string; was: Buffer }[]): Promise<void> {
+  for (const { e, s, was } of copies) {
+    const data = await readFile(s).catch(() => null)
+    const st = await lstat(e).catch(() => null)
+    if (!data || !st?.isFile() || !(await readFile(e)).equals(was)) continue
+    await writeFile(e, data)
+  }
+}
+
+/**
+ * Turns links in exports back into plain copies of the files they lead to (Spoon's links and those of
+ * Unity's Symlink Sources alike): for when Xcode or Android Studio won't open linked files. Each copy
+ * gets the link's own save time (when Unity's export or Spoon made it), not its source's: the source's
+ * (a checkout's, say) would throw off when Spoon thinks the export run ended. A broken link is skipped.
+ */
+export async function unlinkExports(root: string, exps: string[]): Promise<{ copied: number; skipped: string[] }> {
+  let copied = 0
+  const skipped: string[] = []
+  for (const exp of exps) {
+    const e = inside(root, exp)
+    await exportOf(root, exp) // only inside an exported project
+    if (!watched(e)) throw new Error(`${basename(exp)} isn’t a native or dependency file.`)
+    const link = await lstat(e).catch(() => null)
+    if (!link?.isSymbolicLink()) continue // a copy already
+    const target = await realpath(e).catch(() => null)
+    const info = target ? await stat(target).catch(() => null) : null
+    if (!target || !info?.isFile()) {
+      skipped.push(basename(exp))
+      continue
+    }
+    // Copied next to the link and renamed over it: if anything fails, the link is still there.
+    const tmp = join(dirname(e), `.${basename(e)}.spoon-copy-${randomBytes(4).toString('hex')}`)
+    try {
+      await copyFile(target, tmp)
+      await chmod(tmp, info.mode & 0o7777)
+      await utimes(tmp, link.atime, link.mtime)
+      await rename(tmp, e)
+      copied++
+    } catch (err) {
+      await rm(tmp, { force: true })
+      throw err
+    }
+  }
+  return { copied, skipped }
 }
 
 // ---------- files made in Android Studio or Xcode ----------

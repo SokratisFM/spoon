@@ -335,6 +335,7 @@ function registerIpc(): void {
   handleRepo('unity:bringBack', (_e, path: string, items: unityExports.BringBackItem[]) => unityExports.bringBack(path, items))
   handleRepo('unity:newFiles', (_e, path: string, dirs: string[]) => unityExports.newExportFiles(path, dirs))
   handleRepo('unity:add', (_e, path: string, exp: string, folder: string) => unityExports.addToSource(path, exp, folder))
+  handleRepo('unity:unlink', (_e, path: string, exps: string[]) => unityExports.unlinkExports(path, Array.isArray(exps) ? exps.map(String) : []))
   handleRepo('unity:relink', (_e, path: string, items: { exp: string; src: string }[], force: boolean) =>
     unityExports.relink(path, items, force)
   )
@@ -375,7 +376,11 @@ function registerIpc(): void {
   ipcMain.handle('repo:stage', (_e, path: string, files: string[]) => git.stage(path, files))
   ipcMain.handle('repo:unstage', (_e, path: string, files: string[]) => git.unstage(path, files))
   ipcMain.handle('repo:discard', (_e, path: string, files: DiscardEntry[]) =>
-    git.discard(path, files, (p) => shell.trashItem(p))
+    // Export copies holding the edits being discarded follow the source back (under the same lock).
+    git.discard(path, files, (p) => shell.trashItem(p), {
+      before: () => unityExports.copiesToFollow(path, files),
+      after: (follow) => unityExports.followDiscard(follow as Awaited<ReturnType<typeof unityExports.copiesToFollow>>)
+    })
   )
   ipcMain.handle('repo:stageAll', (_e, path: string) => git.stageAll(path))
   ipcMain.handle('repo:unstageAll', (_e, path: string) => git.unstageAll(path))

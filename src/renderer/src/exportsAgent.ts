@@ -385,6 +385,22 @@ export async function relink(path: string, list: ExportLink[], force: boolean): 
   void scan(path)
 }
 
+/** Turns linked export files back into plain copies (Xcode or Android Studio not opening linked files). */
+export async function unlink(path: string, list: ExportLink[]): Promise<void> {
+  let skipped: string[] = []
+  await run(
+    path,
+    list.length === 1 ? `Copying ${fileName(list[0].export)}…` : `Turning ${list.length} links into copies…`,
+    async () => {
+      skipped = (await window.spoon.exportUnlink(path, list.map((l) => l.export))).skipped
+      if (skipped.length) throw new Error(`Broken ${skipped.length === 1 ? 'link' : 'links'} left as ${skipped.length === 1 ? 'it is' : 'they are'} (nothing to copy): ${skipped.join(', ')}. Export from Unity again.`)
+    },
+    'Turning links into copies failed',
+    []
+  )
+  void scan(path)
+}
+
 /** Adds a new export file to a folder; resolves to whether it worked, and whether a .meta was made. */
 export async function addNew(path: string, n: ExportNew, folder: string, auto = false): Promise<{ ok: boolean; meta: boolean }> {
   const result = { meta: true }

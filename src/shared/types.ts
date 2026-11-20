@@ -437,6 +437,8 @@ export interface DiscardEntry {
   oldPath?: string
   status: FileStatus
   staged: boolean
+  /** Export files that use this one as their source (a Unity repository and the file in its export). */
+  exports?: { unity: string; exp: string }[]
 }
 
 export interface FileChange {
@@ -1101,6 +1103,8 @@ export interface SpoonApi {
   /** Replaces the export's copy with a link to the source; one that differs only with `force`. */
   /** Replaces exports' copies with links to their sources (checked as pairs together). */
   exportRelink(path: string, items: { exp: string; src: string }[], force?: boolean): Promise<void>
+  /** Links in exports back into plain copies; broken links are skipped (named). */
+  exportUnlink(path: string, exps: string[]): Promise<{ copied: number; skipped: string[] }>
   /** Native files made in the exports that have no source yet. */
   exportNewFiles(path: string, dirs: string[]): Promise<ExportNew[]>
   /** Adds a new export file to a source folder (with a .meta), linking the export to it. */

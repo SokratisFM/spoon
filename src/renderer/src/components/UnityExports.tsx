@@ -19,6 +19,7 @@ import {
   heldBack,
   markHandled,
   relink as relinkNow,
+  unlink as unlinkNow,
   setAuto,
   setDirs,
   skipNew,
@@ -263,6 +264,27 @@ export function UnityExports({ repo, section, query, onOpenRepo }: Props): React
                 Relink {linkable.length}…
               </button>
             )}{' '}
+            {linkedCount > 0 && (
+              <>
+                <button
+                  className="link-btn"
+                  title="Replace the links with plain copies of their files (when Xcode or Android Studio won't open linked files)"
+                  onClick={async () => {
+                    const linked = (links ?? []).filter((l) => l.state === 'linked')
+                    const ok = await confirm({
+                      message: `Turn ${linked.length} ${linked.length === 1 ? 'link' : 'links'} back into ${linked.length === 1 ? 'a copy' : 'copies'}?`,
+                      detail:
+                        'Each linked file in the exports becomes a plain copy of the file it leads to, so Xcode and Android Studio open it like any other file. Nothing is lost: the copies match the sources, and edits made in them are brought back to Assets as usual. If Symlink Sources is on in Unity’s build settings, the next export makes links again.',
+                      confirmLabel: 'Make Copies',
+                      enterConfirms: true
+                    })
+                    if (ok) unlinkNow(path, linked)
+                  }}
+                >
+                  Make copies…
+                </button>{' '}
+              </>
+            )}
             <button className="link-btn" onClick={() => setLinking(true)}>
               Change exports…
             </button>

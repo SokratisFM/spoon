@@ -4,6 +4,12 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.59.2 — 2026-11-20
+
+- **New:** **Make copies…** in the Exports section turns linked files in the exports (Spoon's links, or those Unity's Symlink Sources makes) back into plain copies. For when Xcode or Android Studio shows linked files but won't open them. Nothing is lost: the copies match their sources, and edits in them are brought back to Assets as usual. Broken links are left as they are, named.
+- **Fixed:** Discarding changes to a file an export uses could see them come back: Xcode (or Android Studio), with the file open through a link, kept the old version and saved it again with your next edit. Discard now writes the restored contents into the same file, so the editor sees the change and reloads.
+- **Fixed:** Discarding a source whose export copy held the same edits left them in the copy, still built and ready to be brought back. Now the copy goes back with its source; a copy with edits of its own is left alone.
+
 ## 0.59.1 — 2026-11-19
 
 - **Fixed:** Discard on a submodule whose commit changed (Assets/MainLib, say) did nothing. Now it moves the submodule back to the commit this repository records, unstaging a staged one first; its branches stay. If commits inside would end up on no branch, or it has uncommitted changes, the submodule update dialog explains what happens and offers a backup branch first. A submodule with only changes inside it says to open it to discard them.

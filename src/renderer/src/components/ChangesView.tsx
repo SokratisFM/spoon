@@ -6,7 +6,7 @@ import type { Ops } from './RepoView'
 import { Split } from './Split'
 import { FILES_DRAG, FILES_ORIGIN, FileList } from './FileList'
 import { requestCompare } from '../compare'
-import { useExportMarks } from '../exportMarks'
+import { exportUses, useExportMarks } from '../exportMarks'
 import { openFileEditor, OPEN_SELECTED_FILE } from './FileEditor'
 import { requestFileHistory, SELECTED_FILE_HISTORY } from './FileHistoryDialog'
 import { DragIcon, ListViewIcon, TreeViewIcon } from './Icons'
@@ -185,7 +185,14 @@ export function ChangesView({
     if (usable.length)
       await ops.run(
         'Discarding…',
-        () => window.spoon.discard(path, usable.map((f) => ({ path: f.path, oldPath: f.oldPath, status: f.status, staged: area === 'staged' }))),
+        () =>
+          window.spoon.discard(
+            path,
+            usable.map((f) => {
+              const uses = exportUses(path, f.path)
+              return { path: f.path, oldPath: f.oldPath, status: f.status, staged: area === 'staged', ...(uses.length ? { exports: uses } : {}) }
+            })
+          ),
         'Discard failed'
       )
     for (const s of subs) await discardSubmodule(s, area)

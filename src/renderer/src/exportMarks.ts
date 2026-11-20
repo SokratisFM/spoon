@@ -24,6 +24,12 @@ export function setExportSources(unityRepo: string, sources: Record<string, stri
   listeners.forEach((l) => l())
 }
 
+/** The export files that use `rel` (in `repo`) as their source, in every Unity repository Spoon knows. */
+export function exportUses(repo: string, rel: string): { unity: string; exp: string }[] {
+  const abs = `${repo.replace(/\/$/, '')}/${rel}`
+  return Object.entries(all).flatMap(([unity, sources]) => (sources[abs] ? [{ unity, exp: sources[abs] }] : []))
+}
+
 /** The files in `repo` that exports use, by path relative to it, with a tooltip. */
 export function useExportMarks(repo: string): Map<string, string> {
   const current = useSyncExternalStore(

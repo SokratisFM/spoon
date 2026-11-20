@@ -1110,10 +1110,20 @@ export async function stage(cwd: string, paths: string[]): Promise<void> {
 export async function discard(
   cwd: string,
   files: DiscardEntry[],
-  trash: (absolutePath: string) => Promise<void>
+  trash: (absolutePath: string) => Promise<void>,
+  /** Run under the repository's lock, before and after: export copies that follow the discard. */
+  around?: { before: () => Promise<unknown>; after: (prepared: unknown) => Promise<void> }
 ): Promise<void> {
   if (!files.length) return
   await exclusive(cwd, async () => {
+    const prepared = await around?.before().catch(() => null)
+    await discardNow(cwd, files, trash)
+    if (prepared) await around!.after(prepared)
+  })
+}
+
+async function discardNow(cwd: string, files: DiscardEntry[], trash: (absolutePath: string) => Promise<void>): Promise<void> {
+  await (async () => {
     const root = resolve(cwd)
     // Paths come from the renderer: only ones inside the work tree (and outside .git) are touched.
     const inside = (p: string): string => {
@@ -1189,9 +1199,52 @@ export async function discard(
     for (const p of new Set([...fromIndex, ...fromHead, ...conflicts])) await keep(p, false)
     for (const p of new Set(remove)) await keep(p, true)
 
-    // 2. Discard.
-    if (fromIndex.length) await withPaths(cwd, ['restore', '--worktree'], fromIndex)
-    if (whole.length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged', '--worktree'], whole)
+    // 2. Discard. A file an export uses (linked, so Xcode or Android Studio may have it open) gets
+    // its restored contents written into it rather than being replaced by a new file: an editor
+    // watching it then sees the change and reloads, instead of later saving the old version back.
+    // git restore would still replace it (it goes by save time, not contents), so those files are
+    // left out of it: the index is refreshed for them, and git restores only what still differs (a
+    // changed executable bit, say).
+    const usedByExports = new Set(files.filter((f) => f.exports?.length).map((f) => f.path))
+    const rewriteInPlace = async (p: string, rev: string): Promise<boolean> => {
+      const abs = inside(p)
+      if (!(await lstat(abs).catch(() => null))?.isFile()) return false
+      const out = await exec(cwd, ['cat-file', '--filters', rev], { encoding: 'latin1', maxBytes: 256 * 1024 * 1024 }).catch(() => null)
+      if (!out || out.truncated) return false
+      await writeFile(abs, Buffer.from(out.out, 'latin1'))
+      return true
+    }
+    const inPlace: string[] = []
+    for (const p of whole) if (usedByExports.has(p) && (await rewriteInPlace(p, `HEAD:${p}`))) inPlace.push(p)
+    // Staged ones: their index entry goes back to HEAD first, so the working copy is measured against that.
+    const wholeInPlace = whole.filter((p) => inPlace.includes(p))
+    if (wholeInPlace.length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged'], wholeInPlace)
+    for (const p of fromIndex) if (usedByExports.has(p) && (await rewriteInPlace(p, `:${p}`))) inPlace.push(p)
+    let still = new Set<string>()
+    if (inPlace.length) {
+      await git(cwd, ['update-index', '-q', '--refresh'], [0, 1]).catch(() => undefined) // what git status does too
+      still = new Set((await git(cwd, ['diff', '--name-only', '-z', '--', ...inPlace])).split('\0').filter(Boolean))
+      // Same contents, but git may still call them modified when the size it recorded differs from the
+      // file's (an eol=crlf rule added after the file was): recording their stat clears that. Only if
+      // the index entry stays exactly as it was; otherwise git restores the file after all.
+      const same = inPlace.filter((p) => !still.has(p))
+      if (same.length) {
+        const entries = async (): Promise<string> => git(cwd, ['ls-files', '-s', '-z', '--', ...same])
+        const before = await entries()
+        await git(cwd, ['update-index', '--', ...same]).catch(() => undefined)
+        if ((await entries()) !== before) {
+          // Shouldn't happen (their contents are what the index has): put the entries back, let git restore.
+          for (const line of before.split('\0').filter(Boolean)) {
+            const m = /^(\d+) ([0-9a-f]+) \d+\t(.*)$/.exec(line)
+            if (m) await git(cwd, ['update-index', '--cacheinfo', `${m[1]},${m[2]},${m[3]}`]).catch(() => undefined)
+          }
+          for (const p of same) still.add(p)
+        }
+      }
+    }
+    const viaGit = (list: string[]): string[] => list.filter((p) => !inPlace.includes(p) || still.has(p))
+    if (viaGit(fromIndex).length) await withPaths(cwd, ['restore', '--worktree'], viaGit(fromIndex))
+    if (viaGit(whole).length) await withPaths(cwd, ['restore', '--source=HEAD', '--staged', '--worktree'], viaGit(whole))
     for (const p of partial) {
       const staged = await run(cwd, ['diff', '--cached', '--binary', '--no-ext-diff', '--no-textconv', '--', p], { encoding: 'latin1' })
       const reversed = await run(cwd, ['apply', '-R', '--whitespace=nowarn', '-'], { input: Buffer.from(staged, 'latin1') }).then(
@@ -1222,7 +1275,7 @@ export async function discard(
       throw new Error(`The changes were discarded, but their copies couldn’t be moved to the Trash. They’re in ${box}`)
     }
     await rmdir(join(gitDir, 'spoon-discard')).catch(() => undefined) // only removed when left empty
-  })
+  })()
 }
 
 export async function unstage(cwd: string, paths: string[]): Promise<void> {
