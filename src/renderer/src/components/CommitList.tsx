@@ -257,7 +257,9 @@ export const CommitList = memo(function CommitList({
     virtualizer.scrollToIndex(next)
   }
 
-  const gridTemplate = 'minmax(0, 1fr) 11.5rem 8.5rem 6.2rem'
+  // The Commit column fits the hash's shown length (9 characters: 6.2rem).
+  const hashLength = Math.min(40, Math.max(4, Math.round(settings.hashLength) || 9))
+  const gridTemplate = `minmax(0, 1fr) 11.5rem 8.5rem ${Math.max(5, hashLength * 0.6 + 0.8).toFixed(2)}rem`
 
   // Double-click checks out, like Fork: the commit's local branch (pick one if several), else its
   // remote branch as a local tracking branch, else the commit itself (detached, after confirming).
@@ -546,6 +548,7 @@ export const CommitList = memo(function CommitList({
                 headStyle={settings.headHighlight}
                 showRemoteName={settings.showRemoteName}
                 laneColors={settings.laneColoredBranches}
+                hashLength={hashLength}
                 reservedColorOf={reservedColorOf}
                 jira={jira}
                 onTagsClick={openTags}
@@ -657,6 +660,8 @@ function TagPopover({
 
 interface RowProps {
   commit: Commit
+  /** Characters of the hash the Commit column shows and copies. */
+  hashLength: number
   row: GraphRow | null
   /** Lane spotlight: the lit column (-1 when nothing is lit), whether this row is within its span, and whether this commit is on it. */
   spotCol: number
@@ -830,7 +835,7 @@ const CommitRow = memo(function CommitRow(p: RowProps) {
         <span className="ellipsis">{c.authorName}</span>
       </span>
       <span className="cell date">{shortDate(c.authorTime)}</span>
-      <HashCell hash={c.hash} />
+      <HashCell hash={c.hash} length={p.hashLength} />
       {p.row &&
         beads.map((bead) => {
           // On the graph line from this commit towards that parent, where the hidden ones were: the
@@ -1023,8 +1028,8 @@ function GraphCell({
   )
 }
 
-/** The commit column: 9 characters of the hash; click copies the whole hash. */
-function HashCell({ hash }: { hash: string }) {
+/** The commit column: the hash as long as Settings says (9 by default); a click copies just that. */
+function HashCell({ hash, length }: { hash: string; length: number }) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -1034,13 +1039,13 @@ function HashCell({ hash }: { hash: string }) {
   return (
     <span
       className={`cell hash mono copyable ${copied ? 'copied' : ''}`}
-      title="Click to copy the full hash"
+      title={length >= hash.length ? 'Click to copy the hash' : `Click to copy ${hash.slice(0, length)} (Copy Commit Hash in the right-click menu copies all of it)`}
       onClick={() => {
-        navigator.clipboard.writeText(hash)
+        navigator.clipboard.writeText(hash.slice(0, length))
         setCopied(true)
       }}
     >
-      {copied ? 'Copied' : hash.slice(0, 9)}
+      {copied ? 'Copied' : hash.slice(0, length)}
     </span>
   )
 }

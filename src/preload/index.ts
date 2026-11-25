@@ -66,6 +66,7 @@ const api: SpoonApi = {
   compareCandidates: (path, file) => ipcRenderer.invoke('repo:compareCandidates', path, file),
   projectFiles: (path) => ipcRenderer.invoke('repo:projectFiles', path),
   compareRepos: (a, b) => ipcRenderer.invoke('compare:repos', a, b),
+  compareFileInfo: (path) => ipcRenderer.invoke('compare:fileInfo', path),
   applyCompare: (from, to) => ipcRenderer.invoke('compare:apply', from, to),
   jenkinsAccount: () => ipcRenderer.invoke('jenkins:account'),
   jenkinsConnect: (server, user, token) => ipcRenderer.invoke('jenkins:connect', server, user, token),

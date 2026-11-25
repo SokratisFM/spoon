@@ -127,6 +127,8 @@ export interface Settings {
   showRemoteName: boolean
   /** Branch labels in their graph line's color (like Fork) instead of the accent color. */
   laneColoredBranches: boolean
+  /** The Commit column: how many characters of the hash it shows, and copies when clicked (40: all). */
+  hashLength: number
   /** Fetch/Pull/Push play a little scene (dog, rope, big button) while they run. */
   playfulNet: boolean
   /** Light up one branch's line in the graph: the selected commit's, the hovered label's, or none. */
@@ -212,6 +214,7 @@ const DEFAULTS: Settings = {
   squishStyle: 'fold',
   showRemoteName: false,
   laneColoredBranches: true,
+  hashLength: 9,
   playfulNet: false,
   laneSpotlight: 'selected',
   spotlightFadeCommits: false,

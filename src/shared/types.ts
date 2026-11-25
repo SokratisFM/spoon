@@ -501,6 +501,21 @@ export interface FileHistory {
 }
 
 /** A file in a branch comparison, with its lines added and removed (null for a binary file). */
+/** One side of a Compare tab, for its header. */
+export interface CompareFileInfo {
+  /** The repository the file is in (its top folder), or null. */
+  repo: string | null
+  branch: string | null
+  /** The file's path in the repository. */
+  rel: string | null
+  /** The commit that last changed it there (date in seconds). */
+  last: { hash: string; subject: string; author: string; date: number } | null
+  /** Whether git has it as it is: clean, with uncommitted changes, untracked or ignored. */
+  state: 'clean' | 'modified' | 'untracked' | 'ignored' | null
+  /** When it was last saved (ms), or null when it can't be found. */
+  mtime: number | null
+}
+
 export interface CompareFile extends FileChange {
   added: number | null
   removed: number | null
@@ -967,6 +982,7 @@ export interface SpoonApi {
   /** Jenkins: the account, a game code's jobs, a job's parameters, starting and following builds. */
   /** Compare tabs: which repository each side is in, and replacing the repository's file with the other side. */
   compareRepos(a: string, b: string): Promise<[string | null, string | null]>
+  compareFileInfo(path: string): Promise<CompareFileInfo>
   applyCompare(from: string, to: string): Promise<void>
   jenkinsAccount(): Promise<JenkinsAccount | null>
   jenkinsConnect(server: string, user: string, token: string): Promise<JenkinsAccount>

@@ -242,6 +242,8 @@ interface Props {
   /** Changes whenever the underlying files may have changed, forcing a reload. */
   nonce?: unknown
   hunkAction?: HunkAction
+  /** Shown in the header instead of the file's path (Compare's own buttons; its paths are above). */
+  headerLead?: ReactNode
 }
 
 // Syntax tokens per parsed diff and language (filled in as coloring goes), so showing a diff again
@@ -485,7 +487,7 @@ export function useLineLooks(parsed: Parsed | null, filePath: string) {
 // Parsed lines of cached diffs, so showing a commit's file again doesn't parse it again.
 const parsedDiffs = new WeakMap<DiffResult, ReturnType<typeof parseDiff>>()
 
-export function DiffView({ path, target, nonce, hunkAction }: Props) {
+export function DiffView({ path, target, nonce, hunkAction, headerLead }: Props) {
   const settings = useSettings()
   const lineH = codeLineHeight(settings)
   const key = target ? JSON.stringify(target) : ''
@@ -696,6 +698,9 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
   const file = target.file
   const header = (
     <div className="diff-header">
+      {headerLead ? (
+        <span className="diff-path diff-lead">{headerLead}</span>
+      ) : (
       <span className="diff-path" title={target.kind === 'text' ? undefined : file.path}>
         {target.kind === 'text' ? (
           <>
@@ -708,6 +713,7 @@ export function DiffView({ path, target, nonce, hunkAction }: Props) {
           </>
         )}
       </span>
+      )}
       {parsed && (
         <span className="diff-stats">
           <span className="plus">+{parsed.added}</span>

@@ -4,6 +4,11 @@ Each version starts with `## <version> — <date>`. Each line starts with **New:
 **Fixed:**, which Spoon shows as a tag; the rest is Markdown. Spoon shows these notes in its
 What's New popup, and `npm run release` uses a version's section as its release notes.
 
+## 0.59.6 — 2026-11-24
+
+- **Improved:** Compare shows a header over each side: which file is in a repository (its branch, folder and the commit that last changed it, and whether it has uncommitted changes) and when the other was saved. Apply's arrow points at the file it replaces, and each side has its own **Change…**.
+- **Improved:** Clicking a hash in the Commit column copies just what it shows (9 characters), not the whole hash. **Settings → Commit hash length** sets how many it shows and copies; Copy Commit Hash in the right-click menu still copies all of it.
+
 ## 0.59.5 — 2026-11-20
 
 - **New:** Tags can be deleted: right-click a commit (next to Delete Branch) or a tag in the sidebar, and choose **Delete Tag…**. Tick a remote to delete it there too.

@@ -462,6 +462,18 @@ function AppearanceTab() {
         </span>
       </div>
       <div className="field">
+        <span className="field-label">Commit hash length</span>
+        <select value={s.hashLength} onChange={(e) => updateSettings({ hashLength: Number(e.target.value) })}>
+          {[7, 8, 9, 10, 12, 16].map((n) => (
+            <option key={n} value={n}>
+              {n} characters
+            </option>
+          ))}
+          <option value={40}>Full hash (40)</option>
+        </select>
+        <span className="hint">What the Commit column shows, and what clicking a hash there copies. Copy Commit Hash in a commit’s right-click menu always copies all of it.</span>
+      </div>
+      <div className="field">
         <span className="field-label">
           Branch spotlight
           <PreviewEye label={'Branch spotlight'} make={() => choicePreviews<LaneSpotlight>('Branch spotlight', s.laneSpotlight, [

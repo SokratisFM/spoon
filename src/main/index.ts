@@ -448,6 +448,7 @@ function registerIpc(): void {
   handleRepo('repo:compareCandidates', (_e, path: string, file: string) => git.compareCandidates(path, String(file)))
   handleRepo('repo:projectFiles', (_e, path: string) => git.projectFiles(path))
   ipcMain.handle('compare:repos', (_e, a: string, b: string) => git.compareRepos(String(a), String(b)))
+  ipcMain.handle('compare:fileInfo', (_e, path: string) => git.compareFileInfo(String(path)))
   ipcMain.handle('compare:apply', (_e, from: string, to: string) => git.applyCompare(String(from), String(to), (p) => shell.trashItem(p)))
   ipcMain.handle('jenkins:account', () => jenkins.account())
   ipcMain.handle('jenkins:connect', (_e, server: string, user: string, token: string) => jenkins.connect(String(server), String(user), String(token)))

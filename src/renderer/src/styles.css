@@ -9782,3 +9782,82 @@ kbd.setting-key {
 .delete-switch .hint {
   margin: 0 0 0.2rem;
 }
+
+/* Compare: a card over each side saying where its file is and when it last changed. */
+.compare-cards {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.compare-card {
+  min-width: 0;
+  padding: 0.55rem 1rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.compare-card + .compare-card {
+  border-left: 1px solid var(--border);
+}
+.compare-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.compare-card-title .link-btn {
+  margin-left: auto;
+  flex: none;
+  font-size: 0.92em;
+}
+.compare-card-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compare-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.05rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.88em;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.compare-pill.from-repo {
+  color: var(--accent-fg);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.compare-pill svg {
+  width: 0.95em;
+  height: 0.95em;
+  flex: none;
+}
+.compare-card-path,
+.compare-card-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88em;
+  color: var(--text-muted);
+}
+.compare-card-path {
+  font-size: 0.82em;
+}
+.compare-state {
+  color: var(--warn);
+}
+.diff-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

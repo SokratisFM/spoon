@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type {
   FileHistory,
+  CompareFileInfo,
   CloneBranch,
   CloneResult,
   FileContent,
@@ -3162,6 +3163,34 @@ export async function compareRepos(a: string, b: string): Promise<[string | null
     return top || null
   }
   return Promise.all([repoOf(a), repoOf(b)])
+}
+
+/**
+ * What Compare's header says about one side: the repository it's in (if any), its branch, the commit
+ * that last changed the file there, and whether it has changes git doesn't have yet.
+ */
+export async function compareFileInfo(file: string): Promise<CompareFileInfo> {
+  const st = await stat(file).catch(() => null)
+  const info: CompareFileInfo = { repo: null, branch: null, rel: null, last: null, state: null, mtime: st ? st.mtimeMs : null }
+  const [repo] = await compareRepos(file, file)
+  if (!repo || !st) return info
+  const top = await realpath(repo).catch(() => repo)
+  const abs = join(await realpath(dirname(file)).catch(() => dirname(file)), basename(file))
+  const rel = relative(top, abs).split(sep).join('/')
+  if (!insideRel(rel)) return info
+  info.repo = top
+  info.rel = rel
+  const [branch, log, status] = await Promise.all([
+    git(top, ['symbolic-ref', '--short', '-q', 'HEAD'], [0, 1]).catch(() => ''),
+    git(top, ['log', '-1', `--format=%H${FS}%s${FS}%an${FS}%ct`, '--', rel]).catch(() => ''),
+    git(top, ['status', '--porcelain=v1', '--ignored', '-z', '--', rel]).catch(() => null)
+  ])
+  info.branch = branch.trim() || null
+  const [hash, subject, author, date] = log.trim().split(FS)
+  if (hash) info.last = { hash, subject, author, date: Number(date) }
+  const xy = status?.slice(0, 2)
+  info.state = status === null ? null : !xy ? 'clean' : xy === '??' ? 'untracked' : xy === '!!' ? 'ignored' : 'modified'
+  return info
 }
 
 /**
